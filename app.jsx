@@ -904,6 +904,7 @@ export default function App() {
   const [simHidden, setSimHidden] = useState([]);
   const [manNome, setManNome] = useState("");
   const [manAno, setManAno] = useState("");
+  const [matAddInput, setMatAddInput] = useState("");
   const [open, setOpen] = useState(null);
   const [flash, setFlash] = useState(null);
   const [openYear, setOpenYear] = useState(SIMULADOS[0] ? SIMULADOS[0].grupo : null);
@@ -1068,20 +1069,55 @@ export default function App() {
     } catch {}
   };
 
-  // grava a % de uma matéria de uma prova (mescla no objeto mats)
-  const setSimMat = (prova, matId, value) => {
-    const cur = simData[prova] || {};
-    toggleSim(prova, { mats: { ...(cur.mats || {}), [matId]: value } });
+  // matérias mostradas numa prova = sugeridas (menos as removidas) + avulsas dessa prova
+  const provaMats = (prova) => {
+    const v = simData[prova] || {};
+    const hidden = v.hidden || [];
+    const sugeridas = MATERIAS_SIM.filter((m) => !hidden.includes(m.id)).map((m) => ({ key: m.id, name: m.name, custom: false }));
+    const avulsas = (v.custom || []).map((c) => ({ key: c.id, name: c.name, custom: true }));
+    return [...sugeridas, ...avulsas];
   };
-
-  // % geral da prova = média das matérias preenchidas (arredondada)
-  const provaOverall = (prova) => {
-    const mats = (simData[prova] || {}).mats || {};
-    const vals = Object.values(mats)
-      .map((x) => parseFloat(String(x).replace(",", ".")))
-      .filter((n) => !isNaN(n));
-    if (!vals.length) return null;
-    return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
+  // grava acertos/questões de uma matéria: field = "a" (acertos) ou "q" (questões)
+  const setMat = (prova, key, field, value) => {
+    const cur = simData[prova] || {};
+    const mats = { ...(cur.mats || {}) };
+    const prev = mats[key] && typeof mats[key] === "object" ? mats[key] : {};
+    mats[key] = { ...prev, [field]: value };
+    toggleSim(prova, { mats });
+  };
+  const hideMat = (prova, matId) => {
+    const cur = simData[prova] || {};
+    toggleSim(prova, { hidden: [...(cur.hidden || []), matId] });
+  };
+  const addProvaMat = (prova) => {
+    const name = matAddInput.trim();
+    if (!name) return;
+    const cur = simData[prova] || {};
+    toggleSim(prova, { custom: [...(cur.custom || []), { id: "c" + Date.now(), name }] });
+    setMatAddInput("");
+  };
+  const removeCustomMat = (prova, id) => {
+    const cur = simData[prova] || {};
+    const mats = { ...(cur.mats || {}) };
+    delete mats[id];
+    toggleSim(prova, { custom: (cur.custom || []).filter((c) => c.id !== id), mats });
+  };
+  // % de uma matéria (acertos/questões)
+  const matPct = (md) => {
+    const a = parseFloat(md && md.a), q = parseFloat(md && md.q);
+    if (isNaN(q) || q <= 0) return null;
+    return Math.round((isNaN(a) ? 0 : a) / q * 100);
+  };
+  // totais da prova: soma acertos e questões de todas as matérias preenchidas
+  const provaTotals = (prova) => {
+    const v = simData[prova] || {};
+    let a = 0, q = 0;
+    provaMats(prova).forEach((m) => {
+      const md = (v.mats || {})[m.key] || {};
+      const qq = parseFloat(md.q), aa = parseFloat(md.a);
+      if (!isNaN(qq) && qq > 0) { q += qq; a += isNaN(aa) ? 0 : aa; }
+    });
+    return q > 0 ? { a, q, pct: Math.round(a / q * 100) } : null;
   };
 
   const toggleInfo = async (org, num) => {
@@ -1253,7 +1289,13 @@ export default function App() {
         .serif { font-family: 'Iowan Old Style','Georgia',serif; }
         .mono { font-family: 'SF Mono','JetBrains Mono','Consolas',monospace; font-variant-numeric: tabular-nums; }
         .wrap { max-width: 1080px; margin: 0 auto; }
-        input[type=checkbox] { accent-color: var(--gold); width: 15px; height: 15px; cursor: pointer; }
+        input[type=checkbox] { appearance: none; -webkit-appearance: none; margin: 0; width: 18px; height: 18px;
+          border-radius: 5px; border: 1.7px solid var(--line-2); background: transparent; cursor: pointer; flex-shrink: 0;
+          display: inline-grid; place-items: center; transition: background .16s ease, border-color .16s ease, box-shadow .16s ease; }
+        input[type=checkbox]:hover { border-color: var(--green); }
+        input[type=checkbox]:checked { background: var(--green); border-color: var(--green); box-shadow: 0 0 0 4px rgba(89,201,138,.22); }
+        input[type=checkbox]:checked::after { content: ""; width: 9px; height: 5px; border-left: 2.3px solid #06120b;
+          border-bottom: 2.3px solid #06120b; transform: rotate(-45deg); margin-top: -2px; }
 
         /* ---- hero ---- */
         .hero { padding: 40px 0 26px; }
@@ -1393,11 +1435,24 @@ export default function App() {
           color: var(--text); font-family: inherit; font-size: 13px; text-align: left; padding: 8px 4px; border-radius: 8px; }
         .sim-name:hover { background: var(--surface-3); }
         .sim-arrow { color: var(--faint); font-size: 10px; width: 10px; flex-shrink: 0; }
-        .sim-overall { font-size: 12px; font-weight: 700; color: var(--gold); flex-shrink: 0; }
-        .sim-mats { display: grid; grid-template-columns: 1fr 1fr; gap: 5px 18px; padding: 6px 4px 12px 24px; }
-        .sim-mat { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
-        .sim-mat > span { flex: 1; }
-        @media (max-width: 640px) { .sim-mats { grid-template-columns: 1fr; } }
+        .sim-overall { font-size: 12px; font-weight: 700; color: var(--gold); flex-shrink: 0; min-width: 34px; text-align: right; }
+        .sim-frac { font-size: 11px; color: var(--faint); flex-shrink: 0; }
+        .sim-mats { display: flex; flex-direction: column; gap: 3px; padding: 8px 4px 10px 24px; }
+        .sim-mat { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); padding: 2px 0; }
+        .sim-mat-name { flex: 1; min-width: 0; }
+        .sim-de { color: var(--faint); font-size: 11px; }
+        .qn { width: 46px; background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 7px; color: var(--text);
+          font-size: 12px; padding: 5px 4px; text-align: center; }
+        .qn:focus { outline: none; border-color: var(--green); }
+        .sim-mat-pct { width: 40px; text-align: right; font-weight: 700; color: var(--green); font-size: 11.5px; }
+        .sim-mat-del { font-size: 12px; opacity: .38; }
+        .sim-mat-add { display: flex; gap: 7px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); }
+        .sim-mat-add input { flex: 1; min-width: 0; background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 8px;
+          color: var(--text); font: inherit; font-size: 12px; padding: 7px 9px; }
+        .sim-mat-add input:focus { outline: none; border-color: var(--coral); }
+        .sim-mat-add button { width: 32px; flex-shrink: 0; border: 1px solid var(--line-2); background: var(--surface-3);
+          color: var(--text); border-radius: 8px; font-size: 16px; cursor: pointer; }
+        .sim-mat-add button:hover { border-color: var(--coral); color: var(--coral); }
 
         .curso-box { background: var(--surface-2); border: 1px solid var(--line); border-radius: 13px;
           padding: 12px 14px; max-height: 260px; overflow-y: auto; }
@@ -1798,7 +1853,7 @@ export default function App() {
                     {g.provas.map((p) => {
                       const nome = p.nome;
                       const v = simData[nome] || {};
-                      const overall = provaOverall(nome);
+                      const tot = provaTotals(nome);
                       const isOpen = openProva === nome;
                       return (
                         <div key={nome} className="sim-prova">
@@ -1807,18 +1862,33 @@ export default function App() {
                             <button className="sim-name" onClick={() => setOpenProva(isOpen ? null : nome)}>
                               <span className="sim-arrow">{isOpen ? "▾" : "▸"}</span>
                               <span style={{ flex: 1 }}>{nome}</span>
-                              <span className="sim-overall mono">{overall == null ? "—" : overall + "%"}</span>
+                              {tot && <span className="sim-frac mono">{tot.a}/{tot.q}</span>}
+                              <span className="sim-overall mono">{tot == null ? "—" : tot.pct + "%"}</span>
                             </button>
                             <button className="man-del" title="Excluir esta prova" onClick={() => deleteProva(p, g.grupo)}>🗑</button>
                           </div>
                           {isOpen && (
                             <div className="sim-mats">
-                              {MATERIAS_SIM.map((m) => (
-                                <label key={m.id} className="sim-mat">
-                                  <span>{m.name}</span>
-                                  <input className="score mono" placeholder="%" value={(v.mats && v.mats[m.id]) || ""} onChange={(e) => setSimMat(nome, m.id, e.target.value)} />
-                                </label>
-                              ))}
+                              {provaMats(nome).map((m) => {
+                                const md = (v.mats || {})[m.key] || {};
+                                const pctm = matPct(md);
+                                return (
+                                  <div key={m.key} className="sim-mat">
+                                    <span className="sim-mat-name">{m.name}</span>
+                                    <input className="qn mono" placeholder="—" inputMode="numeric" value={md.a || ""} onChange={(e) => setMat(nome, m.key, "a", e.target.value)} />
+                                    <span className="sim-de">de</span>
+                                    <input className="qn mono" placeholder="—" inputMode="numeric" value={md.q || ""} onChange={(e) => setMat(nome, m.key, "q", e.target.value)} />
+                                    <span className="sim-mat-pct mono">{pctm == null ? "" : pctm + "%"}</span>
+                                    <button className="man-del sim-mat-del" title="Remover matéria desta prova" onClick={() => (m.custom ? removeCustomMat(nome, m.key) : hideMat(nome, m.key))}>🗑</button>
+                                  </div>
+                                );
+                              })}
+                              <div className="sim-mat-add">
+                                <input placeholder="+ adicionar matéria a esta prova..." value={matAddInput}
+                                  onChange={(e) => setMatAddInput(e.target.value)}
+                                  onKeyDown={(e) => { if (e.key === "Enter") addProvaMat(nome); }} />
+                                <button onClick={() => addProvaMat(nome)}>+</button>
+                              </div>
                             </div>
                           )}
                         </div>
