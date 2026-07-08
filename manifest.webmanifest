@@ -1,6 +1,6 @@
 {
-  "name": "Matriz Magistratura TJSC",
-  "short_name": "Matriz TJSC",
+  "name": "MagisNAD",
+  "short_name": "MagisNAD",
   "description": "Painel de estudo para o concurso da Magistratura do TJSC.",
   "start_url": ".",
   "scope": ".",
