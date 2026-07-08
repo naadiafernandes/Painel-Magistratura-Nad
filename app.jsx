@@ -756,20 +756,20 @@ const CURSOS_ISOLADOS = [
     nome: "Direito do Consumidor",
     itens: [
       { h: "CÓDIGO DE DEFESA DO CONSUMIDOR EM TABELAS" },
-      { t: "CAPÍTULO I Disposições Gerais" },
-      { t: "CAPÍTULO II Da Política Nacional de Relações de Consumo" },
-      { t: "CAPÍTULO III Dos Direitos Básicos do Consumidor" },
-      { t: "CAPÍTULO IV Da Qualidade de Produtos e Serviços, da Prevenção e da Reparação dos Danos" },
-      { t: "CAPÍTULO V Das Práticas Comerciais" },
-      { t: "CAPÍTULO VI Da Proteção Contratual" },
-      { t: "CAPÍTULO VI-A — DA PREVENÇÃO E DO TRATAMENTO DO SUPERENDIVIDAMENTO" },
-      { t: "CAPÍTULO VII Das Sanções Administrativas" },
-      { t: "TÍTULO II Das Infrações Penais" },
-      { t: "TÍTULO III Da Defesa do Consumidor em Juízo" },
-      { t: "CAPÍTULO II Das Ações Coletivas Para a Defesa de Interesses Individuais Homogêneos" },
-      { t: "CAPÍTULO III Das Ações de Responsabilidade do Fornecedor de Produtos e Serviços" },
-      { t: "CAPÍTULO IV Da Coisa Julgada" },
-      { t: "CAPÍTULO V — DA CONCILIAÇÃO NO SUPERENDIVIDAMENTO" },
+      { t: "CAPÍTULO I - Disposições Gerais" },
+      { t: "CAPÍTULO II - Da Política Nacional de Relações de Consumo" },
+      { t: "CAPÍTULO III - Dos Direitos Básicos do Consumidor" },
+      { t: "CAPÍTULO IV - Da Qualidade de Produtos e Serviços, da Prevenção e da Reparação dos Danos" },
+      { t: "CAPÍTULO V - Das Práticas Comerciais" },
+      { t: "CAPÍTULO VI - Da Proteção Contratual" },
+      { t: "CAPÍTULO VI-A - Da Prevenção e do Tratamento do Superendividamento" },
+      { t: "CAPÍTULO VII - Das Sanções Administrativas" },
+      { t: "TÍTULO II - Das Infrações Penais" },
+      { t: "TÍTULO III - Da Defesa do Consumidor em Juízo" },
+      { t: "CAPÍTULO II - Das Ações Coletivas Para a Defesa de Interesses Individuais Homogêneos" },
+      { t: "CAPÍTULO III - Das Ações de Responsabilidade do Fornecedor de Produtos e Serviços" },
+      { t: "CAPÍTULO IV - Da Coisa Julgada" },
+      { t: "CAPÍTULO V - Da Conciliação no Superendividamento" },
     ],
   },
   {
@@ -849,6 +849,16 @@ const SECTIONS = [
 // matérias usadas no detalhamento de % por prova nos Simulados
 const MATERIAS_SIM = SECTIONS.flatMap((s) => s.subjects.map((x) => ({ id: x.id, name: x.name })));
 
+// menu de navegação lateral (âncoras das seções)
+const NAV = [
+  { id: "sec-base", label: "Matérias-base" },
+  { id: "sec-altamedia", label: "Importância média-alta" },
+  { id: "sec-baixamedia", label: "Importância média-baixa" },
+  { id: "sec-informativos", label: "Informativos" },
+  { id: "sec-simulados", label: "Simulados" },
+  { id: "sec-cursos", label: "Cursos isolados" },
+];
+
 const DIM_LABEL = { teoria: "Teoria", leiSeca: "Lei Seca", jurisprudencia: "Jurisprudência", questoes: "Questões (temas TEC)", anki: "Anki" };
 const DIM_ORDER = ["teoria", "leiSeca", "jurisprudencia", "questoes", "anki"];
 const KEY_PREFIX = "tjsc-matriz5:";
@@ -864,7 +874,28 @@ export default function App() {
   const [flash, setFlash] = useState(null);
   const [openYear, setOpenYear] = useState(SIMULADOS[0] ? SIMULADOS[0].grupo : null);
   const [openProva, setOpenProva] = useState(null);
+  const [activeSec, setActiveSec] = useState(NAV[0].id);
   const [loaded, setLoaded] = useState(false);
+
+  // destaca no menu lateral a seção visível
+  useEffect(() => {
+    if (!loaded || typeof IntersectionObserver === "undefined") return;
+    const els = NAV.map((n) => document.getElementById(n.id)).filter(Boolean);
+    if (!els.length) return;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((e) => { if (e.isIntersecting) setActiveSec(e.target.id); });
+      },
+      { rootMargin: "-45% 0px -50% 0px" }
+    );
+    els.forEach((el) => obs.observe(el));
+    return () => obs.disconnect();
+  }, [loaded]);
+
+  const goTo = (id) => {
+    const el = typeof document !== "undefined" && document.getElementById(id);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   useEffect(() => {
     (async () => {
@@ -1099,7 +1130,21 @@ export default function App() {
 
         /* ---- tier ---- */
         .tier { background: var(--surface); border: 1px solid var(--line); border-radius: 20px;
-          padding: 6px 22px 22px; margin-bottom: 22px; }
+          padding: 6px 22px 22px; margin-bottom: 22px; scroll-margin-top: 62px; }
+
+        /* menu lateral de navegação */
+        .sidenav { position: fixed; top: 50%; left: calc((100vw - 1080px) / 2 - 168px);
+          transform: translateY(-50%); z-index: 300; display: flex; flex-direction: column; gap: 2px; width: 158px; }
+        .sidenav a { display: flex; align-items: center; gap: 10px; padding: 8px 11px; border-radius: 10px;
+          font-size: 12.5px; color: var(--muted); text-decoration: none; line-height: 1.25;
+          transition: background .15s, color .15s; }
+        .sidenav a:hover { background: var(--surface-2); color: var(--text); }
+        .sidenav a.active { color: var(--gold); background: var(--surface-2); font-weight: 600; }
+        .nav-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--line-2); flex-shrink: 0;
+          transition: background .15s, transform .15s, box-shadow .15s; }
+        .sidenav a:hover .nav-dot { background: var(--muted); }
+        .sidenav a.active .nav-dot { background: var(--gold); transform: scale(1.5); box-shadow: 0 0 10px var(--gold); }
+        @media (max-width: 1439px) { .sidenav { display: none; } }
         .tier-head { display: flex; align-items: center; gap: 14px; padding: 20px 2px 16px; }
         .tier-badge { width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center;
           font-weight: 700; font-size: 15px; color: #10141a; flex-shrink: 0; }
@@ -1165,7 +1210,7 @@ export default function App() {
         .score:focus { outline: none; border-color: var(--gold); }
 
         /* ---- panels (info / simulados / cursos) ---- */
-        .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 24px; margin-top: 22px; }
+        .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 24px; margin-top: 22px; scroll-margin-top: 62px; }
         .panel-head { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
         .panel-head h2 { font-size: 15px; font-weight: 650; margin: 0; letter-spacing: .2px; }
         .panel-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 12px var(--gold); }
@@ -1213,6 +1258,20 @@ export default function App() {
         .idx { color: var(--faint); flex-shrink: 0; font-size: 11px; }
       `}</style>
 
+      <nav className="sidenav" aria-label="Navegação por seções">
+        {NAV.map((n) => (
+          <a
+            key={n.id}
+            href={`#${n.id}`}
+            className={activeSec === n.id ? "active" : ""}
+            onClick={(e) => { e.preventDefault(); goTo(n.id); }}
+          >
+            <span className="nav-dot" />
+            <span className="nav-label">{n.label}</span>
+          </a>
+        ))}
+      </nav>
+
       <div className="wrap">
         {/* ---------- HERO ---------- */}
         <header className="hero">
@@ -1252,7 +1311,7 @@ export default function App() {
           const meta = TIER_META[section.tier];
           const stats = sectionStats(section);
           return (
-            <section key={section.tier} className="tier">
+            <section key={section.tier} id={`sec-${section.tier}`} className="tier">
               <div className="tier-head">
                 <div className="tier-badge" style={{ background: meta.color }}>{meta.n}</div>
                 <div>
@@ -1345,7 +1404,7 @@ export default function App() {
         })}
 
         {/* ---------- INFORMATIVOS ---------- */}
-        <section className="panel">
+        <section id="sec-informativos" className="panel">
           <div className="panel-head">
             <span className="panel-dot" />
             <h2>INFORMATIVOS DE JURISPRUDÊNCIA</h2>
@@ -1371,7 +1430,7 @@ export default function App() {
         </section>
 
         {/* ---------- SIMULADOS ---------- */}
-        <section className="panel">
+        <section id="sec-simulados" className="panel">
           <div className="panel-head">
             <span className="panel-dot" style={{ background: "var(--coral)", boxShadow: "0 0 12px var(--coral)" }} />
             <h2>SIMULADOS | PROVAS ANTERIORES</h2>
@@ -1425,7 +1484,7 @@ export default function App() {
         </section>
 
         {/* ---------- CURSOS ISOLADOS ---------- */}
-        <section className="panel">
+        <section id="sec-cursos" className="panel">
           <div className="panel-head">
             <span className="panel-dot" style={{ background: "#7f96c4", boxShadow: "0 0 12px #7f96c4" }} />
             <h2>CURSOS ISOLADOS</h2>
