@@ -1497,8 +1497,10 @@ export default function App() {
         .edital-line:hover { background: var(--surface-2); }
         .edital-line.checked .edital-txt { color: var(--faint); text-decoration: line-through; text-decoration-color: rgba(255,255,255,.22); }
         .edital-n { color: var(--gold); font-weight: 700; flex-shrink: 0; min-width: 22px; }
+        .edital-txt { font-weight: 650; }
         .edital-sub { margin-left: 26px; font-size: 12.5px; }
         .edital-sub .edital-n { color: var(--muted); font-weight: 600; min-width: 26px; }
+        .edital-sub .edital-txt { font-weight: 400; }
 
         /* post-it de PRIORIDADES */
         .postit { width: 300px; margin: 22px 0 4px auto; background: #f7e7a3; color: #3a3320;
