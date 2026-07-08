@@ -6,8 +6,8 @@ const JURIS_ITEMS = ["Súmulas Vinculantes", "Súmulas STF", "Súmulas STJ", "Te
 const ANKI_ITEMS = ["Cards da matéria", "Caderno de erros da matéria", "Pontos de prova da matéria", "Outros cards da matéria"];
 
 const SIMULADOS = [
-  { grupo: "2026", provas: ["TJ BA 2026", "TJ GO 2026 (59º Concurso)", "TJ PA 2026", "TJ PR 2026", "MPE GO 2026", "MPE MT 2026", "MPE RJ 2026 (XXXIX)", "TRF2 2026 (XIX Concurso)", "ENAM 2026 — 5º Exame"] },
-  { grupo: "2025", provas: ["TJ SC 2025 (1ª Aplicação)", "TJ CE 2025", "TJ MS 2025", "TJ SE 2025", "TJ TO 2025", "MPE ES 2025", "MPE RJ 2025 (XXXVIII)", "TRF1 2025 (XVIII)", "TRF3 2025", "TRF5 2025 (XV)", "TRF6 2025", "ENAM 2025 — 4º Exame", "ENAM 2025 — 3º Exame"] },
+  { grupo: "2026", provas: ["TJ BA 2026", "TJ GO 2026 (59º Concurso)", "TJ PA 2026", "TJ PR 2026", "MPE GO 2026", "MPE MT 2026", "MPE RJ 2026 (XXXIX)", "MPE SC 2026 (45º Concurso)", "MPE MS 2026 (XXXI Concurso)", "TRF2 2026 (XIX Concurso)", "ENAM 2026 — 5º Exame"] },
+  { grupo: "2025", provas: ["TJ SC 2025 (1ª Aplicação)", "TJ CE 2025", "TJ MS 2025", "TJ SE 2025", "TJ TO 2025", "MPE ES 2025", "MPE RJ 2025 (XXXVIII)", "MPE PR 2025", "MPE RS 2025", "MPE BA 2025", "MPE DFT 2025 (33º Concurso)", "TRF1 2025 (XVIII)", "TRF3 2025", "TRF5 2025 (XV)", "TRF6 2025", "ENAM 2025 — 4º Exame", "ENAM 2025 — 3º Exame"] },
   { grupo: "2024", provas: ["ENAM 2024 — 2º Exame", "ENAM 2024 — Reaplicação Manaus", "ENAM 2024 — 1ª Edição (2024.1)"] },
 ];
 
