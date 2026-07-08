@@ -39,6 +39,23 @@
   html[data-theme="light"] #toolbar .brand{color:#b7860f;}
   html[data-theme="light"] #toolbar .theme-btn.on{border-color:#b7860f;color:#b7860f;}
   html[data-theme="light"] #toolbar #status{color:#2fa96a;}
+  #restoreModal{display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.55);
+    align-items:flex-start;justify-content:center;padding:70px 16px;font-family:-apple-system,'Segoe UI',sans-serif;}
+  #restoreModal.on{display:flex;}
+  .rm-card{background:#141a22;color:#eae7df;border:1px solid rgba(255,255,255,.12);border-radius:16px;
+    width:460px;max-width:100%;max-height:80vh;overflow:auto;padding:18px 20px;box-shadow:0 20px 50px rgba(0,0,0,.5);}
+  html[data-theme="light"] .rm-card{background:#fff;color:#2a2620;border-color:rgba(0,0,0,.12);}
+  .rm-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;font-size:15px;}
+  .rm-head button{border:none;background:transparent;color:inherit;font-size:22px;cursor:pointer;line-height:1;}
+  .rm-sub{font-size:12.5px;color:#95a1b0;margin:0 0 14px;line-height:1.5;}
+  .rm-item{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 12px;border-radius:10px;
+    border:1px solid rgba(255,255,255,.1);margin-bottom:8px;font-size:13px;}
+  html[data-theme="light"] .rm-item{border-color:rgba(0,0,0,.1);}
+  .rm-item .rm-when{font-weight:600;}
+  .rm-item .rm-meta{font-size:11px;color:#95a1b0;}
+  .rm-item button{font:inherit;font-size:12px;font-weight:600;cursor:pointer;background:#e0954f;color:#10141a;
+    border:none;border-radius:8px;padding:7px 13px;}
+  .rm-empty{font-size:13px;color:#95a1b0;font-style:italic;}
 </style>
 </head>
 <body>
@@ -50,9 +67,21 @@
   <span class="sp"></span>
   <button id="btnLight" class="theme-btn" title="Tema claro">&#9728;</button>
   <button id="btnDark" class="theme-btn" title="Tema escuro">&#9789;</button>
+  <button id="btnRestore" title="Restaurar uma versão anterior salva automaticamente">&#8635; Restaurar</button>
   <button id="btnExport" title="Baixar um backup .json com todo o seu progresso">Exportar backup</button>
   <button id="btnImport" title="Restaurar/mesclar um backup em outro aparelho ou navegador">Importar</button>
   <input id="file" type="file" accept="application/json,.json" />
+</div>
+
+<div id="restoreModal">
+  <div class="rm-card">
+    <div class="rm-head">
+      <b>Restaurar versão anterior</b>
+      <button id="rmClose" title="Fechar">&times;</button>
+    </div>
+    <p class="rm-sub">O app salva uma "foto" do seu progresso automaticamente. Escolha uma versão para voltar (o estado atual é salvo antes, por segurança).</p>
+    <div id="rmList"></div>
+  </div>
 </div>
 
 <div id="app-root"><div id="root"></div></div>
@@ -86,15 +115,56 @@ document.getElementById('boot').classList.add('hide');
 </script>
 
 <script>
-// Exportar / Importar backup (todas as chaves tjsc-*)
-function collect(){
-  var o = {};
-  for (var i = 0; i < localStorage.length; i++){
-    var k = localStorage.key(i);
-    if (k && k.indexOf('tjsc-') === 0) o[k] = localStorage.getItem(k);
+// ---- Backup automático (snapshots) + Restaurar ----
+function isProgress(k){ return k && k.indexOf('tjsc-') === 0 && k.indexOf('tjsc-snapshot:') !== 0; }
+function progressKeys(){ var a=[]; for (var i=0;i<localStorage.length;i++){ var k=localStorage.key(i); if(isProgress(k)) a.push(k); } return a; }
+function snapshotKeys(){ var a=[]; for (var i=0;i<localStorage.length;i++){ var k=localStorage.key(i); if(k && k.indexOf('tjsc-snapshot:')===0) a.push(k); } return a.sort(); }
+function collectProgress(){ var o={}; progressKeys().forEach(function(k){ o[k]=localStorage.getItem(k); }); return o; }
+function trimSnaps(max){ var s=snapshotKeys(); while(s.length>max){ localStorage.removeItem(s.shift()); } }
+function makeSnapshot(force){
+  var data = collectProgress();
+  if (Object.keys(data).length === 0) return;
+  if (!force){
+    var s = snapshotKeys(); var last = s[s.length-1];
+    if (last){ var t = Date.parse(last.slice('tjsc-snapshot:'.length)); if (Date.now() - t < 12*3600*1000) return; }
   }
-  return o;
+  try { localStorage.setItem('tjsc-snapshot:' + new Date().toISOString(), JSON.stringify(data)); } catch(e){}
+  trimSnaps(10);
 }
+makeSnapshot(false);
+
+function fmtWhen(iso){ try { var d=new Date(iso); return d.toLocaleDateString('pt-BR')+' '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}); } catch(e){ return iso; } }
+function openRestore(){
+  var list = document.getElementById('rmList');
+  var snaps = snapshotKeys().slice().reverse();
+  if (!snaps.length){ list.innerHTML = '<div class="rm-empty">Ainda não há versões salvas. Elas começam a ser guardadas conforme você usa o app.</div>'; }
+  else {
+    list.innerHTML = '';
+    snaps.forEach(function(k){
+      var iso = k.slice('tjsc-snapshot:'.length);
+      var n = 0; try { n = Object.keys(JSON.parse(localStorage.getItem(k))).length; } catch(e){}
+      var row = document.createElement('div'); row.className='rm-item';
+      row.innerHTML = '<div><div class="rm-when">'+fmtWhen(iso)+'</div><div class="rm-meta">'+n+' registros</div></div>';
+      var b = document.createElement('button'); b.textContent='Restaurar'; b.onclick=function(){ doRestore(k); };
+      row.appendChild(b); list.appendChild(row);
+    });
+  }
+  document.getElementById('restoreModal').classList.add('on');
+}
+function doRestore(key){
+  if (!confirm('Restaurar esta versão? O seu estado atual será substituído — mas é salvo antes, então dá pra voltar.')) return;
+  makeSnapshot(true);
+  var data; try { data = JSON.parse(localStorage.getItem(key)); } catch(e){ alert('Versão inválida.'); return; }
+  progressKeys().forEach(function(k){ localStorage.removeItem(k); });
+  Object.keys(data).forEach(function(k){ localStorage.setItem(k, data[k]); });
+  location.reload();
+}
+document.getElementById('btnRestore').onclick = openRestore;
+document.getElementById('rmClose').onclick = function(){ document.getElementById('restoreModal').classList.remove('on'); };
+document.getElementById('restoreModal').onclick = function(e){ if (e.target === this) this.classList.remove('on'); };
+
+// Exportar / Importar backup (progresso; snapshots ficam de fora)
+function collect(){ return collectProgress(); }
 document.getElementById('btnExport').onclick = function(){
   var data = { _app: 'matriz-tjsc', _exportadoEm: new Date().toISOString(), dados: collect() };
   var blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
