@@ -1,0 +1,900 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="theme-color" content="#0a0e13" />
+<title>Matriz Magistratura TJSC</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#9878;</text></svg>" />
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js" crossorigin></script>
+<style>
+  html,body{margin:0;background:#0a0e13;min-height:100%;}
+  #boot{position:fixed;inset:0;display:grid;place-items:center;color:#95a1b0;
+    font-family:-apple-system,'Segoe UI',sans-serif;font-size:14px;z-index:9999;background:#0a0e13;}
+  #boot.hide{display:none;}
+  #toolbar{position:fixed;top:0;left:0;right:0;z-index:500;display:flex;align-items:center;gap:10px;
+    padding:8px 16px;background:rgba(10,14,19,.82);backdrop-filter:blur(10px);
+    border-bottom:1px solid rgba(255,255,255,.07);font-family:-apple-system,'Segoe UI',sans-serif;}
+  #toolbar .sp{flex:1;}
+  #toolbar #status{font-size:12px;color:#59c98a;transition:opacity .4s;opacity:0;}
+  #toolbar button{font:inherit;font-size:12px;font-weight:600;color:#eae7df;cursor:pointer;
+    background:#1a212b;border:1px solid rgba(255,255,255,.12);border-radius:9px;padding:6px 12px;transition:background .15s;}
+  #toolbar button:hover{background:#212a35;}
+  #toolbar .brand{font-size:12px;font-weight:700;letter-spacing:.4px;color:#f0c85a;}
+  #app-root{padding-top:46px;}
+  input#file{display:none;}
+</style>
+</head>
+<body>
+<div id="boot">carregando o painel...</div>
+
+<div id="toolbar">
+  <span class="brand">&#9878; MATRIZ TJSC</span>
+  <span id="status">salvo &#10003;</span>
+  <span class="sp"></span>
+  <button id="btnExport" title="Baixar um backup .json com todo o seu progresso">Exportar backup</button>
+  <button id="btnImport" title="Restaurar/mesclar um backup em outro aparelho ou navegador">Importar</button>
+  <input id="file" type="file" accept="application/json,.json" />
+</div>
+
+<div id="app-root"><div id="root"></div></div>
+
+<!-- PONTE: dá ao componente um window.storage real, gravando no localStorage do navegador -->
+<script>
+window.storage = {
+  get: function(k){ var v = localStorage.getItem(k); return Promise.resolve(v == null ? null : { value: v }); },
+  set: function(k, v){ localStorage.setItem(k, v); return Promise.resolve(); }
+};
+// indicador visual "salvo ✓" a cada gravação
+(function(){
+  var orig = Storage.prototype.setItem;
+  Storage.prototype.setItem = function(k, v){
+    orig.apply(this, arguments);
+    if (String(k).indexOf('tjsc-') === 0) {
+      var s = document.getElementById('status');
+      if (s){ s.style.opacity = 1; clearTimeout(window.__st); window.__st = setTimeout(function(){ s.style.opacity = 0; }, 1200); }
+    }
+  };
+})();
+</script>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect } = React;
+
+// ---------- Shared checklists ----------
+const JURIS_ITEMS = ["Súmulas Vinculantes", "Súmulas STF", "Súmulas STJ", "Teses de Repercussão Geral (RG)", "Temas de Recurso Repetitivo (RR)", "Jurisprudência em Teses (STJ)"];
+
+const ANKI_ITEMS = ["Cards da matéria", "Caderno de erros da matéria", "Pontos de prova da matéria", "Outros cards da matéria"];
+
+const SIMULADOS = [
+  { grupo: "2026", provas: ["TJ BA 2026", "TJ GO 2026 (59º Concurso)", "TJ PA 2026", "TJ PR 2026", "MPE GO 2026", "MPE MT 2026", "MPE RJ 2026 (XXXIX)", "TRF2 2026 (XIX Concurso)", "ENAM 2026 — 5º Exame"] },
+  { grupo: "2025", provas: ["TJ SC 2025 (1ª Aplicação)", "TJ CE 2025", "TJ MS 2025", "TJ SE 2025", "TJ TO 2025", "MPE ES 2025", "MPE RJ 2025 (XXXVIII)", "TRF1 2025 (XVIII)", "TRF3 2025", "TRF5 2025 (XV)", "TRF6 2025", "ENAM 2025 — 4º Exame", "ENAM 2025 — 3º Exame"] },
+  { grupo: "2024", provas: ["ENAM 2024 — 2º Exame", "ENAM 2024 — Reaplicação Manaus", "ENAM 2024 — 1ª Edição (2024.1)"] },
+];
+
+// Edições reais mais recentes conhecidas — atualizar semanalmente sob pedido
+const INFORMATIVOS = {
+  stf: [{ num: 1220, date: "16/06/2026" }, { num: 1219, date: "09/06/2026" }],
+  stj: [{ num: 894, date: "30/06/2026" }],
+};
+
+// ---------- Teoria (tópicos do edital, por matéria) ----------
+const TEORIA = {
+  civil: ["LINDB e sistema do CC", "Pessoas naturais, personalidade, capacidade", "Bens", "Fatos e negócios jurídicos, defeitos, invalidade", "Atos ilícitos", "Prescrição e decadência", "Obrigações (modalidades, mora)", "Contratos: teoria geral, formação, extinção", "Contratos em espécie", "Responsabilidade civil", "Posse", "Propriedade e direitos reais", "Família: casamento, união estável, filiação", "Alimentos e bem de família", "Sucessões", "Registros públicos", "Alienação fiduciária, condomínio edilício e leis correlatas"],
+  pcivil: ["Normas fundamentais e processo constitucional", "Jurisdição e competência", "Ação e processo: conceitos e pressupostos", "Sujeitos do processo", "Atos processuais, prazos, citações", "Tutelas provisórias", "Procedimento comum: petição inicial a saneamento", "Resposta do réu", "Provas", "Sentença e coisa julgada", "Cumprimento de sentença", "Procedimentos especiais do CPC", "Jurisdição voluntária", "Processo de execução", "Ordem nos tribunais e competência originária", "Recursos", "Legislação processual extravagante"],
+  penal: ["Conceito, funções, escolas penais", "Princípios fundamentais", "Bem jurídico-penal", "Lei penal: fontes, interpretação, eficácia no tempo/espaço", "Extradição e territorialidade", "Teoria do delito: conceito e classificação", "Teorias da ação e causalidade", "Tipicidade, dolo e culpa, erro de tipo", "Ilicitude e causas de justificação", "Culpabilidade e erro de proibição", "Consumação e tentativa", "Concurso de pessoas", "Concurso de crimes", "Circunstâncias, agravantes, atenuantes", "Teoria da pena e sistemas penitenciários", "Execução penal: princípios, órgãos, regimes", "Suspensão condicional e livramento condicional", "Medidas de segurança", "Extinção da punibilidade e prescrição", "Crimes em espécie (parte especial completa)", "Direito Penal Militar"],
+  ppenal: ["Interpretação e norma processual penal", "Inquérito policial", "Ação penal", "Ação civil ex delicto", "Competência", "Questões e processos incidentes", "Prova", "Sujeitos processuais", "Prisão, medidas cautelares, liberdade provisória", "Citações e intimações", "Sentença", "Processo comum", "Processos especiais", "Nulidades e recursos", "Pacote Anticrime (Lei 13.964/2019)", "Execução da pena", "Leis penais especiais (aspecto processual)"],
+  const: ["Conceito e classificação de Constituição", "Estado Democrático de Direito", "Hermenêutica constitucional", "Aplicabilidade das normas constitucionais", "Controle de constitucionalidade", "Poder Constituinte", "Poder Legislativo", "Poder Judiciário", "Funções essenciais à Justiça", "Poder Executivo", "Estrutura federativa e repartição de competências", "Direitos e garantias fundamentais", "Direitos individuais", "Direitos sociais", "Nacionalidade e direitos políticos", "Ações constitucionais", "Convenção sobre Direitos das Pessoas com Deficiência", "Marco temporal indígena"],
+  adm: ["Regime jurídico-administrativo", "Princípios constitucionais do Direito Administrativo", "Ato administrativo", "Servidores públicos", "Direitos, deveres e regime disciplinar", "Improbidade administrativa", "Controles da Administração Pública", "Domínio público e bens públicos", "Licitação (Lei 14.133/2021)", "Contrato administrativo", "Convênios, consórcios, concessões", "Parcerias com o terceiro setor", "Infrações e sanções administrativas", "Poderes administrativos e desapropriação", "Responsabilidade civil do Estado", "Organização administrativa", "Jurisprudência STJ/STF em Direito Administrativo"],
+  empres: ["Empresa, empresário, estabelecimento", "Microempresa e EPP (LC 123/2006)", "Propriedade Industrial (patentes, marcas, desenhos)", "Direito Societário: sociedade empresária", "Sociedades em espécie", "Ligações societárias", "Títulos de crédito", "Recuperação judicial, extrajudicial e falência", "Crimes falimentares"],
+  trib: ["Sistema Tributário Nacional", "Tributos: conceito e espécies", "Competência tributária", "Imunidades tributárias", "Normas gerais de direito tributário", "Fato gerador e obrigação tributária", "Responsabilidade tributária", "Constituição do crédito (lançamento)", "Suspensão da exigibilidade", "Extinção do crédito tributário", "Exclusão do crédito tributário", "Infrações e sanções tributárias", "Garantias, privilégios e administração tributária", "Processo judicial tributário", "Tributação internacional", "Direito financeiro e Lei 4.320/1964", "Legislação tributária estadual (SC)"],
+};
+
+// ---------- Lei Seca ----------
+const LEI_SECA = {
+  civil: ["Código Civil — Lei 10.406/2002", "Lei de Introdução às Normas do Direito Brasileiro (LINDB) — Decreto-Lei 4.657/1942", "Lei da Liberdade Econômica — Lei 13.874/2019", "Lei da Guarda Compartilhada — Lei 13.058/2014", "Lei Maria da Penha (medidas protetivas cíveis) — Lei 11.340/2006", "Lei de Registros Públicos — Lei 6.015/1973", "Provimento 149/2023 do CNJ (Registros Públicos)", "Lei dos Notários e Registradores — Lei 8.935/1994", "Alienação Fiduciária de Bens Móveis — Decreto-Lei 911/1969", "Lei do Sistema Financeiro Imobiliário (SFI) — Lei 9.514/1997", "Lei do Condomínio em Edificações — Lei 4.591/1964", "Lei das Incorporações Imobiliárias — Lei 10.931/2004", "Estatuto do Idoso — Lei 10.741/2003", "Lei de Locação de Imóveis Urbanos — Lei 8.245/1991", "Estatuto da Pessoa com Deficiência — Lei 13.146/2015", "Regime Jurídico Emergencial e Transitório (RJET) — Lei 14.010/2020", "Resolução CNJ 452/2022", "Lei Geral de Proteção de Dados (LGPD) — Lei 13.709/2018", "Marco Civil da Internet — Lei 12.965/2014", "Lei do Parcelamento do Solo Urbano — Lei 6.766/1979", "Lei da Usura — Decreto 22.626/1933", "Lei Estadual de Parcelamento do Solo (SC) — Lei Estadual 17.492/2018"],
+  pcivil: ["Código de Processo Civil — Lei 13.105/2015", "Lei dos Juizados Especiais Cíveis — Lei 9.099/1995", "Lei dos Juizados Especiais Federais — Lei 10.259/2001", "Lei dos Juizados Especiais da Fazenda Pública — Lei 12.153/2009", "Lei da Impenhorabilidade do Bem de Família — Lei 8.009/1990", "Decreto da Prescrição contra a Fazenda Pública — Decreto 20.910/1932", "Decreto-Lei 4.597/1942 (prescrição contra a Fazenda Pública)", "Lei da Assistência Judiciária Gratuita — Lei 1.060/1950", "Lei de Execução Fiscal — Lei 6.830/1980", "Lei do Divórcio — Lei 6.515/1977", "Lei da União Estável — Lei 9.278/1996", "Código de Defesa do Consumidor (reflexos processuais) — Lei 8.078/1990", "Decreto-Lei da Desapropriação — Decreto-Lei 3.365/1941", "Lei do Mandado de Segurança — Lei 12.016/2009", "Lei da Ação Popular — Lei 4.717/1965", "Lei da Ação Civil Pública — Lei 7.347/1985", "Lei de Improbidade Administrativa (reflexos processuais) — Lei 8.429/1992", "Lei do Habeas Data — Lei 9.507/1997", "Lei de Alimentos — Lei 5.478/1968", "Lei de Alimentos Gravídicos — Lei 11.804/2008", "Lei de Investigação de Paternidade — Lei 8.560/1992", "Lei da Informatização do Processo Judicial — Lei 11.419/2006", "Lei das Cautelares contra o Poder Público — Lei 8.437/1992", "Lei 9.494/1997 (tutela antecipada contra a Fazenda Pública)", "Lei da Súmula Vinculante — Lei 11.417/2006", "Lei da Mediação — Lei 13.140/2015", "Lei 13.655/2018 (altera a LINDB)", "Lei de Arbitragem — Lei 9.307/1996", "Lei 13.129/2015 (altera a Lei de Arbitragem)"],
+  cdc: ["Código de Defesa do Consumidor — Lei 8.078/1990", "Decreto do Comércio Eletrônico — Decreto 7.962/2013", "Decreto do Sistema Nacional de Defesa do Consumidor (SNDC) — Decreto 2.181/1997", "Lei do Cadastro Positivo — Lei 12.414/2011", "Decreto 9.936/2019 (regulamenta o Cadastro Positivo)", "Resolução ANATEL 632/2014", "Resolução ANEEL 1.000/2021", "Lei dos Planos de Saúde — Lei 9.656/1998"],
+  eca: ["Estatuto da Criança e do Adolescente (ECA) — Lei 8.069/1990", "Lei do SINASE — Lei 12.594/2012", "Lei do Sistema de Garantia de Direitos (violência) — Lei 13.431/2017", "Decreto 9.603/2018 (regulamenta a Lei 13.431/2017)", "Lei Henry Borel — Lei 14.344/2022", "Marco Legal da Primeira Infância — Lei 13.257/2016", "ECA Digital — Lei 15.211/2025", "Lei Orgânica da Assistência Social (LOAS) — Lei 8.742/1993", "Lei 12.435/2011 (altera a LOAS)", "Resolução CNJ 295/2019 (autorização de viagem)", "Resolução CNJ 165/2012", "Resolução CONANDA 113/2006", "Resolução CONANDA 117/2006", "Resolução CONANDA 169/2014", "Resolução CONANDA 231/2022", "Lei da Proteção à Pessoa com Transtorno Mental — Lei 10.216/2001"],
+  civesp: ["Lei dos Juizados Especiais Cíveis — Lei 9.099/1995", "Lei dos Juizados Especiais Federais — Lei 10.259/2001", "Lei dos Juizados Especiais da Fazenda Pública — Lei 12.153/2009", "Lei do Mandado de Segurança — Lei 12.016/2009", "Lei da Ação Civil Pública — Lei 7.347/1985", "Lei da Ação Popular — Lei 4.717/1965", "Lei da Mediação — Lei 13.140/2015", "Lei de Arbitragem — Lei 9.307/1996", "LINDB — Decreto-Lei 4.657/1942", "Lei 13.655/2018 (altera a LINDB)", "Lei da Ação Direta de Inconstitucionalidade — Lei 9.868/1999", "Lei da Súmula Vinculante — Lei 11.417/2006", "Lei de Locação de Imóveis Urbanos — Lei 8.245/1991", "Lei da Impenhorabilidade do Bem de Família — Lei 8.009/1990", "Lei do Sistema Financeiro Imobiliário (SFI) — Lei 9.514/1997", "Regime Jurídico Emergencial e Transitório (RJET) — Lei 14.010/2020", "Lei do Mandado de Injunção — Lei 13.300/2016", "Lei da Intervenção da União — Lei 9.469/1997", "Lei das Cautelares contra o Poder Público — Lei 8.437/1992"],
+  penal: ["Código Penal — Decreto-Lei 2.848/1940", "Lei de Execução Penal (LEP) — Lei 7.210/1984"],
+  ppenal: ["Código de Processo Penal — Decreto-Lei 3.689/1941", "Pacote Anticrime — Lei 13.964/2019", "Lei de Execução Penal (LEP) — Lei 7.210/1984"],
+  penesp: ["Lei das Organizações Criminosas — Lei 12.850/2013", "Lei de Drogas — Lei 11.343/2006", "Código de Trânsito Brasileiro (crimes) — Lei 9.503/1997", "Lei de Execução Penal (LEP) — Lei 7.210/1984", "Lei dos Crimes Hediondos — Lei 8.072/1990", "Lei dos Crimes Ambientais — Lei 9.605/1998", "Lei de Lavagem de Dinheiro — Lei 9.613/1998", "Lei dos Crimes contra o Sistema Financeiro — Lei 7.492/1986", "Lei dos Crimes contra a Ordem Tributária — Lei 8.137/1990", "Lei de Proteção a Vítimas e Testemunhas — Lei 9.807/1999", "Lei da Prisão Temporária — Lei 7.960/1989", "Lei dos Juizados Especiais Criminais — Lei 9.099/1995", "Lei Maria da Penha — Lei 11.340/2006", "Código Eleitoral (crimes eleitorais) — Lei 4.737/1965", "Lei Henry Borel — Lei 14.344/2022", "Estatuto do Desarmamento — Lei 10.826/2003", "Lei dos Crimes de Prefeitos e Vereadores — Decreto-Lei 201/1967", "Lei da Propriedade Industrial (crimes) — Lei 9.279/1996", "ECA (crimes) — Lei 8.069/1990", "Lei de Abuso de Autoridade — Lei 13.869/2019", "Lei de Interceptação Telefônica — Lei 9.296/1996", "Lei de Recuperação e Falência (crimes) — Lei 11.101/2005", "Lei dos Crimes de Competência Originária dos Tribunais — Lei 8.038/1990"],
+  const: ["Constituição Federal — CF/1988", "Lei dos Consórcios Públicos — Lei 11.107/2005", "Emenda Constitucional 132/2023 (Reforma Tributária)", "Emenda Constitucional 103/2019 (Reforma da Previdência)"],
+  eleit: ["Código Eleitoral — Lei 4.737/1965", "Lei das Eleições — Lei 9.504/1997", "Lei das Inelegibilidades — LC 64/1990", "Lei dos Partidos Políticos — Lei 9.096/1995", "LC 86/1996"],
+  empres: ["Código Civil — Livro II (Direito de Empresa)", "Lei das Sociedades Anônimas — Lei 6.404/1976", "Lei de Recuperação Judicial e Falência — Lei 11.101/2005", "Lei do Simples Nacional (ME/EPP) — LC 123/2006", "Lei da Propriedade Industrial — Lei 9.279/1996", "Lei Uniforme de Genebra — Decreto 57.663/1966", "Lei do Protesto — Lei 9.492/1997", "Lei da Duplicata — Lei 5.474/1968", "Lei do Cheque — Lei 7.357/1985", "Lei dos Títulos do Agronegócio — Lei 11.076/2004", "Lei das Cooperativas — Lei 5.764/1971", "Lei de Intervenção e Liquidação de Instituição Financeira — Lei 6.024/1974", "Lei da Sociedade Anônima do Futebol (SAF) — Lei 14.193/2021"],
+  trib: ["Código Tributário Nacional (CTN) — Lei 5.172/1966", "Lei de Execução Fiscal — Lei 6.830/1980", "Lei do Orçamento Público — Lei 4.320/1964", "Lei de Responsabilidade Fiscal — LC 101/2000", "Lei da Cautelar Fiscal — Lei 8.397/1992", "Lei do Mandado de Segurança — Lei 12.016/2009", "Tribunal Administrativo Tributário de SC (TAT-SC) — LC Estadual 465/2009", "Lei do ICMS de SC — Lei Estadual 10.297/1996", "Lei Estadual (SC) 13.136/2004"],
+  amb: ["Lei da Política Nacional do Meio Ambiente (PNMA) — Lei 6.938/1981", "Lei dos Crimes Ambientais — Lei 9.605/1998", "Lei do Sistema Nacional de Unidades de Conservação (SNUC) — Lei 9.985/2000", "Decreto 4.340/2002 (regulamenta o SNUC)", "Código Florestal — Lei 12.651/2012", "Lei da Política Nacional de Recursos Hídricos — Lei 9.433/1997", "Lei da Cooperação Ambiental — LC 140/2011", "Resolução CONAMA 237/1997 (Licenciamento)", "Lei da Biodiversidade — Lei 13.123/2015", "Decreto 8.772/2016 (regulamenta a Lei da Biodiversidade)", "Lei de Segurança de Barragens — Lei 12.334/2010", "Lei de Pagamento por Serviços Ambientais — Lei 14.119/2021", "Decreto das Infrações Administrativas Ambientais — Decreto 6.514/2008", "Lei da Política Nacional sobre Mudança do Clima — Lei 12.187/2009", "Lei da Política Nacional de Resíduos Sólidos — Lei 12.305/2010", "Lei da Mata Atlântica — Lei 11.428/2006", "Lei dos Agrotóxicos — Lei 14.785/2023", "Código Estadual do Meio Ambiente (SC) — Lei Estadual 14.675/2009", "Lei Estadual (SC) 16.342/2014 (altera o Código Estadual)"],
+  adm: ["Lei de Licitações e Contratos — Lei 14.133/2021", "Lei de Improbidade Administrativa — Lei 8.429/1992", "Lei de Acesso à Informação (LAI) — Lei 12.527/2011", "Lei Anticorrupção — Lei 12.846/2013", "Lei do Processo Administrativo Federal — Lei 9.784/1999", "Lei das Concessões e Permissões — Lei 8.987/1995", "Lei das Parcerias Público-Privadas (PPP) — Lei 11.079/2004", "Lei das Estatais — Lei 13.303/2016", "Lei do Estatuto das Parcerias com OSCs — Lei 13.019/2014", "Lei do Programa de Parcerias de Investimentos (PPI) — Lei 13.334/2016", "Lei 13.448/2017 (altera o PPI)", "Lei dos Bens Imóveis da União — Lei 9.636/1998", "Lei do Contrato de Desempenho — Lei 13.934/2019", "Decreto-Lei do Tombamento — Decreto-Lei 25/1937", "Lei dos Servidores Públicos Federais — Lei 8.112/1990", "Estatuto dos Servidores Públicos de SC — Lei Estadual 6.745/1985", "Regime Próprio de Previdência do Servidor de SC — LC Estadual 412/2008", "Lei Orgânica da Magistratura Nacional (LOMAN) — LC 35/1979", "Processo Administrativo Disciplinar de SC — LC Estadual 491/2010"],
+  dh: ["Declaração Universal dos Direitos Humanos", "Convenção Americana de Direitos Humanos (Pacto de San José)", "Pacto Internacional dos Direitos Civis e Políticos (PIDCP)", "Estatuto de Roma — Decreto 4.388/2002", "Convenção sobre os Direitos das Pessoas com Deficiência — Decreto 6.949/2009", "Estatuto da Pessoa com Deficiência — Lei 13.146/2015", "Lei das Pessoas Portadoras de Deficiência — Lei 7.853/1989", "Convenção Interamericana contra o Racismo — Decreto 10.932/2022", "Estatuto do Idoso — Lei 10.741/2003", "Lei da Proteção à Pessoa com Transtorno Mental — Lei 10.216/2001", "Decreto da Política Nacional para População em Situação de Rua — Decreto 7.053/2009"],
+  human: ["Lei da Organização Judiciária de SC — LC Estadual 339/2006", "Estatuto da Magistratura de SC — LC Estadual 367/2006", "LC Estadual (SC) 413/2008", "Adaptação à LOMAN em SC — Lei Estadual 5.624/1979", "Código de Ética da Magistratura Nacional — Resolução CNJ 60/2008", "Resolução CNJ 325/2020 (Planejamento e Gestão Estratégica)", "Resolução CNJ 159/2012 (Formação de Magistrados e Servidores)", "Resolução CNJ 348/2020 (Tratamento da População LGBTI)", "Resolução CNJ 351/2020 (Prevenção ao Assédio Moral)", "Resolução CNJ 350/2020 (Cooperação Judiciária Nacional)", "Lei Geral de Proteção de Dados (LGPD) — Lei 13.709/2018", "Marco Civil da Internet — Lei 12.965/2014", "Lei da Informatização do Processo Judicial — Lei 11.419/2006"],
+};
+
+// ---------- Questões: tópicos do próprio edital (tabela de incidência), do mais pro menos cobrado ----------
+const TOPICOS = {
+  const: ["Organização, Competências e Bens dos Entes Federativos (jurisprudência)", "Administração Pública (jurisprudência)", "Controle de Constitucionalidade (jurisprudência)", "Métodos e Princípios de Interpretação Constitucional", "União: Bens e Competências (arts. 20-24)", "Direitos e Deveres Individuais e Coletivos (jurisprudência)", "Processo Legislativo (jurisprudência)", "Intervenção Federal e Estadual", "Da Educação, Cultura e Desporto", "Direitos e Deveres Individuais e Coletivos (art. 5º)", "Questões Mescladas de Controle de Constitucionalidade", "Fiscalização Contábil, Financeira e Orçamentária (jurisprudência)", "Sistema Tributário Nacional (jurisprudência)", "Competências para Fiscalização e TCU", "Medidas Provisórias"],
+  civil: ["Prescrição e Decadência", "Da Responsabilidade Civil", "Do Regime de Bens entre os Cônjuges", "Da Doação", "Do Condomínio Geral", "Invalidade do Negócio Jurídico", "Do Casamento", "Da Aquisição da Propriedade Imóvel (Usucapião, Acessão, Registro)", "Desconsideração da Personalidade Jurídica", "Da Mora", "Princípios Contratuais no Código Civil", "Das Relações de Parentesco", "Responsabilidade Civil (jurisprudência)", "Defeitos ou Vícios do Negócio Jurídico", "Dos Vícios Redibitórios"],
+  pcivil: ["Da Tutela Provisória", "Da Competência Interna", "Do Cumprimento da Sentença", "Da Sentença e Da Coisa Julgada", "Do Agravo de Instrumento", "Da Intervenção de Terceiros", "Dos Deveres das Partes e de seus Procuradores", "Do Incidente de Resolução de Demandas Repetitivas", "Da Execução em Geral", "Da Capacidade Processual", "Da Ação Rescisória", "Da Petição Inicial", "Da Citação", "Provas (disposições gerais)", "Da Apelação"],
+  adm: ["Procedimento Administrativo e Processo Judicial (Improbidade)", "Responsabilidade Civil do Estado (jurisprudência)", "Desapropriação", "Agentes Públicos (jurisprudência)", "Controle da Administração Pública (jurisprudência)", "Concurso Público (jurisprudência)", "Tombamento", "Improbidade Administrativa (jurisprudência)", "Parceria Público-Privada (Lei 11.079/2004)", "Consórcios Públicos (Lei 11.107/2005)", "Tópicos Mesclados de Improbidade", "Desapropriação (jurisprudência)", "Serviços Públicos (jurisprudência)", "Terceiro Setor (OSs, OSCIPs, Sistema S)", "Controle da Administração (tópicos mesclados)"],
+  penal: ["Penas (jurisprudência)", "Da Aplicação da Pena", "Crimes contra o Patrimônio (jurisprudência)", "Da Prescrição", "Efeitos da Condenação", "Dos Crimes Sexuais contra Vulnerável", "Homicídio", "Do Roubo e da Extorsão", "Crimes Contra o Patrimônio (questões mescladas)", "Causas de Extinção da Punibilidade", "Do Furto", "Dos Crimes contra a Liberdade Pessoal", "Concurso de Crimes", "Crimes contra a Liberdade Sexual e Exposição da Intimidade Sexual", "Crimes contra a Administração Pública (questões mescladas)"],
+  ppenal: ["Da Ação Penal", "Procedimento dos Crimes do Tribunal do Júri", "Questões Mescladas sobre Recursos", "Das Medidas Assecuratórias", "Competência (jurisprudência)", "Teoria Geral da Prova Penal", "Questões Mescladas sobre a Prova", "Da Prisão Preventiva", "Da Comunicação dos Atos Processuais", "Prisão, Medidas Cautelares e Liberdade Provisória (questões mescladas)", "Inquérito Policial", "Fase Decisória e Sentença Penal", "Ação Penal (jurisprudência)", "Assuntos Diversos/Mesclados de Processo Penal (jurisprudência)", "Das Testemunhas"],
+  empres: ["Recuperação Judicial e Convolação em Falência", "Da Falência", "Outros Títulos de Crédito", "Disposições Comuns à Recuperação Judicial e Falência", "Sociedade Limitada", "Ações, Partes Beneficiárias, Debêntures, Bônus de Subscrição", "Cédulas de Crédito", "Lei das Cooperativas", "Intervenção/Liquidação de Instituição Financeira", "Das Patentes", "Da Recuperação Extrajudicial", "Sociedades Coligadas, Controladas, Filiadas"],
+  trib: ["Extinção do Crédito Tributário", "ICMS (jurisprudência)", "Responsabilidade Tributária", "Princípios Tributários", "Execução Fiscal (Lei 6.830/1980)", "Imunidades Tributárias (jurisprudência)", "Execução Fiscal (jurisprudência)", "Extinção do Crédito Tributário (jurisprudência)", "Repartição Constitucional de Receitas Tributárias", "Princípios Tributários (jurisprudência)"],
+  cdc: ["Direito do Consumidor (jurisprudência — bloco geral)", "Defesa do Consumidor em Juízo", "Das Práticas Comerciais", "Da Proteção Contratual", "Da Conciliação no Superendividamento", "Da Desconsideração da Personalidade Jurídica", "Responsabilidade por Vício do Produto e do Serviço", "Tópicos Mesclados do CDC", "Responsabilidade pelo Fato do Produto e do Serviço", "Da Decadência e da Prescrição"],
+  eca: ["Da Família Substituta: Guarda, Tutela e Adoção", "Lei do SINASE", "Dos Procedimentos do Acesso à Justiça", "Das Medidas Sócio-educativas", "ECA (jurisprudência)", "Sistema de Garantia de Direitos (Lei 13.431/2017)", "Dos Recursos", "Direito à Convivência Familiar (disposições gerais)", "Da Prevenção Especial", "Das Infrações Administrativas"],
+  penesp: ["Lei das Organizações Criminosas", "Disposições Gerais e Crimes da Lei de Drogas", "Código de Trânsito Brasileiro (crimes)", "Da Execução das Penas em Espécie (LEP)", "Tópicos Mesclados de Leis Penais Extravagantes", "Jurisprudência sobre Tópicos Mesclados", "Lei dos Crimes Hediondos", "Aplicação da Pena (Lei de Crimes Ambientais)", "Lei de Lavagem de Dinheiro", "Procedimento Penal da Lei de Drogas (apreensão de bens)", "Crimes contra o Sistema Financeiro", "Crimes contra a Ordem Tributária"],
+  civesp: ["Direitos Individuais Homogêneos, Coletivos e Difusos", "Do Mandado de Segurança", "Da Ação Civil Pública", "Lei dos Juizados Especiais Cíveis", "Da Ação Popular", "Ação Civil Pública (jurisprudência)", "Lei da Mediação", "Segurança Jurídica e Eficiência (LINDB arts. 20-30)", "Eficácia das Leis no Espaço (LINDB arts. 7-19)", "Lei de Locação de Imóveis Urbanos"],
+  amb: ["Infrações e Responsabilidade Civil Ambiental (jurisprudência)", "Demais Temas de Direito Ambiental (jurisprudência)", "Responsabilidade Civil Ambiental", "Direito Ambiental Constitucional (jurisprudência)", "Lei da Política Nacional de Recursos Hídricos", "Lei da Cooperação Ambiental (LC 140/2011)", "Criação e Gestão das Unidades de Conservação", "Proibição do Uso de Fogo e Controle de Incêndios", "Competências Constitucionais em Matéria Ambiental", "CONAMA"],
+  eleit: ["Elegibilidade e Inelegibilidade", "Propaganda Eleitoral e Direito de Resposta", "Registro dos Candidatos", "Questões Mescladas de Direito Eleitoral", "Eleições (jurisprudência)", "Investigação Judicial Eleitoral", "Direitos Políticos (jurisprudência)", "Impugnação a Pedido de Registro de Candidatura", "Prestação de Contas da Campanha Eleitoral"],
+  dh: ["Outros Tópicos sobre Direitos Humanos", "Outros Assuntos de DH (jurisprudência)", "Proteção dos Direitos Humanos (temas mesclados)", "Direitos Humanos na Constituição Federal", "Deveres dos Estados e Direitos Protegidos (CADH)", "Sistema Interamericano de Direitos Humanos", "Disposições Gerais do Estatuto da PcD"],
+  human: ["Hermenêutica Jurídica", "Disposições Preliminares da LGPD", "Juspositivismo e Jusnaturalismo", "Direito, Moral e Justiça", "Direito Digital (jurisprudência)", "Pragmatismo, Análise Econômica do Direito e Economia Comportamental", "Tratamento de Dados Pessoais Sensíveis (LGPD)", "Regras para Tratamento de Dados Pessoais (LGPD)", "Sociologia Jurídica", "Utilitarismo"],
+};
+
+const TIER_META = {
+  base: { label: "Matérias-base", sub: "peso máximo na prova", color: "#f0c85a", n: 1 },
+  altamedia: { label: "Importância média-alta", sub: "cobrança relevante", color: "#e0954f", n: 2 },
+  baixamedia: { label: "Importância baixa-média", sub: "reforço e revisão", color: "#7f96c4", n: 3 },
+};
+const SUBJ_NAME_COLOR = "#e8837a";
+const YELLOW = "#f0c85a";
+
+// ---------- Cursos isolados ----------
+const PENAL_TOPICS = [
+  ["1. Conceito, funções e caracteres do Direito Penal", 2],
+  ["2. Escolas e tendências penais", 1],
+  ["3. Evolução epistemológica do Direito Penal", 2],
+  ["4. Princípios Fundamentais do Direito Penal", 5],
+  ["5. Bem Jurídico-Penal", 1],
+  ["6. Aplicação da lei penal (tempo, espaço, extradição)", 6],
+  ["7. Classificação dos delitos", 2],
+  ["8. Fato típico, causas de exclusão da tipicidade, teoria da ação", 5],
+  ["9. Erro de tipo", 2],
+  ["10. Ilicitude e causas de justificação", 2],
+  ["11. Culpabilidade", 3],
+  ["12. Concurso de pessoas", 3],
+  ["13. Concurso de crimes", 2],
+  ["14. Teoria da pena, circunstâncias e determinação da pena", 5],
+  ["15. Pena de multa", 2],
+  ["16. Suspensão condicional da pena", 1],
+  ["17. Livramento condicional", 1],
+  ["18. Medidas de Segurança", 1],
+  ["19. Efeitos da condenação", 1],
+  ["20. Punibilidade e causas de extinção", 1],
+  ["21. Prescrição", 2],
+  ["22. Crimes contra a pessoa", 9],
+  ["23. Crimes contra o patrimônio", 6],
+  ["24. Crimes contra a propriedade imaterial", 1],
+  ["25. Crimes contra a organização do trabalho", 1],
+  ["26. Crimes contra o sentimento religioso e respeito aos mortos", 1],
+  ["27. Crimes contra a dignidade sexual", 3],
+  ["28. Crimes contra a família", 1],
+  ["29. Crimes contra a incolumidade pública", 2],
+  ["30. Crimes contra a paz pública", 1],
+  ["31. Crimes contra a fé pública", 2],
+  ["32. Crimes contra a Administração Pública", 3],
+  ["33. Crimes contra o Estado Democrático de Direito", 1],
+];
+
+const PPENAL_TOPICS = [
+  ["1. Sistemas Processuais", 1],
+  ["2. Princípios constitucionais do processo penal", 3],
+  ["3. Aplicação da lei processual (tempo, espaço, pessoas)", 1],
+  ["4. Inquérito policial", 6],
+  ["5. Ação penal (pública e privada)", 3],
+  ["6. Acordo de Não Persecução Penal (ANPP)", 2],
+  ["7. Ação civil ex delicto", 1],
+  ["8. Jurisdição e competência", 5],
+  ["9. Questões e processos incidentes", 1],
+  ["10. Da prova", 6],
+  ["11. Sujeitos processuais", 2],
+  ["12. Prisão, medidas cautelares e liberdade provisória", 4],
+  ["13. Medidas protetivas de urgência (Lei 15.280/2025)", 1],
+  ["14. Medidas assecuratórias", 1],
+  ["15. Citações e intimações", 1],
+  ["16. Processo e procedimento (comum, sumário, sumaríssimo, JECrim)", 3],
+  ["17. Procedimento do Tribunal do Júri e desaforamento", 4],
+  ["18. Da sentença", 1],
+  ["19. Das nulidades", 1],
+  ["20. Dos recursos em geral", 2],
+  ["21. Ações de impugnação (revisão criminal, HC, MS, exceções)", 1],
+];
+
+const CURSOS_ISOLADOS = [
+  {
+    id: "cur_adm",
+    nome: "Direito Administrativo",
+    sublistas: [
+      {
+        nome: "Curso Intensivo (141 aulas)",
+        itens: [
+          "Apresentação do módulo e materiais pdf",
+          "Aula 1 - Atos Administrativos (Parte 1)", "Aula 1 - Atos Administrativos (Parte 2)", "Aula 1 - Atos Administrativos (Parte 3)", "Aula 1 - Atos Administrativos (Parte 4)", "Aula 1 - Atos Administrativos (Parte 5)",
+          "Aula 2 - Atos Administrativos (Parte 6)", "Aula 2 - Atos Administrativos (Parte 7)", "Aula 2 - Atos Administrativos (Parte 8)", "Aula 2 - Atos Administrativos (Parte 9)", "Aula 2 - Poderes Administrativos (Parte 1)",
+          "Aula 3 - Poderes Administrativos (Parte 2)", "Aula 3 - Poderes Administrativos (Parte 3)", "Aula 3 - Poderes Administrativos (Parte 4)", "Aula 3 - Organização Administrativa (Parte 1)", "Aula 3 - Organização Administrativa (Parte 2)",
+          "Aula 4 - Organização Administrativa (Parte 3)", "Aula 4 - Organização Administrativa (Parte 4)", "Aula 4 - Organização Administrativa (Parte 5)", "Aula 4 - Organização Administrativa (Parte 6)", "Aula 4 - Organização Administrativa (Parte 7)",
+          "Aula 5 - 3º Setor (Parte 1)", "Aula 5 - 3º Setor (Parte 2)", "Aula 5 - Consórcio Público", "Aula 5 - Responsabilidade Civil do Estado (Parte 1)", "Aula 5 - Responsabilidade Civil do Estado (Parte 2)",
+          "Aula 6 - Responsabilidade Civil do Estado (Parte 3)", "Aula 6 - Responsabilidade Civil do Estado (Parte 4)", "Aula 6 - Licitações (Parte 1)", "Aula 6 - Licitações (Parte 2)", "Aula 6 - Licitações (Parte 3)",
+          "Aula 7 - Licitações (Parte 4)", "Aula 7 - Licitações (Parte 5)", "Aula 7 - Licitações (Parte 6)", "Aula 7 - Licitações (Parte 7)", "Aula 7 - Licitações (Parte 8)",
+          "Aula 8 - Licitações (Parte 9)", "Aula 8 - Licitações (Parte 10)", "Aula 8 - Licitações (Parte 11)", "Aula 8 - Licitações (Parte 12)", "Aula 8 - Licitações (Parte 13)", "Aula 8 - Licitações (Parte 14)",
+          "Licitações - Atualização Licitações Decreto 12.343", "Licitações - Atualização Licitações Lei 14.770",
+          "Aula 9 - Contratos Administrativos (Parte 1)", "Aula 9 - Contratos Administrativos (Parte 2)", "Aula 9 - Contratos Administrativos (Parte 3)", "Aula 9 - Contratos Administrativos (Parte 4)",
+          "Aula 10 - Contratos Administrativos (Parte 5)", "Aula 10 - Contratos (Parte 6)", "Aula 10 - Agentes Públicos (Parte 1)", "Aula 10 - Agentes Públicos (Parte 2)",
+          "Aula 11 - Agentes Públicos (Parte 3)", "Aula 11 - Agentes Públicos (Parte 4)", "Aula 11 - Agentes Públicos (Parte 5)", "Aula 11 - Agentes Públicos (Parte 6)", "Aula 11 - Agentes Públicos (Parte 7)",
+          "Aula 12 - Agentes Públicos (Parte 8)", "Aula 12 - Agentes Públicos (Parte 9)", "Aula 12 - Agentes Públicos (Parte 10)", "Aula 12 - PAD (Parte 1)", "Aula 12 - PAD (Parte 2)",
+          "Aula 13 - Improbidade Administrativa - Conceito e Comentários Iniciais - Aplicação Retroativa (Parte 1)", "Aula 13 - Improbidade Administrativa - ADI 7236 (Parte 2)", "Aula 13 - Improbidade Administrativa - Sujeitos Ativo, Passivo e Tipologia (Parte 3)", "Aula 13 - Improbidade Administrativa - Tipologia da Improbidade (Parte 4)",
+          "Aula 14 - Improbidade Administrativa - Sanções de Improbidade e Procedimento Judicial (Parte 5)", "Aula 14 - Improbidade Administrativa - Do Procedimento Judicial (Parte 6)", "Aula 14 - Improbidade Administrativa - Procedimento Judicial (Parte 7)", "Aula 14 - Improbidade Administrativa - Indisponibilidade de Bens e Comentário Final (Parte 8)", "Aula 14 - Lei Anticorrupção",
+          "Aula 15 - Desapropriação (Parte 1)", "Aula 15 - Desapropriação (Parte 2)", "Aula 15 - Desapropriação (Parte 3)", "Aula 15 - Desapropriação (Parte 4)", "Aula 15 - Desapropriação (Parte 5)",
+          "Aula 16 - Desapropriação (Parte 6)", "Aula 16 - Desapropriação (Parte 7)", "Aula 16 - Intervenção do Estado na Propriedade (Parte 1)", "Aula 16 - Intervenção do Estado na Propriedade (Parte 2)",
+          "Aula 17 - Bens Públicos (Parte 1)", "Aula 17 - Bens Públicos (Parte 2)", "Aula 17 - Bens Públicos (Parte 3)", "Aula 17 - Serviço Público (Parte 1)",
+          "Aula 18 - Serviço Público (Parte 2)", "Aula 18 - Serviço Público (Parte 3)", "Aula 18 - Serviço Público (Parte 4)", "Aula 18 - Serviço Público (Parte 5)", "Aula 18 - Serviço Público (Parte 6)", "Aula 18 - Serviço Público (Parte 7)",
+          "Aula 19 - Princípios (Parte 1)", "Aula 19 - Princípios (Parte 2)", "Aula 19 - Princípios (Parte 3)", "Aula 19 - Princípios (Parte 4)", "Aula 19 - Princípios (Parte 5)",
+          "Aula 20 - Controle da Administração (Parte 1)", "Aula 20 - Controle da Administração (Parte 2)", "Aula 20 - Controle da Administração (Parte 3)", "Aula 20 - Controle da Administração (Parte 4)",
+          "Aula 21 - Controle da Administração (Parte 5)", "Aula 21 - Controle da Administração (Parte 6)", "Aula 21 - Lei 9.784",
+          "Aula Extra - Lei das Estatais (Parte 1)", "Aula Extra - Lei das Estatais (Parte 2)", "Aula Extra - Lei das Estatais (Parte 3)", "Aula Extra - Lei das Estatais (Parte 4)",
+          "Aula LINDB (Parte 1)", "Aula LINDB (Parte 2)", "Aula LINDB (Parte 3)",
+          "Atualização Informativos 2023.2", "Informativos 1º Trimestre 2024 (Parte 1)", "Informativos 1º Trimestre 2024 (Parte 2)", "Informativos 1º Trimestre 2024 (Parte 3)",
+          "Retroatividade da Lei mais Benéfica - Entenda de vez",
+          "Informativos 2024 - 2º Trimestre (Parte 1)", "Informativos 2024 - 2º Trimestre (Parte 2)", "Informativos 2024 - 2º Trimestre (Parte 3)", "Informativos 2024 - 2º Trimestre (Parte 4)",
+          "Aula Extra - Prorrogação e Relicitação de Contratos de Parceria (Parte 1)", "Aula Extra - Prorrogação e Relicitação de Contratos de Parceria (Parte 2)",
+          "Aula de Lei de Acesso à Informação (Parte 1)", "Aula de Lei de Acesso à Informação (Parte 2)", "Aula de Lei de Acesso à Informação (Parte 3)",
+          "Aprofundamento de temas - Bipolaridade do Direito Administrativo", "Aprofundamento de temas - Continuidade Típico-Normativa", "Aprofundamento - Teoria das Circunstâncias Excepcionais",
+          "Informativos 2024 - 3º Trimestre (Parte 1)", "Informativos 2024 - 3º Trimestre (Parte 2)", "Informativos 2024 - 3º Trimestre (Parte 3)",
+          "Tema Aprofundado - Revogação da Revogação; Estabilização dos Efeitos; Teoria da Dupla Garantia e Conduta Irregular",
+          "Informativos 2024 - 4º Trimestre (Parte 1)", "Informativos 2024 - 4º Trimestre (Parte 2)", "Informativos 2024 - 4º Trimestre (Parte 3)",
+          "Informativos 2025 - 1º Trimestre", "Informativos 2025 - 2º Trimestre (Parte 1)", "Informativos 2025 - 2º Trimestre (Parte 2)",
+          "Informativos 2025 - 3º Trimestre (Parte 1)", "Informativos 2025 - 3º Trimestre (Parte 2)", "Informativos 2025 - 4º Trimestre",
+          "Informativos 1º Trimestre de 2026",
+        ],
+      },
+      {
+        nome: "Curso 100% FGV",
+        itens: [
+          "Improbidade Administrativa (Parte 1)", "Improbidade Administrativa (Parte 2)",
+          "Licitações e Contratos (Parte 1)", "Licitações e Contratos (Parte 2)",
+          "Organização Administrativa (Parte 1)", "Organização Administrativa (Parte 2)",
+          "Responsabilidade Civil do Estado", "Poderes Administrativos",
+          "Atos Administrativos e Serviços Públicos (Parte 1)", "Atos Administrativos e Serviços Públicos (Parte 2)", "Atos Administrativos e Serviços Públicos (Parte 3)",
+          "Intervenção do Estado na Propriedade, Desapropriação e Bens Públicos (Parte 1)", "Intervenção do Estado na Propriedade, Desapropriação e Bens Públicos (Parte 2)", "Intervenção do Estado na Propriedade, Desapropriação e Bens Públicos (Parte 3)", "Intervenção do Estado na Propriedade, Desapropriação e Bens Públicos (Parte 4)",
+          "Controle e Princípios",
+          "Retroatividade da Lei mais Benéfica - Entenda de vez",
+          "Lei das Estatais",
+          "100% FGV (Parte 1)", "100% FGV (Parte 2)",
+          "Questões TJ/SC", "Questões TJ/PE", "Questões TJ/MT", "Questões PGM/Vitória", "Questões ENAM 1", "Questões ENAM 4", "Questões DPE/PE e TRF-5 (Parte 2)",
+        ],
+      },
+    ],
+  },
+  {
+    id: "cur_penal",
+    nome: "Direito Penal",
+    itens: expandBlocos(PENAL_TOPICS),
+  },
+  {
+    id: "cur_ppenal",
+    nome: "Direito Processual Penal",
+    itens: expandBlocos(PPENAL_TOPICS),
+  },
+  {
+    id: "cur_penesp",
+    nome: "Leis Penais e Processuais Penais Especiais",
+    itens: [
+      "Lei de Abuso de Autoridade (Lei 13.869/2019)", "Lei do Racismo (Lei 7.716/1989)", "Lei dos Juizados Especiais Criminais (Lei 9.099/1995)",
+      "Lei de Lavagem de Dinheiro (Lei 9.613/1998)", "Lei de Organização Criminosa (Lei 12.850/2013)", "Lei de Drogas (Lei 11.343/2006)",
+      "Lei Maria da Penha (Lei 11.340/2006)", "Lei Henry Borel (Lei 14.344/2022)", "Estatuto do Desarmamento (Lei 10.826/2003)",
+      "Lei das Interceptações Telefônicas (Lei 9.296/1996)", "Lei dos Crimes Hediondos (Lei 8.072/1990)", "Lei de Tortura (Lei 9.455/1997)",
+      "Lei de Identificação Criminal (Lei 12.037/2009)", "Lei dos Crimes Ambientais (Lei 9.605/1998)", "Crimes no CTB (Lei 9.503/1997)",
+      "Crimes Eleitorais (Lei 4.737/1965)", "Crimes contra a Ordem Tributária (Lei 8.137/1990)", "Lei dos Crimes contra o Sistema Financeiro (Lei 7.492/1986)",
+      "Lei das Contravenções Penais (Decreto-Lei 3.688/1941)", "Lei Geral do Esporte (Lei 14.597/2023)", "Lei de Transplante (Lei 9.434/1997)",
+      "Lei de Biossegurança (Lei 11.105/2005)", "Estatuto do Índio (Lei 6.001/1973)", "Lei de Terrorismo (Lei 13.260/2016)",
+      "Crimes na Lei Brasileira de Inclusão da PcD (Lei 13.146/2015)", "Lei de Proteção a Vítimas e Testemunhas (Lei 9.807/1999)",
+      "Lei do Parcelamento do Solo Urbano (Lei 6.766/1979)", "Lei do Genocídio (Lei 2.889/1956)", "Crimes no ECA (Lei 8.069/1990)",
+      "Crimes contra a Propriedade Intelectual (Lei 9.609/1998)", "Crimes contra as Relações de Consumo (Lei 8.078/1990)",
+      "Crimes no Estatuto do Idoso (Lei 10.741/2003)", "Crimes Falimentares (Lei 11.101/2005)",
+    ],
+  },
+];
+function expandBlocos(topics) {
+  return topics.flatMap(([label, n]) =>
+    n === 1 ? [`${label} (Bloco único)`] : Array.from({ length: n }, (_, i) => `${label} (Bloco ${i + 1})`)
+  );
+}
+
+
+const CURSO_KEY_PREFIX = "tjsc-cursos-isolados:";
+
+function subj(id, name, bloco, hasTeoria) {
+  const dims = { leiSeca: LEI_SECA[id], jurisprudencia: JURIS_ITEMS, questoes: TOPICOS[id], anki: ANKI_ITEMS };
+  if (hasTeoria) dims.teoria = TEORIA[id];
+  return { id, name, bloco, dims };
+}
+
+const SECTIONS = [
+  { tier: "base", subjects: [
+    subj("const", "Direito Constitucional", "Bloco II", true),
+    subj("adm", "Direito Administrativo", "Bloco III", true),
+    subj("civil", "Direito Civil", "Bloco I", true),
+    subj("pcivil", "Direito Processual Civil", "Bloco I", true),
+    subj("penal", "Direito Penal", "Bloco II", true),
+    subj("ppenal", "Direito Processual Penal", "Bloco II", true),
+  ]},
+  { tier: "altamedia", subjects: [
+    subj("empres", "Direito Empresarial", "Bloco III", true),
+    subj("trib", "Direito Financeiro e Tributário", "Bloco III", true),
+    subj("cdc", "Direito do Consumidor", "Bloco I", false),
+    subj("eca", "Direito da Criança e do Adolescente", "Bloco I", false),
+    subj("amb", "Direito Ambiental", "Bloco III", false),
+    subj("penesp", "Leis Penais e Processuais Penais Especiais", "Bloco II", false),
+  ]},
+  { tier: "baixamedia", subjects: [
+    subj("civesp", "Leis Civis e Processuais Civis Especiais", "Bloco I", false),
+    subj("eleit", "Direito Eleitoral", "Bloco II", false),
+    subj("dh", "Direitos Humanos", "Bloco III", false),
+    subj("human", "Noções Gerais de Direito e Formação Humanística", "Bloco III", false),
+  ]},
+];
+
+const DIM_LABEL = { teoria: "Teoria", leiSeca: "Lei Seca", jurisprudencia: "Jurisprudência", questoes: "Questões (temas TEC)", anki: "Anki" };
+const DIM_ORDER = ["teoria", "leiSeca", "jurisprudencia", "questoes", "anki"];
+const KEY_PREFIX = "tjsc-matriz5:";
+const SIM_KEY_PREFIX = "tjsc-simulados3:";
+const INFO_KEY_PREFIX = "tjsc-informativos2:";
+
+function App() {
+  const [data, setData] = useState({});
+  const [simData, setSimData] = useState({});
+  const [infoData, setInfoData] = useState({});
+  const [cursoData, setCursoData] = useState({});
+  const [open, setOpen] = useState(null);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const next = {};
+      for (const section of SECTIONS) {
+        for (const s of section.subjects) {
+          for (const dim of DIM_ORDER) {
+            if (!s.dims[dim]) continue;
+            const k = `${s.id}:${dim}`;
+            try {
+              const r = await window.storage.get(KEY_PREFIX + k);
+              next[k] = r ? JSON.parse(r.value) : {};
+            } catch {
+              next[k] = {};
+            }
+          }
+        }
+      }
+      const sim = {};
+      for (const g of SIMULADOS) {
+        for (const p of g.provas) {
+          try {
+            const r = await window.storage.get(SIM_KEY_PREFIX + p);
+            sim[p] = r ? JSON.parse(r.value) : { checked: false, score: "" };
+          } catch {
+            sim[p] = { checked: false, score: "" };
+          }
+        }
+      }
+      const info = {};
+      for (const org of ["stf", "stj"]) {
+        for (const ed of INFORMATIVOS[org]) {
+          const k = `${org}-${ed.num}`;
+          try {
+            const r = await window.storage.get(INFO_KEY_PREFIX + k);
+            info[k] = r ? JSON.parse(r.value) : false;
+          } catch {
+            info[k] = false;
+          }
+        }
+      }
+      const cursos = {};
+      for (const c of CURSOS_ISOLADOS) {
+        const subs = c.sublistas ? c.sublistas.map((s) => s.nome) : [null];
+        for (const sub of subs) {
+          const storeKey = sub ? `${c.id}:${sub}` : c.id;
+          try {
+            const r = await window.storage.get(CURSO_KEY_PREFIX + storeKey);
+            cursos[storeKey] = r ? JSON.parse(r.value) : {};
+          } catch {
+            cursos[storeKey] = {};
+          }
+        }
+      }
+      setData(next);
+      setSimData(sim);
+      setInfoData(info);
+      setCursoData(cursos);
+      setLoaded(true);
+    })();
+  }, []);
+
+  const toggleItem = async (subjId, dim, idx, extra) => {
+    const k = `${subjId}:${dim}`;
+    const cur = data[k] || {};
+    const curItem = cur[idx] || {};
+    const nextItem = extra !== undefined ? { ...curItem, ...extra } : { ...curItem, checked: !curItem.checked };
+    const next = { ...cur, [idx]: nextItem };
+    setData((p) => ({ ...p, [k]: next }));
+    try {
+      await window.storage.set(KEY_PREFIX + k, JSON.stringify(next));
+    } catch {}
+  };
+
+  const toggleSim = async (prova, extra) => {
+    const cur = simData[prova] || { checked: false, score: "" };
+    const next = { ...cur, ...extra };
+    setSimData((p) => ({ ...p, [prova]: next }));
+    try {
+      await window.storage.set(SIM_KEY_PREFIX + prova, JSON.stringify(next));
+    } catch {}
+  };
+
+  const toggleInfo = async (org, num) => {
+    const k = `${org}-${num}`;
+    const next = !infoData[k];
+    setInfoData((p) => ({ ...p, [k]: next }));
+    try {
+      await window.storage.set(INFO_KEY_PREFIX + k, JSON.stringify(next));
+    } catch {}
+  };
+
+  const toggleCurso = async (cursoId, subKey, idx) => {
+    const storeKey = subKey ? `${cursoId}:${subKey}` : cursoId;
+    const cur = cursoData[storeKey] || {};
+    const next = { ...cur, [idx]: !cur[idx] };
+    setCursoData((p) => ({ ...p, [storeKey]: next }));
+    try {
+      await window.storage.set(CURSO_KEY_PREFIX + storeKey, JSON.stringify(next));
+    } catch {}
+  };
+
+  const fraction = (subjId, dim, items) => {
+    const v = data[`${subjId}:${dim}`] || {};
+    const done = items.filter((_, i) => v[i] && v[i].checked).length;
+    return { done, total: items.length };
+  };
+
+  const sectionStats = (section) => {
+    let done = 0, total = 0;
+    for (const s of section.subjects) {
+      for (const dim of DIM_ORDER) {
+        const items = s.dims[dim];
+        if (!items) continue;
+        const f = fraction(s.id, dim, items);
+        total += 1;
+        if (f.done === f.total) done += 1;
+      }
+    }
+    return { done, total };
+  };
+
+  const simDone = Object.values(simData).filter((v) => v.checked).length;
+  const simTotal = SIMULADOS.reduce((a, g) => a + g.provas.length, 0);
+
+  const matriz = SECTIONS.reduce(
+    (a, sec) => { const st = sectionStats(sec); return { done: a.done + st.done, total: a.total + st.total }; },
+    { done: 0, total: 0 }
+  );
+  const infoTotal = INFORMATIVOS.stf.length + INFORMATIVOS.stj.length;
+  const infoDone = Object.values(infoData).filter(Boolean).length;
+  const pct = (d, t) => (t ? Math.round((d / t) * 100) : 0);
+
+  const Bar = ({ done, total, color }) => (
+    <div className="bar"><i style={{ width: `${pct(done, total)}%`, background: color || "var(--gold)" }} /></div>
+  );
+
+  return (
+    <div className="root">
+      <style>{`
+        :root {
+          --bg:#0a0e13; --surface:#141a22; --surface-2:#1a212b; --surface-3:#212a35;
+          --line:rgba(255,255,255,.07); --line-2:rgba(255,255,255,.12);
+          --text:#eae7df; --muted:#95a1b0; --faint:#69737f;
+          --gold:#f0c85a; --coral:#e8837a; --green:#59c98a; --green-bg:rgba(89,201,138,.14);
+        }
+        * { box-sizing: border-box; }
+        .root {
+          font-family: 'Inter',-apple-system,'Segoe UI',sans-serif;
+          color: var(--text);
+          min-height: 100%;
+          padding: 0 18px 80px;
+          background:
+            radial-gradient(1100px 520px at 15% -8%, rgba(240,200,90,.09), transparent 60%),
+            radial-gradient(900px 480px at 92% 4%, rgba(127,150,196,.10), transparent 60%),
+            var(--bg);
+        }
+        .serif { font-family: 'Iowan Old Style','Georgia',serif; }
+        .mono { font-family: 'SF Mono','JetBrains Mono','Consolas',monospace; font-variant-numeric: tabular-nums; }
+        .wrap { max-width: 1080px; margin: 0 auto; }
+        input[type=checkbox] { accent-color: var(--gold); width: 15px; height: 15px; cursor: pointer; }
+
+        /* ---- hero ---- */
+        .hero { padding: 40px 0 26px; }
+        .eyebrow { font-size: 11px; letter-spacing: 2.4px; text-transform: uppercase; color: var(--gold); font-weight: 600; margin: 0 0 10px; }
+        .hero h1 { font-size: clamp(26px, 4vw, 38px); line-height: 1.08; margin: 0 0 10px; letter-spacing: -.5px; font-weight: 600; }
+        .hero h1 em { font-style: normal; color: var(--gold); }
+        .hero p { font-size: 14px; color: var(--muted); margin: 0; max-width: 640px; line-height: 1.5; }
+        .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 26px; }
+        .stat { background: linear-gradient(180deg, var(--surface), rgba(20,26,34,.6));
+          border: 1px solid var(--line); border-radius: 16px; padding: 16px 18px; }
+        .stat-top { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
+        .stat-label { font-size: 12px; color: var(--muted); font-weight: 500; }
+        .stat-num { font-size: 15px; } .stat-num b { font-size: 22px; font-weight: 700; } .stat-num span { color: var(--faint); }
+        .stat-pct { font-size: 12px; font-weight: 600; }
+
+        /* ---- generic bar ---- */
+        .bar { height: 6px; border-radius: 99px; background: rgba(255,255,255,.08); overflow: hidden; }
+        .bar > i { display: block; height: 100%; border-radius: 99px; transition: width .35s ease; }
+
+        /* ---- tier ---- */
+        .tier { background: var(--surface); border: 1px solid var(--line); border-radius: 20px;
+          padding: 6px 22px 22px; margin-bottom: 22px; }
+        .tier-head { display: flex; align-items: center; gap: 14px; padding: 20px 2px 16px; }
+        .tier-badge { width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center;
+          font-weight: 700; font-size: 15px; color: #10141a; flex-shrink: 0; }
+        .tier-title { font-size: 16px; font-weight: 650; margin: 0; letter-spacing: -.2px; }
+        .tier-sub { font-size: 12px; color: var(--faint); margin-top: 1px; }
+        .tier-count { margin-left: auto; text-align: right; font-size: 12px; color: var(--muted); white-space: nowrap; }
+
+        /* ---- subject ---- */
+        .subj { padding: 15px 0; border-top: 1px solid var(--line); }
+        .subj:first-of-type { border-top: none; }
+        .subj-head { display: flex; align-items: center; gap: 10px; margin-bottom: 11px; }
+        .subj-name { font-size: 15px; font-weight: 600; color: var(--coral); letter-spacing: -.2px; }
+        .bloco { font-size: 10.5px; font-weight: 600; letter-spacing: .3px; color: var(--muted);
+          background: var(--surface-3); border: 1px solid var(--line-2); border-radius: 99px; padding: 3px 9px; }
+        .cells { display: grid; grid-template-columns: repeat(var(--n,5), 1fr); gap: 9px; }
+        @media (max-width: 720px) { .cells { grid-template-columns: repeat(2, 1fr) !important; } }
+
+        .cell { position: relative; border: 1px solid var(--line-2); background: var(--surface-2);
+          border-radius: 13px; padding: 11px 12px 12px; cursor: pointer; text-align: left; color: var(--text);
+          font-family: inherit; transition: transform .12s, border-color .15s, background .15s; overflow: hidden; }
+        .cell:hover { transform: translateY(-2px); border-color: rgba(255,255,255,.2); background: var(--surface-3); }
+        .cell-label { font-size: 11.5px; font-weight: 600; color: var(--muted); display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+        .cell-frac { font-size: 19px; font-weight: 700; margin: 7px 0 9px; letter-spacing: -.5px; }
+        .cell-frac small { font-size: 12px; font-weight: 500; color: var(--faint); }
+        .cell[data-state="partial"] { border-color: rgba(240,200,90,.4); }
+        .cell[data-state="partial"] .cell-frac { color: var(--gold); }
+        .cell[data-state="done"] { border-color: rgba(89,201,138,.5); background: var(--green-bg); }
+        .cell[data-state="done"] .cell-frac { color: var(--green); }
+        .cell[data-state="done"] .cell-label { color: var(--green); }
+        .check { width: 16px; height: 16px; border-radius: 50%; background: var(--green); color: #06120b;
+          display: grid; place-items: center; font-size: 10px; font-weight: 900; }
+
+        /* ---- popover ---- */
+        .pop { position: absolute; top: calc(100% + 8px); left: 0; z-index: 40; width: 340px; max-width: 88vw;
+          max-height: 360px; overflow-y: auto; background: rgba(24,31,40,.97); backdrop-filter: blur(14px);
+          border: 1px solid var(--line-2); border-radius: 16px; padding: 14px;
+          box-shadow: 0 20px 50px rgba(0,0,0,.55); animation: pop .16s ease; }
+        @keyframes pop { from { opacity:0; transform: translateY(-6px) scale(.98);} to {opacity:1; transform:none;} }
+        .pop-head { display: flex; align-items: baseline; justify-content: space-between;
+          padding-bottom: 10px; margin-bottom: 10px; border-bottom: 1px solid var(--line); position: sticky; top: -14px;
+          background: rgba(24,31,40,.98); }
+        .pop-head b { font-size: 13px; } .pop-head span { font-size: 11px; color: var(--faint); }
+        .pop-item { padding: 6px; border-radius: 8px; margin-bottom: 2px; }
+        .pop-item:hover { background: rgba(255,255,255,.04); }
+        .pop-item label { display: flex; align-items: flex-start; gap: 9px; font-size: 12.5px; cursor: pointer; line-height: 1.35; }
+        .pop-item label > span { flex: 1; }
+        .pop-item.checked label > span { color: var(--faint); text-decoration: line-through; text-decoration-color: rgba(255,255,255,.25); }
+        .field { width: 100%; margin: 6px 0 0 24px; background: var(--bg); border: 1px solid var(--line-2);
+          border-radius: 7px; color: var(--text); font-size: 11.5px; padding: 5px 8px; font-family: inherit; }
+        .field:focus { outline: none; border-color: var(--gold); }
+        .score { width: 54px; background: var(--bg); border: 1px solid var(--line-2); border-radius: 7px;
+          color: var(--text); font-size: 12px; padding: 4px 6px; text-align: center; font-family: inherit; flex-shrink: 0; }
+        .score:focus { outline: none; border-color: var(--gold); }
+
+        /* ---- panels (info / simulados / cursos) ---- */
+        .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 24px; margin-top: 22px; }
+        .panel-head { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+        .panel-head h2 { font-size: 15px; font-weight: 650; margin: 0; letter-spacing: .2px; }
+        .panel-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 12px var(--gold); }
+        .panel-count { margin-left: auto; font-size: 12px; color: var(--muted); }
+        .panel p.desc { font-size: 12.5px; color: var(--faint); margin: 0 0 18px; line-height: 1.5; }
+        .col-label { font-size: 11px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin-bottom: 9px; }
+
+        .info-row, .sim-row { display: flex; align-items: center; gap: 10px; font-size: 13px; padding: 9px 12px;
+          border-radius: 11px; background: var(--surface-2); border: 1px solid var(--line); margin-bottom: 7px; cursor: pointer; transition: background .15s; }
+        .info-row:hover, .sim-row:hover { background: var(--surface-3); }
+        .info-row .date { margin-left: auto; }
+
+        .curso-box { background: var(--surface-2); border: 1px solid var(--line); border-radius: 13px;
+          padding: 12px 14px; max-height: 260px; overflow-y: auto; }
+        .curso-item { display: flex; align-items: flex-start; gap: 9px; font-size: 12.5px; padding: 4px 0; cursor: pointer; line-height: 1.4; }
+        .curso-item.checked > span:last-child { color: var(--faint); text-decoration: line-through; text-decoration-color: rgba(255,255,255,.25); }
+        .idx { color: var(--faint); flex-shrink: 0; font-size: 11px; }
+      `}</style>
+
+      <div className="wrap">
+        {/* ---------- HERO ---------- */}
+        <header className="hero">
+          <p className="eyebrow">Concurso · TJSC</p>
+          <h1 className="serif">Magistratura TJSC — <em>Matriz de Estudo</em></h1>
+          <p>Clique em qualquer célula para abrir o checklist daquela fonte. O bloco da prova aparece ao lado de cada matéria. Seu progresso é salvo automaticamente.</p>
+
+          <div className="stats">
+            <div className="stat">
+              <div className="stat-top">
+                <span className="stat-label">Matriz · fontes completas</span>
+                <span className="stat-pct" style={{ color: "var(--gold)" }}>{pct(matriz.done, matriz.total)}%</span>
+              </div>
+              <div className="stat-num" style={{ marginBottom: 10 }}><b>{matriz.done}</b><span> / {matriz.total}</span></div>
+              <Bar done={matriz.done} total={matriz.total} color="var(--gold)" />
+            </div>
+            <div className="stat">
+              <div className="stat-top">
+                <span className="stat-label">Simulados resolvidos</span>
+                <span className="stat-pct" style={{ color: "var(--coral)" }}>{pct(simDone, simTotal)}%</span>
+              </div>
+              <div className="stat-num" style={{ marginBottom: 10 }}><b>{simDone}</b><span> / {simTotal}</span></div>
+              <Bar done={simDone} total={simTotal} color="var(--coral)" />
+            </div>
+            <div className="stat">
+              <div className="stat-top">
+                <span className="stat-label">Informativos lidos</span>
+                <span className="stat-pct" style={{ color: "#7f96c4" }}>{pct(infoDone, infoTotal)}%</span>
+              </div>
+              <div className="stat-num" style={{ marginBottom: 10 }}><b>{infoDone}</b><span> / {infoTotal}</span></div>
+              <Bar done={infoDone} total={infoTotal} color="#7f96c4" />
+            </div>
+          </div>
+        </header>
+
+        {/* ---------- MATRIZ ---------- */}
+        {SECTIONS.map((section) => {
+          const meta = TIER_META[section.tier];
+          const stats = sectionStats(section);
+          return (
+            <section key={section.tier} className="tier">
+              <div className="tier-head">
+                <div className="tier-badge" style={{ background: meta.color }}>{meta.n}</div>
+                <div>
+                  <h2 className="tier-title" style={{ color: meta.color }}>{meta.label}</h2>
+                  <div className="tier-sub">{meta.sub}</div>
+                </div>
+                <div className="tier-count">
+                  <div>{stats.done}/{stats.total} completos</div>
+                  <div style={{ width: 120, marginTop: 6 }}><Bar done={stats.done} total={stats.total} color={meta.color} /></div>
+                </div>
+              </div>
+
+              {section.subjects.map((s) => {
+                const dims = DIM_ORDER.filter((d) => s.dims[d]);
+                return (
+                  <div key={s.id} className="subj">
+                    <div className="subj-head">
+                      <span className="subj-name">{s.name}</span>
+                      <span className="bloco">{s.bloco}</span>
+                    </div>
+                    <div className="cells" style={{ "--n": dims.length }}>
+                      {dims.map((dim) => {
+                        const items = s.dims[dim];
+                        const f = fraction(s.id, dim, items);
+                        const ratio = f.total ? f.done / f.total : 0;
+                        const state = ratio === 1 ? "done" : ratio > 0 ? "partial" : "empty";
+                        const barColor = ratio === 1 ? "var(--green)" : "var(--gold)";
+                        const key = `${s.id}:${dim}`;
+                        const showNote = dim === "leiSeca";
+                        const showScore = dim === "questoes";
+                        return (
+                          <div key={dim} style={{ position: "relative" }}>
+                            <button className="cell" data-state={state} onClick={() => setOpen(open === key ? null : key)}>
+                              <div className="cell-label">
+                                {DIM_LABEL[dim]}
+                                {state === "done" && <span className="check">✓</span>}
+                              </div>
+                              <div className="cell-frac mono">{f.done}<small> /{f.total}</small></div>
+                              <Bar done={f.done} total={f.total} color={barColor} />
+                            </button>
+                            {open === key && (
+                              <div className="pop">
+                                <div className="pop-head">
+                                  <b>{DIM_LABEL[dim]}</b>
+                                  <span className="mono">{f.done}/{f.total}</span>
+                                </div>
+                                {items.map((label, idx) => {
+                                  const v = (data[key] || {})[idx] || {};
+                                  return (
+                                    <div key={idx} className={`pop-item${v.checked ? " checked" : ""}`}>
+                                      <label>
+                                        <input type="checkbox" checked={!!v.checked} onChange={() => toggleItem(s.id, dim, idx)} style={{ marginTop: 1 }} />
+                                        <span>{label}</span>
+                                        {showScore && (
+                                          <input className="score mono" placeholder="%" value={v.score || ""} onClick={(e) => e.stopPropagation()} onChange={(e) => toggleItem(s.id, dim, idx, { score: e.target.value })} />
+                                        )}
+                                      </label>
+                                      {showNote && (
+                                        <input className="field" placeholder="até qual artigo li..." value={v.note || ""} onClick={(e) => e.stopPropagation()} onChange={(e) => toggleItem(s.id, dim, idx, { note: e.target.value })} />
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </section>
+          );
+        })}
+
+        {/* ---------- INFORMATIVOS ---------- */}
+        <section className="panel">
+          <div className="panel-head">
+            <span className="panel-dot" />
+            <h2>Informativos — edições</h2>
+            <span className="panel-count mono">{infoDone}/{infoTotal} lidos</span>
+          </div>
+          <p className="desc">Transversal. Edições reais mais recentes conhecidas — peça pra eu atualizar semanalmente. STF entra em recesso forense em julho, então pode pausar por algumas semanas.</p>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 22 }}>
+            <div>
+              <div className="col-label">STF</div>
+              {INFORMATIVOS.stf.map((ed) => (
+                <div key={ed.num} className="info-row" onClick={() => toggleInfo("stf", ed.num)}>
+                  <input type="checkbox" checked={!!infoData[`stf-${ed.num}`]} onChange={() => {}} />
+                  <span>Informativo {ed.num}</span>
+                  <span className="date mono" style={{ fontSize: 11, color: "var(--faint)" }}>{ed.date}</span>
+                </div>
+              ))}
+            </div>
+            <div>
+              <div className="col-label">STJ</div>
+              {INFORMATIVOS.stj.map((ed) => (
+                <div key={ed.num} className="info-row" onClick={() => toggleInfo("stj", ed.num)}>
+                  <input type="checkbox" checked={!!infoData[`stj-${ed.num}`]} onChange={() => {}} />
+                  <span>Informativo {ed.num}</span>
+                  <span className="date mono" style={{ fontSize: 11, color: "var(--faint)" }}>{ed.date}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* ---------- SIMULADOS ---------- */}
+        <section className="panel">
+          <div className="panel-head">
+            <span className="panel-dot" style={{ background: "var(--coral)", boxShadow: "0 0 12px var(--coral)" }} />
+            <h2>Simulados — provas anteriores (2024–2026)</h2>
+            <span className="panel-count mono">{simDone}/{simTotal} resolvidas</span>
+          </div>
+          <p className="desc">Inclui ENAM (pré-requisito nacional) + magistratura, MP e federal de 2024/2025/2026. Peça atualização de tempos em tempos.</p>
+          {SIMULADOS.map((g) => (
+            <div key={g.grupo} style={{ marginBottom: 16 }}>
+              <div className="col-label">{g.grupo}</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(270px, 1fr))", gap: 7 }}>
+                {g.provas.map((p) => {
+                  const v = simData[p] || { checked: false, score: "" };
+                  return (
+                    <div key={p} className="sim-row" onClick={() => toggleSim(p, { checked: !v.checked })}>
+                      <input type="checkbox" checked={v.checked} onChange={() => {}} />
+                      <span style={{ flex: 1 }}>{p}</span>
+                      <input className="score mono" placeholder="%" value={v.score} onClick={(e) => e.stopPropagation()} onChange={(e) => toggleSim(p, { score: e.target.value })} />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </section>
+
+        {/* ---------- CURSOS ISOLADOS ---------- */}
+        <section className="panel">
+          <div className="panel-head">
+            <span className="panel-dot" style={{ background: "#7f96c4", boxShadow: "0 0 12px #7f96c4" }} />
+            <h2>Cursos isolados</h2>
+          </div>
+          <p className="desc">Cursos em vídeo separados, fora da matriz principal. Marque conforme for assistindo cada aula/tópico.</p>
+          {CURSOS_ISOLADOS.map((c) => {
+            if (c.sublistas) {
+              return (
+                <div key={c.id} style={{ marginBottom: 20 }}>
+                  <div className="subj-name" style={{ marginBottom: 10 }}>{c.nome}</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+                    {c.sublistas.map((sub) => {
+                      const storeKey = `${c.id}:${sub.nome}`;
+                      const v = cursoData[storeKey] || {};
+                      const done = sub.itens.filter((_, i) => v[i]).length;
+                      return (
+                        <div key={sub.nome}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8, gap: 8 }}>
+                            <span className="col-label" style={{ marginBottom: 0 }}>{sub.nome}</span>
+                            <span className="mono" style={{ fontSize: 11, color: "var(--faint)" }}>{done}/{sub.itens.length}</span>
+                          </div>
+                          <div style={{ marginBottom: 10 }}><Bar done={done} total={sub.itens.length} color="#7f96c4" /></div>
+                          <div className="curso-box">
+                            {sub.itens.map((item, idx) => (
+                              <label key={idx} className={`curso-item${v[idx] ? " checked" : ""}`}>
+                                <input type="checkbox" checked={!!v[idx]} onChange={() => toggleCurso(c.id, sub.nome, idx)} style={{ marginTop: 2 }} />
+                                <span className="idx mono">{idx + 1}.</span>
+                                <span>{item}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            }
+            const v = cursoData[c.id] || {};
+            const done = c.itens.filter((_, i) => v[i]).length;
+            return (
+              <div key={c.id} style={{ marginBottom: 20 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8, gap: 8 }}>
+                  <span className="subj-name">{c.nome}</span>
+                  <span className="mono" style={{ fontSize: 11, color: "var(--faint)" }}>{done}/{c.itens.length}</span>
+                </div>
+                <div style={{ marginBottom: 10 }}><Bar done={done} total={c.itens.length} color="#7f96c4" /></div>
+                <div className="curso-box">
+                  {c.itens.map((item, idx) => (
+                    <label key={idx} className={`curso-item${v[idx] ? " checked" : ""}`}>
+                      <input type="checkbox" checked={!!v[idx]} onChange={() => toggleCurso(c.id, null, idx)} style={{ marginTop: 2 }} />
+                      <span>{item}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </section>
+
+        {!loaded && <div style={{ textAlign: "center", color: "var(--faint)", fontSize: 12, marginTop: 24 }}>carregando progresso salvo...</div>}
+      </div>
+    </div>
+  );
+}
+
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+document.getElementById('boot').classList.add('hide');
+</script>
+
+<script>
+// Exportar / Importar backup (todas as chaves tjsc-*)
+function collect(){
+  var o = {};
+  for (var i = 0; i < localStorage.length; i++){
+    var k = localStorage.key(i);
+    if (k && k.indexOf('tjsc-') === 0) o[k] = localStorage.getItem(k);
+  }
+  return o;
+}
+document.getElementById('btnExport').onclick = function(){
+  var data = { _app: 'matriz-tjsc', _exportadoEm: new Date().toISOString(), dados: collect() };
+  var blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'matriz-tjsc-backup-' + new Date().toISOString().slice(0,10) + '.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+document.getElementById('btnImport').onclick = function(){ document.getElementById('file').click(); };
+document.getElementById('file').onchange = function(e){
+  var f = e.target.files[0];
+  if (!f) return;
+  var r = new FileReader();
+  r.onload = function(){
+    try {
+      var parsed = JSON.parse(r.result);
+      var dados = parsed.dados || parsed;
+      var n = 0;
+      Object.keys(dados).forEach(function(k){
+        if (k.indexOf('tjsc-') === 0) { localStorage.setItem(k, dados[k]); n++; }
+      });
+      alert('Backup importado: ' + n + ' registros restaurados. A pagina vai recarregar.');
+      location.reload();
+    } catch (err) {
+      alert('Arquivo invalido. Selecione um backup .json exportado por este painel.');
+    }
+  };
+  r.readAsText(f);
+};
+</script>
+</body>
+</html>
