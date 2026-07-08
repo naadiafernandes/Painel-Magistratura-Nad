@@ -28,6 +28,17 @@
   #toolbar .brand{font-size:12px;font-weight:700;letter-spacing:.4px;color:#f0c85a;}
   #app-root{padding-top:46px;}
   input#file{display:none;}
+  #toolbar .theme-btn{width:30px;height:30px;padding:0;font-size:15px;line-height:1;display:inline-grid;place-items:center;}
+  #toolbar .theme-btn.on{border-color:#f0c85a;color:#f0c85a;}
+  /* ---- tema claro ---- */
+  html[data-theme="light"],html[data-theme="light"] body{background:#f4f1ea;}
+  html[data-theme="light"] #boot{background:#f4f1ea;color:#6a6357;}
+  html[data-theme="light"] #toolbar{background:rgba(244,241,234,.85);border-bottom-color:rgba(0,0,0,.08);}
+  html[data-theme="light"] #toolbar button{color:#2a2620;background:#ffffff;border-color:rgba(0,0,0,.14);}
+  html[data-theme="light"] #toolbar button:hover{background:#ece8df;}
+  html[data-theme="light"] #toolbar .brand{color:#b7860f;}
+  html[data-theme="light"] #toolbar .theme-btn.on{border-color:#b7860f;color:#b7860f;}
+  html[data-theme="light"] #toolbar #status{color:#2fa96a;}
 </style>
 </head>
 <body>
@@ -37,6 +48,8 @@
   <span class="brand">&#9878; MagisNAD</span>
   <span id="status">salvo &#10003;</span>
   <span class="sp"></span>
+  <button id="btnLight" class="theme-btn" title="Tema claro">&#9728;</button>
+  <button id="btnDark" class="theme-btn" title="Tema escuro">&#9789;</button>
   <button id="btnExport" title="Baixar um backup .json com todo o seu progresso">Exportar backup</button>
   <button id="btnImport" title="Restaurar/mesclar um backup em outro aparelho ou navegador">Importar</button>
   <input id="file" type="file" accept="application/json,.json" />
@@ -46,6 +59,8 @@
 
 <!-- PONTE: dá ao componente um window.storage real, gravando no localStorage do navegador -->
 <script>
+// aplica o tema salvo o quanto antes (evita "flash")
+(function(){ document.documentElement.setAttribute('data-theme', localStorage.getItem('magisnad-theme') || 'dark'); })();
 window.storage = {
   get: function(k){ var v = localStorage.getItem(k); return Promise.resolve(v == null ? null : { value: v }); },
   set: function(k, v){ localStorage.setItem(k, v); return Promise.resolve(); }
@@ -89,6 +104,17 @@ document.getElementById('btnExport').onclick = function(){
   a.click();
   URL.revokeObjectURL(a.href);
 };
+// alternância de tema (sol/lua)
+function syncThemeBtns(){
+  var t = document.documentElement.getAttribute('data-theme');
+  document.getElementById('btnLight').classList.toggle('on', t === 'light');
+  document.getElementById('btnDark').classList.toggle('on', t !== 'light');
+}
+function setTheme(t){ document.documentElement.setAttribute('data-theme', t); localStorage.setItem('magisnad-theme', t); syncThemeBtns(); }
+document.getElementById('btnLight').onclick = function(){ setTheme('light'); };
+document.getElementById('btnDark').onclick = function(){ setTheme('dark'); };
+syncThemeBtns();
+
 document.getElementById('btnImport').onclick = function(){ document.getElementById('file').click(); };
 document.getElementById('file').onchange = function(e){
   var f = e.target.files[0];
