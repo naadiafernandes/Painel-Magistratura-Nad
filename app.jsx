@@ -1397,7 +1397,7 @@ export default function App() {
         .pop-item label { display: flex; align-items: flex-start; gap: 9px; font-size: 12.5px; cursor: pointer; line-height: 1.35; }
         .pop-item label > span { flex: 1; }
         .pop-item.checked label > span { color: var(--faint); text-decoration: line-through; text-decoration-color: rgba(255,255,255,.25); }
-        .field { width: 100%; margin: 6px 0 0 24px; background: var(--bg); border: 1px solid var(--line-2);
+        .field { width: calc(100% - 24px); margin: 6px 0 0 24px; background: var(--bg); border: 1px solid var(--line-2);
           border-radius: 7px; color: var(--text); font-size: 11.5px; padding: 5px 8px; font-family: inherit; }
         .field:focus { outline: none; border-color: var(--gold); }
         .score { width: 54px; background: var(--bg); border: 1px solid var(--line-2); border-radius: 7px;
