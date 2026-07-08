@@ -46,15 +46,24 @@ const SIMULADOS_BANCA = {
   "ENAM 2024 — 1ª Edição (2024.1)": "FGV",
 };
 
-// Cor de cada banca para a tag (fundo translúcido + texto na cor sólida)
-const BANCA_COLORS = {
-  FGV: "#f0c85a",
-  Vunesp: "#7fb8e8",
-  FAPEC: "#c090e8",
-  "CEFET-BA": "#e8a05a",
-  Própria: "#95a1b0",
+// Cor de cada banca para a tag (matiz/saturação/luminosidade, para poder variar a opacidade)
+const BANCA_HSL = {
+  FGV: [45, 76, 63],
+  Vunesp: [205, 66, 70],
+  FAPEC: [280, 60, 73],
+  "CEFET-BA": [30, 70, 65],
+  Própria: [210, 8, 65],
 };
-function bancaColor(b) { return BANCA_COLORS[b] || "#95a1b0"; }
+// Bancas fora do mapa fixo (ex.: digitadas manualmente) ganham uma cor gerada
+// por hash do nome — sempre a mesma cor para o mesmo nome, sem precisar cadastrar.
+function bancaHSL(b) {
+  if (BANCA_HSL[b]) return BANCA_HSL[b];
+  let hash = 0;
+  for (let i = 0; i < b.length; i++) hash = (hash * 31 + b.charCodeAt(i)) >>> 0;
+  return [hash % 360, 62, 63];
+}
+function bancaColor(b) { const [h, s, l] = bancaHSL(b); return `hsl(${h}, ${s}%, ${l}%)`; }
+function bancaBg(b, alpha) { const [h, s, l] = bancaHSL(b); return `hsla(${h}, ${s}%, ${l}%, ${alpha})`; }
 
 // Edições mais recentes — atualizadas automaticamente aos domingos (robô semanal).
 // A URL do PDF é derivada do número pela função infoUrl().
@@ -949,6 +958,7 @@ export default function App() {
   const [simHidden, setSimHidden] = useState([]);
   const [manNome, setManNome] = useState("");
   const [manAno, setManAno] = useState("");
+  const [manBanca, setManBanca] = useState("");
   const [matAddInput, setMatAddInput] = useState("");
   const [open, setOpen] = useState(null);
   const [flash, setFlash] = useState(null);
@@ -1077,10 +1087,11 @@ export default function App() {
   const addManual = () => {
     const nome = manNome.trim();
     const ano = (manAno.trim() || String(new Date().getFullYear()));
+    const banca = manBanca.trim();
     if (!nome) return;
     if (simManuais.some((m) => m.nome === nome && m.ano === ano)) { setManNome(""); return; }
-    saveManuais([...simManuais, { nome, ano }]);
-    setManNome(""); setManAno("");
+    saveManuais([...simManuais, { nome, ano, banca: banca || null }]);
+    setManNome(""); setManAno(""); setManBanca("");
   };
   const removeManual = (nome, ano) => saveManuais(simManuais.filter((m) => !(m.nome === nome && m.ano === ano)));
   const saveHidden = (arr) => {
@@ -1269,7 +1280,7 @@ export default function App() {
       byYear[g.grupo] = (byYear[g.grupo] || []).concat(g.provas.filter((p) => !simHidden.includes(p)).map((p) => ({ nome: p, manual: false, banca: SIMULADOS_BANCA[p] || null })));
     });
     simManuais.forEach((m) => {
-      byYear[m.ano] = (byYear[m.ano] || []).concat([{ nome: m.nome, ano: m.ano, manual: true }]);
+      byYear[m.ano] = (byYear[m.ano] || []).concat([{ nome: m.nome, ano: m.ano, manual: true, banca: m.banca || null }]);
     });
     return Object.keys(byYear)
       .filter((ano) => byYear[ano].length > 0)
@@ -1543,10 +1554,12 @@ export default function App() {
         .edital-line:hover { background: var(--surface-2); }
         .edital-line.checked .edital-txt { color: var(--faint); text-decoration: line-through; text-decoration-color: rgba(255,255,255,.22); }
         .edital-n { color: var(--gold); font-weight: 700; flex-shrink: 0; min-width: 22px; }
-        .edital-txt { font-weight: 650; }
+        .edital-txt { font-weight: 400; }
+        .edital-txt.b { font-weight: 650; }
         .edital-sub { margin-left: 26px; font-size: 12.5px; }
         .edital-sub .edital-n { color: var(--muted); font-weight: 600; min-width: 26px; }
-        .edital-sub .edital-txt { font-weight: 400; }
+        .edital-subsub { margin-left: 50px; font-size: 12px; }
+        .edital-subsub .edital-n { color: var(--faint); font-weight: 600; min-width: 28px; }
 
         /* post-it de PRIORIDADES */
         .postit { width: 300px; margin: 22px 0 4px auto; background: #f7e7a3; color: #3a3320;
@@ -1576,7 +1589,9 @@ export default function App() {
           border-radius: 9px; padding: 9px 11px; font: inherit; font-size: 13px; color: var(--text); }
         .man-ano { width: 70px; background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 9px;
           padding: 9px 10px; font: inherit; font-size: 13px; color: var(--text); text-align: center; }
-        .man-nome:focus, .man-ano:focus { outline: none; border-color: var(--coral); }
+        .man-banca { width: 110px; background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 9px;
+          padding: 9px 10px; font: inherit; font-size: 13px; color: var(--text); text-align: center; }
+        .man-nome:focus, .man-ano:focus, .man-banca:focus { outline: none; border-color: var(--coral); }
         .man-btn { cursor: pointer; background: var(--surface-3); border: 1px solid var(--line-2); border-radius: 9px;
           padding: 9px 14px; font: inherit; font-size: 13px; font-weight: 600; color: var(--text); }
         .man-btn:hover { border-color: var(--coral); color: var(--coral); }
@@ -1935,7 +1950,7 @@ export default function App() {
                             <button className="sim-name" onClick={() => setOpenProva(isOpen ? null : nome)}>
                               <span className="sim-arrow">{isOpen ? "▾" : "▸"}</span>
                               <span style={{ flex: 1 }}>{nome}</span>
-                              {p.banca && <span className="banca-tag" style={{ background: bancaColor(p.banca) + "22", color: bancaColor(p.banca), border: "1px solid " + bancaColor(p.banca) + "55" }}>{p.banca}</span>}
+                              {p.banca && <span className="banca-tag" style={{ background: bancaBg(p.banca, .16), color: bancaColor(p.banca), border: "1px solid " + bancaBg(p.banca, .4) }}>{p.banca}</span>}
                               {tot && <span className="sim-frac mono">{tot.a}/{tot.q}</span>}
                               <span className="sim-overall mono">{tot == null ? "—" : tot.pct + "%"}</span>
                             </button>
@@ -1979,6 +1994,8 @@ export default function App() {
               onChange={(e) => setManNome(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") addManual(); }} />
             <input className="man-ano" placeholder="ano" value={manAno}
               onChange={(e) => setManAno(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") addManual(); }} />
+            <input className="man-banca" placeholder="banca (opcional)" value={manBanca}
+              onChange={(e) => setManBanca(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") addManual(); }} />
             <button className="man-btn" onClick={addManual}>+ Adicionar</button>
           </div>
         </section>
