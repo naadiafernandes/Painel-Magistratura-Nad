@@ -304,9 +304,14 @@ function expandBlocos(topics) {
 
 const CURSO_KEY_PREFIX = "tjsc-cursos-isolados:";
 
+// Matérias cuja "Teoria" É o curso em vídeo (nos Cursos Isolados), e não uma lista de tópicos.
+// Clicar em "Teoria" leva direto ao curso correspondente e mostra o progresso dele.
+const CURSO_TEORIA = { adm: "cur_adm", penal: "cur_penal", ppenal: "cur_ppenal", penesp: "cur_penesp" };
+
 function subj(id, name, bloco, hasTeoria) {
   const dims = { leiSeca: LEI_SECA[id], jurisprudencia: JURIS_ITEMS, questoes: TOPICOS[id], anki: ANKI_ITEMS };
-  if (hasTeoria) dims.teoria = TEORIA[id];
+  if (CURSO_TEORIA[id]) dims.teoria = { curso: CURSO_TEORIA[id] };
+  else if (hasTeoria) dims.teoria = TEORIA[id];
   return { id, name, bloco, dims };
 }
 
@@ -347,6 +352,7 @@ function App() {
   const [infoData, setInfoData] = useState({});
   const [cursoData, setCursoData] = useState({});
   const [open, setOpen] = useState(null);
+  const [flash, setFlash] = useState(null);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -456,15 +462,49 @@ function App() {
     return { done, total: items.length };
   };
 
+  // progresso de um curso isolado (para as células "Teoria" que apontam para um curso)
+  const cursoFraction = (cursoId) => {
+    const c = CURSOS_ISOLADOS.find((x) => x.id === cursoId);
+    if (!c) return { done: 0, total: 0 };
+    if (c.sublistas) {
+      let done = 0, total = 0;
+      for (const sub of c.sublistas) {
+        const v = cursoData[`${c.id}:${sub.nome}`] || {};
+        total += sub.itens.length;
+        done += sub.itens.filter((_, i) => v[i]).length;
+      }
+      return { done, total };
+    }
+    const v = cursoData[c.id] || {};
+    return { done: c.itens.filter((_, i) => v[i]).length, total: c.itens.length };
+  };
+
+  // fração de uma célula: se a "Teoria" for um curso, usa o progresso do curso
+  const getFrac = (s, dim) => {
+    const d = s.dims[dim];
+    if (dim === "teoria" && d && d.curso) return cursoFraction(d.curso);
+    return fraction(s.id, dim, d);
+  };
+
+  const scrollToCurso = (cursoId) => {
+    setOpen(null);
+    const el = typeof document !== "undefined" && document.getElementById(`curso-${cursoId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+      setFlash(cursoId);
+      setTimeout(() => setFlash(null), 1800);
+    }
+  };
+
   const sectionStats = (section) => {
     let done = 0, total = 0;
     for (const s of section.subjects) {
       for (const dim of DIM_ORDER) {
         const items = s.dims[dim];
         if (!items) continue;
-        const f = fraction(s.id, dim, items);
+        const f = getFrac(s, dim);
         total += 1;
-        if (f.done === f.total) done += 1;
+        if (f.total > 0 && f.done === f.total) done += 1;
       }
     }
     return { done, total };
@@ -562,6 +602,16 @@ function App() {
         .cell[data-state="done"] .cell-label { color: var(--green); }
         .check { width: 16px; height: 16px; border-radius: 50%; background: var(--green); color: #06120b;
           display: grid; place-items: center; font-size: 10px; font-weight: 900; }
+
+        /* célula "Teoria" que aponta para um curso em vídeo */
+        .cell-link { border-style: dashed; }
+        .cell-link[data-state="empty"] { border-color: rgba(240,200,90,.45); }
+        .cell-link .cell-label { color: var(--gold); }
+        .cell-link[data-state="done"] .cell-label { color: var(--green); }
+        .link-arrow { font-size: 9px; font-weight: 700; letter-spacing: .2px; color: var(--gold); opacity: .85; white-space: nowrap; }
+        .curso-anchor { scroll-margin-top: 64px; border-radius: 16px; padding: 8px; margin-left: -8px; margin-right: -8px;
+          transition: box-shadow .45s ease, background .45s ease; }
+        .curso-anchor.flash { box-shadow: 0 0 0 2px var(--gold), 0 0 34px rgba(240,200,90,.35); background: rgba(240,200,90,.06); }
 
         /* ---- popover ---- */
         .pop { position: absolute; top: calc(100% + 8px); left: 0; z-index: 40; width: 340px; max-width: 88vw;
@@ -670,13 +720,28 @@ function App() {
                     <div className="cells" style={{ "--n": dims.length }}>
                       {dims.map((dim) => {
                         const items = s.dims[dim];
-                        const f = fraction(s.id, dim, items);
+                        const isCurso = dim === "teoria" && items && items.curso;
+                        const f = getFrac(s, dim);
                         const ratio = f.total ? f.done / f.total : 0;
                         const state = ratio === 1 ? "done" : ratio > 0 ? "partial" : "empty";
                         const barColor = ratio === 1 ? "var(--green)" : "var(--gold)";
                         const key = `${s.id}:${dim}`;
                         const showNote = dim === "leiSeca";
                         const showScore = dim === "questoes";
+                        if (isCurso) {
+                          return (
+                            <div key={dim} style={{ position: "relative" }}>
+                              <button className="cell cell-link" data-state={state} onClick={() => scrollToCurso(items.curso)} title="Ver o curso em vídeo nos Cursos Isolados">
+                                <div className="cell-label">
+                                  {DIM_LABEL[dim]}
+                                  {state === "done" ? <span className="check">✓</span> : <span className="link-arrow">ver curso ↓</span>}
+                                </div>
+                                <div className="cell-frac mono">{f.done}<small> /{f.total}</small></div>
+                                <Bar done={f.done} total={f.total} color={barColor} />
+                              </button>
+                            </div>
+                          );
+                        }
                         return (
                           <div key={dim} style={{ position: "relative" }}>
                             <button className="cell" data-state={state} onClick={() => setOpen(open === key ? null : key)}>
@@ -792,7 +857,7 @@ function App() {
           {CURSOS_ISOLADOS.map((c) => {
             if (c.sublistas) {
               return (
-                <div key={c.id} style={{ marginBottom: 20 }}>
+                <div key={c.id} id={`curso-${c.id}`} className={`curso-anchor${flash === c.id ? " flash" : ""}`} style={{ marginBottom: 20 }}>
                   <div className="subj-name" style={{ marginBottom: 10 }}>{c.nome}</div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
                     {c.sublistas.map((sub) => {
@@ -825,7 +890,7 @@ function App() {
             const v = cursoData[c.id] || {};
             const done = c.itens.filter((_, i) => v[i]).length;
             return (
-              <div key={c.id} style={{ marginBottom: 20 }}>
+              <div key={c.id} id={`curso-${c.id}`} className={`curso-anchor${flash === c.id ? " flash" : ""}`} style={{ marginBottom: 20 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8, gap: 8 }}>
                   <span className="subj-name">{c.nome}</span>
                   <span className="mono" style={{ fontSize: 11, color: "var(--faint)" }}>{done}/{c.itens.length}</span>
