@@ -1,70 +1,4 @@
-<!doctype html>
-<html lang="pt-BR">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="theme-color" content="#0a0e13" />
-<title>MagisNAD</title>
-<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
-<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png" />
-<link rel="apple-touch-icon" href="icon-192.png" />
-<link rel="manifest" href="manifest.webmanifest" />
-<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
-<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
-<script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js" crossorigin></script>
-<style>
-  html,body{margin:0;background:#0a0e13;min-height:100%;}
-  #boot{position:fixed;inset:0;display:grid;place-items:center;color:#95a1b0;
-    font-family:-apple-system,'Segoe UI',sans-serif;font-size:14px;z-index:9999;background:#0a0e13;}
-  #boot.hide{display:none;}
-  #toolbar{position:fixed;top:0;left:0;right:0;z-index:500;display:flex;align-items:center;gap:10px;
-    padding:8px 16px;background:rgba(10,14,19,.82);backdrop-filter:blur(10px);
-    border-bottom:1px solid rgba(255,255,255,.07);font-family:-apple-system,'Segoe UI',sans-serif;}
-  #toolbar .sp{flex:1;}
-  #toolbar #status{font-size:12px;color:#59c98a;transition:opacity .4s;opacity:0;}
-  #toolbar button{font:inherit;font-size:12px;font-weight:600;color:#eae7df;cursor:pointer;
-    background:#1a212b;border:1px solid rgba(255,255,255,.12);border-radius:9px;padding:6px 12px;transition:background .15s;}
-  #toolbar button:hover{background:#212a35;}
-  #toolbar .brand{font-size:12px;font-weight:700;letter-spacing:.4px;color:#f0c85a;}
-  #app-root{padding-top:46px;}
-  input#file{display:none;}
-</style>
-</head>
-<body>
-<div id="boot">carregando o painel...</div>
-
-<div id="toolbar">
-  <span class="brand">&#9878; MagisNAD</span>
-  <span id="status">salvo &#10003;</span>
-  <span class="sp"></span>
-  <button id="btnExport" title="Baixar um backup .json com todo o seu progresso">Exportar backup</button>
-  <button id="btnImport" title="Restaurar/mesclar um backup em outro aparelho ou navegador">Importar</button>
-  <input id="file" type="file" accept="application/json,.json" />
-</div>
-
-<div id="app-root"><div id="root"></div></div>
-
-<!-- PONTE: dá ao componente um window.storage real, gravando no localStorage do navegador -->
-<script>
-window.storage = {
-  get: function(k){ var v = localStorage.getItem(k); return Promise.resolve(v == null ? null : { value: v }); },
-  set: function(k, v){ localStorage.setItem(k, v); return Promise.resolve(); }
-};
-// indicador visual "salvo ✓" a cada gravação
-(function(){
-  var orig = Storage.prototype.setItem;
-  Storage.prototype.setItem = function(k, v){
-    orig.apply(this, arguments);
-    if (String(k).indexOf('tjsc-') === 0) {
-      var s = document.getElementById('status');
-      if (s){ s.style.opacity = 1; clearTimeout(window.__st); window.__st = setTimeout(function(){ s.style.opacity = 0; }, 1200); }
-    }
-  };
-})();
-</script>
-
-<script type="text/babel" data-presets="react">
-const { useState, useEffect } = React;
+import { useState, useEffect } from "react";
 
 // ---------- Shared checklists ----------
 const JURIS_ITEMS = ["Súmulas Vinculantes", "Súmulas STF", "Súmulas STJ", "Teses de Repercussão Geral (RG)", "Temas de Recurso Repetitivo (RR)", "Jurisprudência em Teses (STJ)"];
@@ -921,7 +855,7 @@ const KEY_PREFIX = "tjsc-matriz5:";
 const SIM_KEY_PREFIX = "tjsc-simulados3:";
 const INFO_KEY_PREFIX = "tjsc-informativos2:";
 
-function App() {
+export default function App() {
   const [data, setData] = useState({});
   const [simData, setSimData] = useState({});
   const [infoData, setInfoData] = useState({});
@@ -1563,52 +1497,3 @@ function App() {
     </div>
   );
 }
-
-
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
-document.getElementById('boot').classList.add('hide');
-</script>
-
-<script>
-// Exportar / Importar backup (todas as chaves tjsc-*)
-function collect(){
-  var o = {};
-  for (var i = 0; i < localStorage.length; i++){
-    var k = localStorage.key(i);
-    if (k && k.indexOf('tjsc-') === 0) o[k] = localStorage.getItem(k);
-  }
-  return o;
-}
-document.getElementById('btnExport').onclick = function(){
-  var data = { _app: 'matriz-tjsc', _exportadoEm: new Date().toISOString(), dados: collect() };
-  var blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-  var a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'matriz-tjsc-backup-' + new Date().toISOString().slice(0,10) + '.json';
-  a.click();
-  URL.revokeObjectURL(a.href);
-};
-document.getElementById('btnImport').onclick = function(){ document.getElementById('file').click(); };
-document.getElementById('file').onchange = function(e){
-  var f = e.target.files[0];
-  if (!f) return;
-  var r = new FileReader();
-  r.onload = function(){
-    try {
-      var parsed = JSON.parse(r.result);
-      var dados = parsed.dados || parsed;
-      var n = 0;
-      Object.keys(dados).forEach(function(k){
-        if (k.indexOf('tjsc-') === 0) { localStorage.setItem(k, dados[k]); n++; }
-      });
-      alert('Backup importado: ' + n + ' registros restaurados. A pagina vai recarregar.');
-      location.reload();
-    } catch (err) {
-      alert('Arquivo invalido. Selecione um backup .json exportado por este painel.');
-    }
-  };
-  r.readAsText(f);
-};
-</script>
-</body>
-</html>
