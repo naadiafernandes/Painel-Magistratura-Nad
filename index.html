@@ -122,6 +122,51 @@ const SIMULADOS = [
   { grupo: "2024", provas: ["ENAM 2024 — 2º Exame", "ENAM 2024 — Reaplicação Manaus", "ENAM 2024 — 1ª Edição (2024.1)"] },
 ];
 
+// Banca organizadora de cada prova — usada só para exibir a tag colorida; não altera o "nome" (chave de progresso salvo).
+const SIMULADOS_BANCA = {
+  "TJ BA 2026": "FGV",
+  "TJ GO 2026 (59º Concurso)": "FGV",
+  "TJ PA 2026": "FGV",
+  "TJ PR 2026": "FGV",
+  "MPE GO 2026": "FGV",
+  "MPE MT 2026": "FGV",
+  "MPE RJ 2026 (XXXIX)": "FGV",
+  "MPE SC 2026 (45º Concurso)": "Vunesp",
+  "MPE MS 2026 (XXXI Concurso)": "FAPEC",
+  "TRF2 2026 (XIX Concurso)": "FGV",
+  "ENAM 2026 — 5º Exame": "FGV",
+  "TJ SC 2025 (1ª Aplicação)": "FGV",
+  "TJ CE 2025": "FGV",
+  "TJ MS 2025": "FGV",
+  "TJ SE 2025": "FGV",
+  "TJ TO 2025": "FGV",
+  "MPE ES 2025": "FGV",
+  "MPE RJ 2025 (XXXVIII)": "FGV",
+  "MPE PR 2025": "Própria",
+  "MPE RS 2025": "Própria",
+  "MPE BA 2025": "CEFET-BA",
+  "MPE DFT 2025 (33º Concurso)": "Própria",
+  "TRF1 2025 (XVIII)": "FGV",
+  "TRF3 2025": "FGV",
+  "TRF5 2025 (XV)": "FGV",
+  "TRF6 2025": "FGV",
+  "ENAM 2025 — 4º Exame": "FGV",
+  "ENAM 2025 — 3º Exame": "FGV",
+  "ENAM 2024 — 2º Exame": "FGV",
+  "ENAM 2024 — Reaplicação Manaus": "FGV",
+  "ENAM 2024 — 1ª Edição (2024.1)": "FGV",
+};
+
+// Cor de cada banca para a tag (fundo translúcido + texto na cor sólida)
+const BANCA_COLORS = {
+  FGV: "#f0c85a",
+  Vunesp: "#7fb8e8",
+  FAPEC: "#c090e8",
+  "CEFET-BA": "#e8a05a",
+  Própria: "#95a1b0",
+};
+function bancaColor(b) { return BANCA_COLORS[b] || "#95a1b0"; }
+
 // Edições mais recentes — atualizadas automaticamente aos domingos (robô semanal).
 // A URL do PDF é derivada do número pela função infoUrl().
 const INFORMATIVOS = {
@@ -1332,7 +1377,7 @@ function App() {
   const simGroups = (() => {
     const byYear = {};
     SIMULADOS.forEach((g) => {
-      byYear[g.grupo] = (byYear[g.grupo] || []).concat(g.provas.filter((p) => !simHidden.includes(p)).map((p) => ({ nome: p, manual: false })));
+      byYear[g.grupo] = (byYear[g.grupo] || []).concat(g.provas.filter((p) => !simHidden.includes(p)).map((p) => ({ nome: p, manual: false, banca: SIMULADOS_BANCA[p] || null })));
     });
     simManuais.forEach((m) => {
       byYear[m.ano] = (byYear[m.ano] || []).concat([{ nome: m.nome, ano: m.ano, manual: true }]);
@@ -1548,6 +1593,7 @@ function App() {
         .sim-arrow { color: var(--faint); font-size: 10px; width: 10px; flex-shrink: 0; }
         .sim-overall { font-size: 12px; font-weight: 700; color: var(--gold); flex-shrink: 0; min-width: 34px; text-align: right; }
         .sim-frac { font-size: 11px; color: var(--faint); flex-shrink: 0; }
+        .banca-tag { font-size: 10px; font-weight: 700; letter-spacing: .3px; padding: 2px 7px; border-radius: 999px; flex-shrink: 0; white-space: nowrap; }
         .sim-mats { display: flex; flex-direction: column; gap: 3px; padding: 8px 4px 10px 24px; }
         .sim-mat { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); padding: 2px 0; }
         .sim-mat-name { flex: 1; min-width: 0; }
@@ -1974,7 +2020,7 @@ function App() {
             <h2>SIMULADOS | PROVAS ANTERIORES</h2>
             <span className="panel-count mono">{simDone}/{simTotal} resolvidas</span>
           </div>
-          <p className="desc">FGV 2026-2024</p>
+          <p className="desc">2026-2024 · várias bancas</p>
 
           {simGroups.map((g) => {
             const isYearOpen = openYear === g.grupo;
@@ -2000,6 +2046,7 @@ function App() {
                             <button className="sim-name" onClick={() => setOpenProva(isOpen ? null : nome)}>
                               <span className="sim-arrow">{isOpen ? "▾" : "▸"}</span>
                               <span style={{ flex: 1 }}>{nome}</span>
+                              {p.banca && <span className="banca-tag" style={{ background: bancaColor(p.banca) + "22", color: bancaColor(p.banca), border: "1px solid " + bancaColor(p.banca) + "55" }}>{p.banca}</span>}
                               {tot && <span className="sim-frac mono">{tot.a}/{tot.q}</span>}
                               <span className="sim-overall mono">{tot == null ? "—" : tot.pct + "%"}</span>
                             </button>
