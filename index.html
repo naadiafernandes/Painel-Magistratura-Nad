@@ -2121,7 +2121,7 @@ function App() {
               onChange={(e) => setManNome(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") addManual(); }} />
             <input className="man-ano" placeholder="ano" value={manAno}
               onChange={(e) => setManAno(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") addManual(); }} />
-            <input className="man-banca" placeholder="banca (opcional)" value={manBanca}
+            <input className="man-banca" placeholder="banca" value={manBanca}
               onChange={(e) => setManBanca(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") addManual(); }} />
             <button className="man-btn" onClick={addManual}>+ Adicionar</button>
           </div>
