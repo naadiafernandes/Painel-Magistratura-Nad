@@ -966,6 +966,16 @@ export default function App() {
   const [openProva, setOpenProva] = useState(null);
   const [activeSec, setActiveSec] = useState(NAV[0].id);
   const [loaded, setLoaded] = useState(false);
+  const [showTop, setShowTop] = useState(false);
+
+  // mostra o botão "voltar ao topo" depois de rolar um pouco
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onScroll = () => setShowTop(window.scrollY > 400);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
   // destaca no menu lateral a seção visível
   useEffect(() => {
@@ -1549,6 +1559,12 @@ export default function App() {
         .edital-link { font-size: 10px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase; color: var(--gold);
           background: rgba(240,200,90,.12); border: 1px solid rgba(240,200,90,.35); border-radius: 999px; padding: 2px 9px; }
         .edital-item { margin-bottom: 4px; }
+        .to-top { position: fixed; right: 22px; bottom: 22px; width: 46px; height: 46px; border-radius: 50%;
+          border: 1px solid var(--line-2); background: var(--surface-2); color: var(--gold); font-size: 20px; line-height: 1;
+          cursor: pointer; box-shadow: 0 6px 18px rgba(0,0,0,.28); opacity: 0; transform: translateY(12px); pointer-events: none;
+          transition: opacity .2s, transform .2s, background .15s; z-index: 200; }
+        .to-top.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
+        .to-top:hover { background: var(--gold); color: #10141a; }
         .edital-line { display: flex; align-items: flex-start; gap: 9px; font-size: 13px; line-height: 1.45; padding: 5px 6px;
           border-radius: 8px; cursor: pointer; }
         .edital-line:hover { background: var(--surface-2); }
@@ -1684,10 +1700,11 @@ export default function App() {
                     <div className="edital-body">
                       {ed.materias.map((m, mi) => {
                         let done = 0, total = 0;
-                        m.itens.forEach((it, ii) => {
-                          total++; if (v[`${mi}.${ii}`]) done++;
-                          (it.subs || []).forEach((s, si) => { total++; if (v[`${mi}.${ii}.${si}`]) done++; });
-                        });
+                        const countNode = (node, key) => {
+                          total++; if (v[key]) done++;
+                          (node.subs || []).forEach((c, ci) => countNode(c, `${key}.${ci}`));
+                        };
+                        m.itens.forEach((it, ii) => countNode(it, `${mi}.${ii}`));
                         const matKey = `${ed.id}:${mi}`;
                         const matOpen = !!openMat[matKey];
                         return (
@@ -1706,28 +1723,27 @@ export default function App() {
                               })()}
                               <span className="mono edital-count">{done}/{total}</span>
                             </button>
-                            {matOpen && m.itens.map((it, ii) => {
-                              const kk = `${mi}.${ii}`;
-                              return (
-                                <div key={ii} className="edital-item">
-                                  <label className={`edital-line${v[kk] ? " checked" : ""}`}>
-                                    <input type="checkbox" checked={!!v[kk]} onChange={() => toggleEdital(ed.id, kk)} style={{ marginTop: 3 }} />
-                                    {it.n && <span className="edital-n">{it.n}</span>}
-                                    <span className="edital-txt">{it.txt}</span>
-                                  </label>
-                                  {(it.subs || []).map((s, si) => {
-                                    const sk = `${mi}.${ii}.${si}`;
-                                    return (
-                                      <label key={si} className={`edital-line edital-sub${v[sk] ? " checked" : ""}`}>
-                                        <input type="checkbox" checked={!!v[sk]} onChange={() => toggleEdital(ed.id, sk)} style={{ marginTop: 3 }} />
-                                        {s.n && <span className="edital-n">{s.n}</span>}
-                                        <span className="edital-txt">{s.txt}</span>
-                                      </label>
-                                    );
-                                  })}
-                                </div>
-                              );
-                            })}
+                            {matOpen && (() => {
+                              const renderNode = (node, key, depth) => {
+                                const kids = node.subs || [];
+                                const hasKids = kids.length > 0;
+                                const cls = depth === 0 ? "edital-line" : depth === 1 ? "edital-line edital-sub" : "edital-line edital-subsub";
+                                const bold = depth === 0 || hasKids;
+                                return (
+                                  <React.Fragment key={key}>
+                                    <label className={`${cls}${v[key] ? " checked" : ""}`}>
+                                      <input type="checkbox" checked={!!v[key]} onChange={() => toggleEdital(ed.id, key)} style={{ marginTop: 3 }} />
+                                      {node.n && <span className="edital-n">{node.n}</span>}
+                                      <span className={`edital-txt${bold ? " b" : ""}`}>{node.txt}</span>
+                                    </label>
+                                    {kids.map((c, ci) => renderNode(c, `${key}.${ci}`, depth + 1))}
+                                  </React.Fragment>
+                                );
+                              };
+                              return m.itens.map((it, ii) => (
+                                <div key={ii} className="edital-item">{renderNode(it, `${mi}.${ii}`, 0)}</div>
+                              ));
+                            })()}
                           </div>
                         );
                       })}
@@ -2071,6 +2087,12 @@ export default function App() {
 
         {!loaded && <div style={{ textAlign: "center", color: "var(--faint)", fontSize: 12, marginTop: 24 }}>carregando progresso salvo...</div>}
       </div>
+
+      <button
+        className={`to-top${showTop ? " show" : ""}`}
+        aria-label="Voltar ao topo"
+        onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+      >↑</button>
     </div>
   );
 }
