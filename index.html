@@ -982,7 +982,13 @@ function expandBlocos(topics) {
 const CURSO_KEY_PREFIX = "tjsc-cursos-isolados:";
 const EDITAIS_KEY_PREFIX = "tjsc-editais:";
 // colunas de acompanhamento por tópico do edital (estilo Normio): Estudo + Revisões
-const ED_ESTUDO = [{ f: "t", lbl: "Teoria" }, { f: "l", lbl: "Lei Seca" }, { f: "q", lbl: "Questões" }];
+const ED_ESTUDO = [
+  { f: "t", lbl: "Teoria", full: "Teoria" },
+  { f: "l", lbl: "Lei Seca", full: "Lei Seca" },
+  { f: "q", lbl: "Questões", full: "Questões" },
+  { f: "j", lbl: "Juris", full: "Jurisprudência" },
+  { f: "a", lbl: "Anki", full: "Anki (criar cards)" },
+];
 const ED_REV = [{ f: "r1", lbl: "1ª" }, { f: "r2", lbl: "2ª" }, { f: "r3", lbl: "3ª" }];
 // normaliza o valor salvo de um tópico: aceita o formato antigo (booleano) e o novo (objeto de 6 flags)
 function editalCell(raw) {
@@ -1237,6 +1243,8 @@ function App() {
   const [view, setView] = useState("main");
   const [openEdital, setOpenEdital] = useState(0);
   const [openMat, setOpenMat] = useState({});
+  const [openNote, setOpenNote] = useState(null); // chave do tópico com a caixinha de Observações aberta
+  const [noteDraft, setNoteDraft] = useState("");
   const [prioridades, setPrioridades] = useState([]);
   const [prioInput, setPrioInput] = useState("");
   const [simManuais, setSimManuais] = useState([]);
@@ -1704,6 +1712,21 @@ function App() {
     try {
       await window.storage.set(EDITAIS_KEY_PREFIX + editalId, JSON.stringify(next));
     } catch {}
+  };
+
+  // salva (ou limpa) a Observação de um tópico do edital
+  const saveEditalNote = async (editalId, pathKey, text) => {
+    const t = (text || "").trim();
+    const cur = editaisData[editalId] || {};
+    const cell = editalCell(cur[pathKey]);
+    const nextCell = { ...cell };
+    if (t) nextCell.obs = t; else delete nextCell.obs;
+    const next = { ...cur, [pathKey]: nextCell };
+    setEditaisData((p) => ({ ...p, [editalId]: next }));
+    try {
+      await window.storage.set(EDITAIS_KEY_PREFIX + editalId, JSON.stringify(next));
+    } catch {}
+    setOpenNote(null);
   };
 
   const toggleCurso = async (cursoId, subKey, idx) => {
@@ -2256,12 +2279,39 @@ function App() {
         .edital-n { color: var(--gold); font-weight: 700; flex-shrink: 0; min-width: 22px; }
         .edital-txt { font-weight: 400; }
         .edital-txt.b { font-weight: 650; }
+        /* coluna e caixinha de Observações */
+        .ed-col.note { width: 34px; }
+        .ed-note-btn { width: 24px; height: 24px; border-radius: 7px; border: 1px solid var(--line-2);
+          background: var(--surface); color: var(--faint); font-size: 13px; line-height: 1; cursor: pointer;
+          display: flex; align-items: center; justify-content: center; transition: all .13s; }
+        .ed-note-btn:hover { border-color: var(--gold); color: var(--gold); }
+        .ed-note-btn.has { background: var(--gold); border-color: var(--gold); color: #2a2410; }
+        .ed-note-btn.open { border-color: var(--gold); color: var(--gold); }
+        .ed-obs-flag { color: var(--gold); font-size: 11px; flex-shrink: 0; }
+        .ed-row.has-obs { background: rgba(240,200,90,.10); border-left: 3px solid var(--gold); }
+        .ed-row.has-obs:hover { background: rgba(240,200,90,.16); }
+        .ed-note-edit { padding: 4px 16px 12px 40px; border-top: 1px solid var(--line); background: rgba(240,200,90,.06); }
+        .ed-note-area { width: 100%; min-height: 66px; resize: vertical; box-sizing: border-box; font: inherit; font-size: 13px;
+          line-height: 1.45; color: var(--text); background: var(--surface); border: 1px solid var(--line-2); border-radius: 9px; padding: 9px 11px; }
+        .ed-note-area:focus { outline: none; border-color: var(--gold); }
+        .ed-note-actions { display: flex; gap: 8px; margin-top: 8px; }
+        .ed-note-save { cursor: pointer; border: none; border-radius: 8px; padding: 6px 16px; font: inherit; font-size: 12.5px;
+          font-weight: 700; background: var(--gold); color: #2a2410; }
+        .ed-note-save:hover { filter: brightness(1.06); }
+        .ed-note-cancel, .ed-note-clear { cursor: pointer; border: 1px solid var(--line-2); border-radius: 8px; padding: 6px 14px;
+          font: inherit; font-size: 12.5px; font-weight: 600; background: transparent; color: var(--muted); }
+        .ed-note-cancel:hover { border-color: var(--muted); color: var(--text); }
+        .ed-note-clear { color: var(--coral); border-color: transparent; }
+        .ed-note-clear:hover { border-color: var(--coral); }
         @media (max-width: 720px) {
           .ed-col.est { width: 40px; }
           .ed-col.rev { width: 27px; }
+          .ed-col.note { width: 28px; }
+          .ed-note-btn { width: 22px; height: 22px; }
           .ed-collabel { font-size: 9px; }
           .ed-vdiv { margin: 0 5px; }
           .ed-head, .ed-band, .ed-row { padding-left: 10px; padding-right: 10px; gap: 8px; }
+          .ed-note-edit { padding-left: 12px; padding-right: 10px; }
         }
         .to-top { position: fixed; right: 22px; bottom: 22px; width: 46px; height: 46px; border-radius: 50%;
           border: 1px solid var(--line-2); background: var(--surface-2); color: var(--gold); font-size: 20px; line-height: 1;
@@ -2407,25 +2457,58 @@ function App() {
                     const hasKids = kids.length > 0;
                     const bold = depth === 0 || hasKids;
                     const cell = editalCell(v[key]);
+                    const hasObs = !!(cell.obs && cell.obs.trim());
+                    const noteKey = `${ed.id}|${key}`;
+                    const noteOpen = openNote === noteKey;
                     const check = (c) => (
                       <span key={c.f} className={`ed-col ${c.rev ? "rev" : "est"}`}>
                         <input type="checkbox" className="ed-check" checked={!!cell[c.f]}
-                          onChange={() => toggleEditalCell(ed.id, key, c.f)} aria-label={c.lbl} />
+                          onChange={() => toggleEditalCell(ed.id, key, c.f)} aria-label={c.full || c.lbl} title={c.full || c.lbl} />
                       </span>
                     );
                     return (
                       <React.Fragment key={key}>
-                        <div className={`ed-row d${depth}${editalDone(cell) ? " done" : ""}`}>
+                        <div className={`ed-row d${depth}${editalDone(cell) ? " done" : ""}${hasObs ? " has-obs" : ""}`}>
                           <div className="ed-topic">
                             {node.n && <span className="edital-n">{node.n}</span>}
                             <span className={`edital-txt${bold ? " b" : ""}`}>{node.txt}</span>
+                            {hasObs && <span className="ed-obs-flag" title="Este tópico tem observação">✎</span>}
                           </div>
                           <div className="ed-checks">
                             <div className="ed-grp">{ED_ESTUDO.map((c) => check(c))}</div>
                             <span className="ed-vdiv" />
                             <div className="ed-grp">{ED_REV.map((c) => check({ ...c, rev: true }))}</div>
+                            <span className="ed-vdiv" />
+                            <span className="ed-col note">
+                              <button
+                                type="button"
+                                className={`ed-note-btn${hasObs ? " has" : ""}${noteOpen ? " open" : ""}`}
+                                title={hasObs ? "Ver/editar observação" : "Adicionar observação"}
+                                aria-label="Observações"
+                                onClick={() => {
+                                  if (noteOpen) { setOpenNote(null); }
+                                  else { setNoteDraft(cell.obs || ""); setOpenNote(noteKey); }
+                                }}
+                              >✎</button>
+                            </span>
                           </div>
                         </div>
+                        {noteOpen && (
+                          <div className="ed-note-edit">
+                            <textarea
+                              className="ed-note-area"
+                              value={noteDraft}
+                              autoFocus
+                              placeholder="Escreva sua observação sobre este tópico…"
+                              onChange={(e) => setNoteDraft(e.target.value)}
+                            />
+                            <div className="ed-note-actions">
+                              <button type="button" className="ed-note-save" onClick={() => saveEditalNote(ed.id, key, noteDraft)}>Salvar</button>
+                              <button type="button" className="ed-note-cancel" onClick={() => setOpenNote(null)}>Cancelar</button>
+                              {hasObs && <button type="button" className="ed-note-clear" onClick={() => saveEditalNote(ed.id, key, "")}>Apagar</button>}
+                            </div>
+                          </div>
+                        )}
                         {kids.map((c, ci) => renderNode(c, `${key}.${ci}`, depth + 1))}
                       </React.Fragment>
                     );
@@ -2437,12 +2520,17 @@ function App() {
                         <div className="ed-checks">
                           <div className="ed-grp col">
                             <div className="ed-grp-title">Estudo</div>
-                            <div className="ed-cols">{ED_ESTUDO.map((c) => <span key={c.f} className="ed-col est ed-collabel">{c.lbl}</span>)}</div>
+                            <div className="ed-cols">{ED_ESTUDO.map((c) => <span key={c.f} className="ed-col est ed-collabel" title={c.full || c.lbl}>{c.lbl}</span>)}</div>
                           </div>
                           <span className="ed-vdiv tall" />
                           <div className="ed-grp col">
                             <div className="ed-grp-title">Revisões</div>
                             <div className="ed-cols">{ED_REV.map((c) => <span key={c.f} className="ed-col rev ed-collabel">{c.lbl}</span>)}</div>
+                          </div>
+                          <span className="ed-vdiv tall" />
+                          <div className="ed-grp col">
+                            <div className="ed-grp-title">Obs.</div>
+                            <div className="ed-cols"><span className="ed-col note ed-collabel">nota</span></div>
                           </div>
                         </div>
                       </div>
