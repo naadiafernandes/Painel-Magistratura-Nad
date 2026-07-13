@@ -1053,6 +1053,87 @@ const DIM_ORDER = ["teoria", "leiSeca", "jurisprudencia", "questoes", "anki"];
 const KEY_PREFIX = "tjsc-matriz5:";
 const SIM_KEY_PREFIX = "tjsc-simulados3:";
 const INFO_KEY_PREFIX = "tjsc-informativos2:";
+const DIARIO_KEY = "tjsc-diario:v1";
+
+// ---------- Diário de estudos: classificação automática das frases ----------
+// Cada matéria ganha uma cor própria (matiz/saturação/luminosidade) para a tag colorida.
+const MATERIA_HSL = {
+  const:  [265, 55, 67], adm:    [210, 62, 63], civil:  [150, 46, 55], pcivil: [172, 48, 52],
+  penal:  [8, 72, 64],   ppenal: [24, 76, 60],  empres: [288, 46, 67], trib:   [128, 40, 52],
+  cdc:    [332, 58, 69], eca:    [192, 58, 60], amb:    [96, 46, 50],  penesp: [350, 60, 64],
+  civesp: [50, 62, 58],  eleit:  [235, 48, 68], dh:     [16, 60, 63],  human:  [305, 32, 64],
+};
+function materiaHSL(id) { return MATERIA_HSL[id] || [210, 8, 65]; }
+function materiaColor(id) { const [h, s, l] = materiaHSL(id); return `hsl(${h}, ${s}%, ${l}%)`; }
+function materiaBg(id, a) { const [h, s, l] = materiaHSL(id); return `hsla(${h}, ${s}%, ${l}%, ${a})`; }
+
+// tira acentos e deixa minúsculo, para casar as palavras-chave sem depender de acento/caixa
+function diaNorm(s) { return (s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, ""); }
+
+// palavras que identificam cada matéria (processo penal/civil tratados à parte, antes)
+const MAT_KW = {
+  const:  [/constituc/, /\bcf\b/, /controle de constitucionalidade/, /poder constituinte/, /direitos fundamentais/],
+  adm:    [/administrativ/, /improbidade/, /licitac/, /\b14\.?133\b/, /servidor(es)? public/, /desapropriac/, /ato administrativo/],
+  civil:  [/\bcivil\b/, /codigo civil/, /responsabilidade civil/, /\bcontrat/, /sucess/, /\bfamilia\b/, /obrigac/, /posse\b/, /usucapi/, /prescric/],
+  penal:  [/\bpenal\b/, /codigo penal/, /teoria do (crime|delito)/, /dosimetria/, /crimes contra/],
+  empres: [/empresarial/, /\bempresa\b/, /societari/, /falencia/, /recuperacao judicial/, /titulo de credito/, /\bcheque\b/, /duplicata/, /sociedade/],
+  trib:   [/tributar/, /financeiro/, /\btributos?\b/, /\bctn\b/, /\bicms\b/, /execucao fiscal/, /credito tributario/],
+  cdc:    [/consumidor/, /\bcdc\b/, /relacao de consumo/],
+  eca:    [/crianca/, /adolescente/, /\beca\b/, /infancia/, /socioeducat/, /sinase/, /ato infracional/],
+  amb:    [/ambiental/, /meio ambiente/, /\bflorestal\b/, /unidades de conservacao/, /licenciamento ambiental/],
+  penesp: [/leis? penais? especiais/, /lei de drogas/, /\bdrogas\b/, /organizacoes criminosas/, /maria da penha/, /crimes hediondos/, /lavagem de dinheiro/, /desarmamento/, /\btrafico\b/, /crimes ambientais/],
+  civesp: [/juizados/, /\bjecc\b/, /mandado de seguranca/, /acao civil publica/, /acao popular/, /mandado de injuncao/, /\bmediacao\b/, /arbitragem/],
+  eleit:  [/eleitoral/, /eleicoes/, /inelegibilidade/, /propaganda eleitoral/],
+  dh:     [/direitos humanos/, /\bdh\b/, /pacto de san jose/, /convencao americana/, /pessoa com deficiencia/, /interamericano/],
+  human:  [/humanistica/, /formacao humanistica/, /sociologia/, /filosofia do direito/, /hermeneutica/, /\betica\b/, /jusnaturalismo/, /juspositivismo/],
+};
+// devolve a lista de ids de matéria detectados na frase
+function detectMaterias(texto) {
+  let t = " " + diaNorm(texto) + " ";
+  const found = [];
+  const add = (id) => { if (!found.includes(id)) found.push(id); };
+  if (/process(o|ual)?\s*penal|proc\.?\s*penal|\bcpp\b/.test(t)) { add("ppenal"); t = t.replace(/process(o|ual)?\s*penal/g, " "); }
+  if (/process(o|ual)?\s*civil|\bcpc\b/.test(t)) { add("pcivil"); t = t.replace(/process(o|ual)?\s*civil/g, " "); }
+  for (const id of Object.keys(MAT_KW)) {
+    if (MAT_KW[id].some((re) => re.test(t))) add(id);
+  }
+  return found;
+}
+// tipo de atividade (só para a etiqueta): questões, teoria, revisão, aula, simulado, anki
+function detectTipo(texto) {
+  const t = diaNorm(texto);
+  if (/\bquesto|\bcorrig|resolvi|refiz|bateria de quest|\btec\b/.test(t)) return "Questões";
+  if (/simulad/.test(t)) return "Simulado";
+  if (/\banki\b|flashcard|flash card/.test(t)) return "Anki";
+  if (/revis/.test(t)) return "Revisão";
+  if (/assist|\baula|\bvideo|\bcurso\b|professor|videoaula/.test(t)) return "Aula";
+  if (/leitura|\bler\b|teoria|resum|estud|doutrin|\bvade\b|lei seca|\blei\b/.test(t)) return "Teoria";
+  return "Estudo";
+}
+const BANCAS_CONHECIDAS = ["FGV", "Cebraspe", "Cespe", "Vunesp", "FCC", "FUNDATEC", "IBFC", "Quadrix", "FAPEC", "IADES", "AOCP", "Consulplan", "IESES", "Legalle", "Selecon", "IBADE"];
+function detectBanca(texto) {
+  const t = diaNorm(texto);
+  for (const b of BANCAS_CONHECIDAS) { if (t.includes(diaNorm(b))) return b === "Cespe" ? "Cebraspe" : b; }
+  return null;
+}
+// contexto = banca · órgão · ano (o que estiver na frase)
+function detectContexto(texto) {
+  const parts = [];
+  const banca = detectBanca(texto); if (banca) parts.push(banca);
+  const orgao = (texto.match(/\b(tj\s?[a-z]{2}|trf\s?\d|mp[a-z]{2,3}|enam|stf|stj|tst|tse)\b/i) || [])[0];
+  if (orgao) parts.push(orgao.toUpperCase().replace(/\s+/g, ""));
+  const ano = (diaNorm(texto).match(/\b20\d{2}\b/) || [])[0];
+  if (ano && !parts.includes(ano)) parts.push(ano);
+  return parts.join(" · ");
+}
+// deixa a frase "bonitinha": espaços, maiúscula inicial e ponto final
+function beautifyFrase(texto) {
+  let s = (texto || "").trim().replace(/\s+/g, " ");
+  if (!s) return s;
+  s = s.charAt(0).toUpperCase() + s.slice(1);
+  if (!/[.!?…]$/.test(s)) s += ".";
+  return s;
+}
 
 function App() {
   const [data, setData] = useState({});
@@ -1060,6 +1141,8 @@ function App() {
   const [infoData, setInfoData] = useState({});
   const [cursoData, setCursoData] = useState({});
   const [editaisData, setEditaisData] = useState({});
+  const [diario, setDiario] = useState([]);
+  const [diarioInput, setDiarioInput] = useState("");
   const [view, setView] = useState("main");
   const [openEdital, setOpenEdital] = useState(0);
   const [openMat, setOpenMat] = useState({});
@@ -1194,6 +1277,8 @@ function App() {
       try { const r = await window.storage.get(SIM_MANUAIS_KEY); manuais = r ? JSON.parse(r.value) : []; } catch { manuais = []; }
       let ocultas = [];
       try { const r = await window.storage.get(SIM_HIDDEN_KEY); ocultas = r ? JSON.parse(r.value) : []; } catch { ocultas = []; }
+      let diaEntries = [];
+      try { const r = await window.storage.get(DIARIO_KEY); diaEntries = r ? JSON.parse(r.value) : []; } catch { diaEntries = []; }
       setData(next);
       setSimData(sim);
       setInfoData(info);
@@ -1202,6 +1287,7 @@ function App() {
       setPrioridades(prio);
       setSimManuais(manuais);
       setSimHidden(ocultas);
+      setDiario(diaEntries);
       setLoaded(true);
     })();
   }, []);
@@ -1218,6 +1304,71 @@ function App() {
   };
   const togglePrioridade = (id) => savePrioridades(prioridades.map((p) => (p.id === id ? { ...p, done: !p.done } : p)));
   const removePrioridade = (id) => savePrioridades(prioridades.filter((p) => p.id !== id));
+
+  // ---------- Diário de estudos ----------
+  const saveDiario = (arr) => {
+    setDiario(arr);
+    try { window.storage.set(DIARIO_KEY, JSON.stringify(arr)); } catch {}
+  };
+  const addDiario = () => {
+    const raw = diarioInput.trim();
+    if (!raw) return;
+    const entry = {
+      id: Date.now(),
+      ts: Date.now(),
+      texto: beautifyFrase(raw),
+      mats: detectMaterias(raw),
+      tipo: detectTipo(raw),
+      contexto: detectContexto(raw),
+    };
+    saveDiario([entry, ...diario]);
+    setDiarioInput("");
+  };
+  const removeDiario = (id) => saveDiario(diario.filter((e) => e.id !== id));
+  // adiciona/tira uma matéria de um registro (para corrigir a classificação na mão)
+  const toggleMatDiario = (id, matId) => {
+    saveDiario(diario.map((e) => {
+      if (e.id !== id) return e;
+      const has = e.mats.includes(matId);
+      return { ...e, mats: has ? e.mats.filter((m) => m !== matId) : [...e.mats, matId] };
+    }));
+  };
+
+  // agrupa os registros por dia (mais recente primeiro) e monta o rótulo do dia
+  const diaKey = (ts) => { const d = new Date(ts); return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`; };
+  const rotuloDia = (ts) => {
+    const d = new Date(ts), hoje = new Date();
+    const ontem = new Date(); ontem.setDate(hoje.getDate() - 1);
+    if (diaKey(ts) === diaKey(hoje.getTime())) return "Hoje";
+    if (diaKey(ts) === diaKey(ontem.getTime())) return "Ontem";
+    const s = d.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" });
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  };
+  const diarioPorDia = () => {
+    const grupos = [];
+    let atual = null;
+    for (const e of diario) {
+      const k = diaKey(e.ts);
+      if (!atual || atual.k !== k) { atual = { k, ts: e.ts, itens: [] }; grupos.push(atual); }
+      atual.itens.push(e);
+    }
+    return grupos;
+  };
+  // resumo do topo: registros na semana, sequência de dias e matéria mais estudada
+  const diarioResumo = () => {
+    const agora = Date.now();
+    const semana = diario.filter((e) => e.ts >= agora - 7 * 86400000).length;
+    const dias = new Set(diario.map((e) => diaKey(e.ts)));
+    let streak = 0; const cur = new Date();
+    if (!dias.has(diaKey(cur.getTime()))) cur.setDate(cur.getDate() - 1);
+    while (dias.has(diaKey(cur.getTime()))) { streak++; cur.setDate(cur.getDate() - 1); }
+    const tally = {};
+    diario.forEach((e) => (e.mats || []).forEach((m) => { tally[m] = (tally[m] || 0) + 1; }));
+    let topId = null, topN = 0;
+    for (const id of Object.keys(tally)) { if (tally[id] > topN) { topN = tally[id]; topId = id; } }
+    const topNome = topId && SUBJ_BY_ID[topId] ? SUBJ_BY_ID[topId].name.replace(/^Direito /, "") : "—";
+    return { semana, streak, topNome };
+  };
 
   const saveManuais = (arr) => {
     setSimManuais(arr);
@@ -1692,6 +1843,63 @@ function App() {
 
         /* página de editais verticalizados */
         .editais-page { padding-top: 8px; }
+
+        /* ---------- Diário de estudos ---------- */
+        .diario-page { padding-top: 8px; max-width: 760px; }
+        .diario-box { display: flex; gap: 10px; align-items: stretch; margin-bottom: 20px; }
+        .diario-input { flex: 1; resize: vertical; min-height: 52px; background: var(--surface); color: var(--text);
+          border: 1px solid var(--line-2); border-radius: 14px; padding: 12px 14px; font: inherit; font-size: 15px; line-height: 1.5; }
+        .diario-input:focus { outline: none; border-color: var(--gold); }
+        .diario-input::placeholder { color: var(--faint); }
+        .diario-add { cursor: pointer; white-space: nowrap; background: var(--gold); color: #10141a; border: none;
+          border-radius: 14px; padding: 0 18px; font: inherit; font-size: 14px; font-weight: 700; }
+        .diario-add:hover { filter: brightness(1.05); }
+        .diario-add:disabled { opacity: .4; cursor: default; filter: none; }
+        .diario-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 26px; }
+        .diario-stat { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px;
+          display: flex; flex-direction: column; gap: 4px; }
+        .diario-stat-label { font-size: 11px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); }
+        .diario-stat-num { font-size: 24px; font-weight: 700; color: var(--text); }
+        .diario-stat-num small { font-size: 13px; font-weight: 500; color: var(--muted); }
+        .diario-dia { margin-bottom: 22px; }
+        .diario-dia-head { font-size: 12px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--gold);
+          font-weight: 700; margin: 0 0 10px 2px; }
+        .diario-card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px;
+          padding: 14px 16px; margin-bottom: 10px; position: relative; }
+        .diario-card:has(.diario-addmat[open]) { z-index: 60; }
+        .diario-card-top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+        .diario-tipo { font-size: 11px; font-weight: 700; letter-spacing: .4px; color: var(--muted);
+          background: var(--surface-3); border-radius: 8px; padding: 3px 9px; }
+        .diario-ctx { font-size: 12px; color: var(--faint); }
+        .diario-del { margin-left: auto; cursor: pointer; background: transparent; border: none; color: var(--faint);
+          font-size: 20px; line-height: 1; padding: 0 4px; }
+        .diario-del:hover { color: var(--coral); }
+        .diario-txt { margin: 0 0 12px; font-size: 15px; line-height: 1.55; color: var(--text); }
+        .diario-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+        .diario-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 700;
+          border: 1px solid transparent; border-radius: 999px; padding: 3px 6px 3px 11px; }
+        .diario-chip-x { cursor: pointer; background: transparent; border: none; color: inherit; opacity: .55;
+          font-size: 14px; line-height: 1; padding: 0 2px; }
+        .diario-chip-x:hover { opacity: 1; }
+        .diario-chip-none { font-size: 12px; color: var(--faint); font-style: italic; }
+        .diario-addmat { position: relative; }
+        .diario-addmat summary { list-style: none; cursor: pointer; width: 24px; height: 24px; border-radius: 999px;
+          border: 1px dashed var(--line-2); color: var(--muted); display: inline-flex; align-items: center;
+          justify-content: center; font-size: 15px; font-weight: 700; }
+        .diario-addmat summary::-webkit-details-marker { display: none; }
+        .diario-addmat summary:hover { color: var(--gold); border-color: var(--gold); }
+        .diario-addmat-pop { position: absolute; z-index: 50; top: 30px; left: 0; background: var(--surface-2);
+          border: 1px solid var(--line-2); border-radius: 12px; padding: 6px; display: flex; flex-direction: column;
+          gap: 2px; box-shadow: 0 10px 30px rgba(0,0,0,.35); max-height: 260px; overflow-y: auto; min-width: 220px; }
+        .diario-addmat-pop button { cursor: pointer; background: transparent; border: none; text-align: left;
+          font: inherit; font-size: 13px; font-weight: 600; padding: 6px 10px; border-radius: 8px; }
+        .diario-addmat-pop button:hover { background: var(--surface-3); }
+        @media (max-width: 640px) {
+          .diario-box { flex-direction: column; }
+          .diario-add { padding: 12px; }
+          .diario-stats { grid-template-columns: 1fr; }
+        }
+
         .edital-back { cursor: pointer; background: transparent; border: none; color: var(--muted); font: inherit;
           font-size: 13px; padding: 6px 0; margin-bottom: 6px; }
         .edital-back:hover { color: var(--gold); }
@@ -1829,6 +2037,14 @@ function App() {
         >
           EDITAIS VERTICALIZADOS
         </a>
+        <a
+          href="#diario"
+          className={`nav-editais${view === "diario" ? " active" : ""}`}
+          style={{ marginTop: 8 }}
+          onClick={(e) => { e.preventDefault(); setView("diario"); window.scrollTo(0, 0); closeNavIfNarrow(); }}
+        >
+          DIÁRIO DE ESTUDOS
+        </a>
         <div className="nav-trio">
           {NAV_TRIO.map((n) => (
             <a
@@ -1933,12 +2149,84 @@ function App() {
           </section>
         )}
 
+        {view === "diario" && (
+          <section className="diario-page">
+            <button className="edital-back" onClick={() => setView("main")}>← Voltar ao painel</button>
+            <p className="eyebrow">Painel de Estudos</p>
+            <h1 className="serif" style={{ marginBottom: 6 }}>Diário de Estudos</h1>
+            <p className="desc" style={{ marginBottom: 18 }}>Escreva livremente o que estudou. O app arruma a frase e classifica pela matéria.</p>
+
+            <div className="diario-box">
+              <textarea
+                className="diario-input"
+                placeholder="Ex.: corrigi questões de penal e processo penal da prova analista tjsc 2026 fgv"
+                value={diarioInput}
+                onChange={(e) => setDiarioInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); addDiario(); } }}
+                rows={2}
+              />
+              <button className="diario-add" onClick={addDiario} disabled={!diarioInput.trim()}>+ Registrar</button>
+            </div>
+
+            {diario.length > 0 && (() => {
+              const r = diarioResumo();
+              return (
+                <div className="diario-stats">
+                  <div className="diario-stat"><span className="diario-stat-label">Essa semana</span><span className="diario-stat-num">{r.semana}<small> {r.semana === 1 ? "registro" : "registros"}</small></span></div>
+                  <div className="diario-stat"><span className="diario-stat-label">Sequência</span><span className="diario-stat-num">{r.streak}<small> {r.streak === 1 ? "dia" : "dias"}</small></span></div>
+                  <div className="diario-stat"><span className="diario-stat-label">Mais estudada</span><span className="diario-stat-num" style={{ fontSize: 18 }}>{r.topNome}</span></div>
+                </div>
+              );
+            })()}
+
+            {diario.length === 0 ? (
+              <p className="desc" style={{ marginTop: 24, textAlign: "center", opacity: .7 }}>Nenhum registro ainda. Escreva a primeira frase acima.</p>
+            ) : (
+              diarioPorDia().map((g) => (
+                <div key={g.k} className="diario-dia">
+                  <div className="diario-dia-head">{rotuloDia(g.ts)}</div>
+                  {g.itens.map((e) => (
+                    <div key={e.id} className="diario-card">
+                      <div className="diario-card-top">
+                        <span className="diario-tipo">{e.tipo}</span>
+                        {e.contexto && <span className="diario-ctx">{e.contexto}</span>}
+                        <button className="diario-del" title="Excluir registro" onClick={() => removeDiario(e.id)}>×</button>
+                      </div>
+                      <p className="diario-txt">{e.texto}</p>
+                      <div className="diario-chips">
+                        {e.mats.length === 0 && <span className="diario-chip-none">sem matéria — toque para marcar</span>}
+                        {e.mats.map((m) => (
+                          <span key={m} className="diario-chip" style={{ color: materiaColor(m), background: materiaBg(m, 0.16), borderColor: materiaBg(m, 0.35) }}>
+                            {(SUBJ_BY_ID[m] ? SUBJ_BY_ID[m].name.replace(/^Direito /, "") : m)}
+                            <button className="diario-chip-x" onClick={() => toggleMatDiario(e.id, m)} title="Tirar esta matéria">×</button>
+                          </span>
+                        ))}
+                        <details className="diario-addmat">
+                          <summary title="Adicionar matéria">+</summary>
+                          <div className="diario-addmat-pop">
+                            {MATERIAS_SIM.filter((s) => !e.mats.includes(s.id)).map((s) => (
+                              <button key={s.id} onClick={() => toggleMatDiario(e.id, s.id)} style={{ color: materiaColor(s.id) }}>
+                                {s.name.replace(/^Direito /, "")}
+                              </button>
+                            ))}
+                          </div>
+                        </details>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ))
+            )}
+          </section>
+        )}
+
         {view === "main" && (<>
         {/* ---------- HERO ---------- */}
         <header className="hero">
           <p className="eyebrow">Painel de Estudos</p>
           <h1 className="serif">Carreiras Jurídicas<br /><em>Magistratura Estadual e Ministério Público</em></h1>
           <button className="editais-open" onClick={() => { setView("editais"); window.scrollTo(0, 0); }}>📋 Editais Verticalizados</button>
+          <button className="editais-open" style={{ marginLeft: 8 }} onClick={() => { setView("diario"); window.scrollTo(0, 0); }}>📔 Diário de Estudos</button>
 
           <div className="stats">
             <div className="stat">
