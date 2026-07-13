@@ -31,26 +31,26 @@
   #toolbar .theme-btn{width:30px;height:30px;padding:0;font-size:15px;line-height:1;display:inline-grid;place-items:center;}
   #toolbar .theme-btn.on{border-color:#f0c85a;color:#f0c85a;}
   /* ---- tema claro ---- */
-  html[data-theme="light"],html[data-theme="light"] body{background:#f4f1ea;}
-  html[data-theme="light"] #boot{background:#f4f1ea;color:#6a6357;}
-  html[data-theme="light"] #toolbar{background:rgba(244,241,234,.85);border-bottom-color:rgba(0,0,0,.08);}
-  html[data-theme="light"] #toolbar button{color:#2a2620;background:#ffffff;border-color:rgba(0,0,0,.14);}
-  html[data-theme="light"] #toolbar button:hover{background:#ece8df;}
+  html[data-theme="light"],html[data-theme="light"] body{background:#fafafa;}
+  html[data-theme="light"] #boot{background:#fafafa;color:#6b6d76;}
+  html[data-theme="light"] #toolbar{background:rgba(250,250,250,.85);border-bottom-color:#e9e9ee;}
+  html[data-theme="light"] #toolbar button{color:#15161a;background:#ffffff;border-color:#dcdce2;}
+  html[data-theme="light"] #toolbar button:hover{background:#f4f4f6;}
   html[data-theme="light"] #toolbar .brand{color:#b7860f;}
   html[data-theme="light"] #toolbar .theme-btn.on{border-color:#b7860f;color:#b7860f;}
-  html[data-theme="light"] #toolbar #status{color:#2fa96a;}
+  html[data-theme="light"] #toolbar #status{color:#15803d;}
   #restoreModal{display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.55);
     align-items:flex-start;justify-content:center;padding:70px 16px;font-family:-apple-system,'Segoe UI',sans-serif;}
   #restoreModal.on{display:flex;}
   .rm-card{background:#141a22;color:#eae7df;border:1px solid rgba(255,255,255,.12);border-radius:16px;
     width:460px;max-width:100%;max-height:80vh;overflow:auto;padding:18px 20px;box-shadow:0 20px 50px rgba(0,0,0,.5);}
-  html[data-theme="light"] .rm-card{background:#fff;color:#2a2620;border-color:rgba(0,0,0,.12);}
+  html[data-theme="light"] .rm-card{background:#fff;color:#15161a;border-color:#e9e9ee;}
   .rm-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;font-size:15px;}
   .rm-head button{border:none;background:transparent;color:inherit;font-size:22px;cursor:pointer;line-height:1;}
   .rm-sub{font-size:12.5px;color:#95a1b0;margin:0 0 14px;line-height:1.5;}
   .rm-item{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 12px;border-radius:10px;
     border:1px solid rgba(255,255,255,.1);margin-bottom:8px;font-size:13px;}
-  html[data-theme="light"] .rm-item{border-color:rgba(0,0,0,.1);}
+  html[data-theme="light"] .rm-item{border-color:#e9e9ee;}
   .rm-item .rm-when{font-weight:600;}
   .rm-item .rm-meta{font-size:11px;color:#95a1b0;}
   .rm-item button{font:inherit;font-size:12px;font-weight:600;cursor:pointer;background:#e0954f;color:#10141a;
@@ -109,7 +109,7 @@ window.storage = {
 
 <script src="editais.js"></script>
 <script type="text/babel" data-presets="react">
-const { useState, useEffect } = React;
+const { useState, useEffect, useRef } = React;
 
 // ---------- Shared checklists ----------
 const JURIS_ITEMS = ["Súmulas Vinculantes", "Súmulas STF", "Súmulas STJ", "Teses de Repercussão Geral (RG)", "Temas de Recurso Repetitivo (RR)", "Jurisprudência em Teses (STJ)"];
@@ -1054,6 +1054,26 @@ const KEY_PREFIX = "tjsc-matriz5:";
 const SIM_KEY_PREFIX = "tjsc-simulados3:";
 const INFO_KEY_PREFIX = "tjsc-informativos2:";
 const DIARIO_KEY = "tjsc-diario:v1";
+const DIARIO_TAGS_KEY = "tjsc-diario-tags:v1";
+
+// Tags de "Fonte" que já vêm prontas (a Nadia pode criar as dela com qualquer cor)
+const DEFAULT_FONTE_TAGS = [
+  { id: "lei",      label: "Lei seca",       color: "#5fbf87" },
+  { id: "juris",    label: "Jurisprudência", color: "#b48ee6" },
+  { id: "questoes", label: "Questões",       color: "#e6c060" },
+  { id: "doutrina", label: "Doutrina",       color: "#7fa8e6" },
+  { id: "anki",     label: "Anki",           color: "#e68a8a" },
+];
+// cores sugeridas ao criar uma tag nova
+const TAG_COLOR_PRESETS = ["#5fbf87", "#7fa8e6", "#b48ee6", "#e6c060", "#e68a8a", "#4fbfc0", "#e69a5f", "#9bc45f", "#e675a8", "#8a94a6"];
+// deixa a cor da tag bonita em qualquer formato (hex ou hsl), com fundo/borda suaves
+function chipStyle(color) {
+  return {
+    color,
+    background: `color-mix(in srgb, ${color} 16%, transparent)`,
+    borderColor: `color-mix(in srgb, ${color} 40%, transparent)`,
+  };
+}
 
 // ---------- Diário de estudos: classificação automática das frases ----------
 // Cada matéria ganha uma cor própria (matiz/saturação/luminosidade) para a tag colorida.
@@ -1142,7 +1162,12 @@ function App() {
   const [cursoData, setCursoData] = useState({});
   const [editaisData, setEditaisData] = useState({});
   const [diario, setDiario] = useState([]);
-  const [diarioInput, setDiarioInput] = useState("");
+  const [diarioTags, setDiarioTags] = useState({ fonte: DEFAULT_FONTE_TAGS, materia: [] });
+  const [composeTitulo, setComposeTitulo] = useState("");
+  const [composeFontes, setComposeFontes] = useState([]);
+  const [diarioHasText, setDiarioHasText] = useState(false);
+  const [newTag, setNewTag] = useState(null); // { group, label, color, applyTo }
+  const diarioRef = useRef(null);
   const [view, setView] = useState("main");
   const [openEdital, setOpenEdital] = useState(0);
   const [openMat, setOpenMat] = useState({});
@@ -1279,6 +1304,8 @@ function App() {
       try { const r = await window.storage.get(SIM_HIDDEN_KEY); ocultas = r ? JSON.parse(r.value) : []; } catch { ocultas = []; }
       let diaEntries = [];
       try { const r = await window.storage.get(DIARIO_KEY); diaEntries = r ? JSON.parse(r.value) : []; } catch { diaEntries = []; }
+      let diaTags = null;
+      try { const r = await window.storage.get(DIARIO_TAGS_KEY); diaTags = r ? JSON.parse(r.value) : null; } catch { diaTags = null; }
       setData(next);
       setSimData(sim);
       setInfoData(info);
@@ -1288,6 +1315,7 @@ function App() {
       setSimManuais(manuais);
       setSimHidden(ocultas);
       setDiario(diaEntries);
+      if (diaTags && diaTags.fonte) setDiarioTags({ fonte: diaTags.fonte, materia: diaTags.materia || [] });
       setLoaded(true);
     })();
   }, []);
@@ -1310,29 +1338,100 @@ function App() {
     setDiario(arr);
     try { window.storage.set(DIARIO_KEY, JSON.stringify(arr)); } catch {}
   };
+  const saveDiarioTags = (t) => {
+    setDiarioTags(t);
+    try { window.storage.set(DIARIO_TAGS_KEY, JSON.stringify(t)); } catch {}
+  };
+  // aplica negrito/itálico/sublinhado/tachado no texto que está sendo escrito
+  const fmtDiario = (cmd) => {
+    try { document.execCommand(cmd, false); } catch {}
+    if (diarioRef.current) diarioRef.current.focus();
+  };
   const addDiario = () => {
-    const raw = diarioInput.trim();
-    if (!raw) return;
+    const el = diarioRef.current;
+    const plain = (el ? el.innerText : "").trim();
+    if (!plain) return;
+    const html = (el ? el.innerHTML : "").trim();
     const entry = {
       id: Date.now(),
       ts: Date.now(),
-      texto: beautifyFrase(raw),
-      mats: detectMaterias(raw),
-      tipo: detectTipo(raw),
-      contexto: detectContexto(raw),
+      titulo: composeTitulo.trim() || detectContexto(plain),
+      html,
+      fontes: composeFontes.slice(),
+      mats: detectMaterias(plain),
     };
     saveDiario([entry, ...diario]);
-    setDiarioInput("");
+    if (el) el.innerHTML = "";
+    setComposeTitulo("");
+    setComposeFontes([]);
+    setDiarioHasText(false);
   };
   const removeDiario = (id) => saveDiario(diario.filter((e) => e.id !== id));
   // adiciona/tira uma matéria de um registro (para corrigir a classificação na mão)
   const toggleMatDiario = (id, matId) => {
     saveDiario(diario.map((e) => {
       if (e.id !== id) return e;
-      const has = e.mats.includes(matId);
-      return { ...e, mats: has ? e.mats.filter((m) => m !== matId) : [...e.mats, matId] };
+      const has = (e.mats || []).includes(matId);
+      return { ...e, mats: has ? e.mats.filter((m) => m !== matId) : [...(e.mats || []), matId] };
     }));
   };
+  // adiciona/tira uma tag de Fonte de um registro
+  const toggleFonteDiario = (id, fid) => {
+    saveDiario(diario.map((e) => {
+      if (e.id !== id) return e;
+      const has = (e.fontes || []).includes(fid);
+      return { ...e, fontes: has ? e.fontes.filter((f) => f !== fid) : [...(e.fontes || []), fid] };
+    }));
+  };
+  const toggleComposeFonte = (fid) => {
+    setComposeFontes((f) => (f.includes(fid) ? f.filter((x) => x !== fid) : [...f, fid]));
+  };
+  // cria uma tag nova (Fonte ou Matéria) com a cor escolhida
+  const commitNewTag = () => {
+    if (!newTag) return;
+    const label = newTag.label.trim();
+    if (!label) return;
+    const id = "t" + Date.now();
+    const tag = { id, label, color: newTag.color };
+    const next = { ...diarioTags, [newTag.group]: [...diarioTags[newTag.group], tag] };
+    saveDiarioTags(next);
+    const applyTo = newTag.applyTo;
+    if (applyTo) {
+      if (applyTo.kind === "compose") setComposeFontes((f) => [...f, id]);
+      else if (applyTo.kind === "card") {
+        if (newTag.group === "fonte") toggleFonteDiario(applyTo.cardId, id);
+        else toggleMatDiario(applyTo.cardId, id);
+      }
+    }
+    setNewTag(null);
+  };
+  // remove uma tag do painel (some dos registros também)
+  const deleteTag = (group, id) => {
+    const next = { ...diarioTags, [group]: diarioTags[group].filter((t) => t.id !== id) };
+    saveDiarioTags(next);
+    if (group === "fonte") {
+      setComposeFontes((f) => f.filter((x) => x !== id));
+      saveDiario(diario.map((e) => ({ ...e, fontes: (e.fontes || []).filter((f) => f !== id) })));
+    } else {
+      saveDiario(diario.map((e) => ({ ...e, mats: (e.mats || []).filter((m) => m !== id) })));
+    }
+  };
+  // nome + cor de uma tag de matéria (matéria pode ser uma disciplina ou uma tag criada)
+  const matTagInfo = (id) => {
+    const custom = diarioTags.materia.find((t) => t.id === id);
+    if (custom) return { label: custom.label, color: custom.color };
+    if (SUBJ_BY_ID[id]) return { label: SUBJ_BY_ID[id].name.replace(/^Direito /, ""), color: materiaColor(id) };
+    return { label: id, color: "hsl(210, 8%, 65%)" };
+  };
+  const fonteTagInfo = (id) => {
+    const t = diarioTags.fonte.find((x) => x.id === id);
+    return t ? { label: t.label, color: t.color } : { label: id, color: "#8a94a6" };
+  };
+  // todas as matérias disponíveis (disciplinas + tags de matéria criadas)
+  const materiaOptions = () => [
+    ...MATERIAS_SIM.map((s) => ({ id: s.id, label: s.name.replace(/^Direito /, ""), color: materiaColor(s.id) })),
+    ...diarioTags.materia.map((t) => ({ id: t.id, label: t.label, color: t.color })),
+  ];
 
   // agrupa os registros por dia (mais recente primeiro) e monta o rótulo do dia
   const diaKey = (ts) => { const d = new Date(ts); return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`; };
@@ -1608,10 +1707,10 @@ function App() {
           --gold:#f0c85a; --coral:#e8837a; --green:#59c98a; --green-bg:rgba(89,201,138,.14);
         }
         :root[data-theme="light"] {
-          --bg:#f4f1ea; --surface:#ffffff; --surface-2:#f4f1e8; --surface-3:#e9e4d8;
-          --line:rgba(0,0,0,.09); --line-2:rgba(0,0,0,.15);
-          --text:#2a2620; --muted:#6a6357; --faint:#9a9082;
-          --gold:#b7860f; --coral:#cf5a49; --green:#2fa96a; --green-bg:rgba(47,169,106,.12);
+          --bg:#fafafa; --surface:#ffffff; --surface-2:#f4f4f6; --surface-3:#ececef;
+          --line:#e9e9ee; --line-2:#dcdce2;
+          --text:#15161a; --muted:#6b6d76; --faint:#a5a6ae;
+          --gold:#b7860f; --coral:#c2410c; --green:#15803d; --green-bg:#e9f6ee;
         }
         * { box-sizing: border-box; }
         .root {
@@ -1625,10 +1724,7 @@ function App() {
             var(--bg);
         }
         :root[data-theme="light"] .root {
-          background:
-            radial-gradient(1100px 520px at 15% -8%, rgba(183,134,15,.07), transparent 60%),
-            radial-gradient(900px 480px at 92% 4%, rgba(127,150,196,.10), transparent 60%),
-            var(--bg);
+          background: var(--bg);
         }
         :root[data-theme="light"] .stat { background: var(--surface); }
         :root[data-theme="light"] .pop, :root[data-theme="light"] .pop-head { background: rgba(255,255,255,.98); }
@@ -1650,7 +1746,7 @@ function App() {
         .hero h1 em { font-style: normal; color: var(--gold); }
         .hero p { font-size: 14px; color: var(--muted); margin: 0; max-width: 640px; line-height: 1.5; }
         .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 26px; }
-        .stat { background: linear-gradient(180deg, var(--surface), rgba(20,26,34,.6));
+        .stat { background: var(--surface);
           border: 1px solid var(--line); border-radius: 16px; padding: 16px 18px; }
         .stat-top { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
         .stat-label { font-size: 12px; color: var(--muted); font-weight: 500; }
@@ -1658,7 +1754,7 @@ function App() {
         .stat-pct { font-size: 12px; font-weight: 600; }
 
         /* ---- generic bar ---- */
-        .bar { height: 6px; border-radius: 99px; background: rgba(255,255,255,.08); overflow: hidden; }
+        .bar { height: 6px; border-radius: 99px; background: var(--surface-3); overflow: hidden; }
         .bar > i { display: block; height: 100%; border-radius: 99px; transition: width .35s ease; }
 
         /* ---- tier ---- */
@@ -1729,7 +1825,7 @@ function App() {
         .cell { position: relative; border: 1px solid var(--line-2); background: var(--surface-2);
           border-radius: 13px; padding: 11px 12px 12px; cursor: pointer; text-align: left; color: var(--text);
           font-family: inherit; transition: transform .12s, border-color .15s, background .15s; overflow: hidden; }
-        .cell:hover { transform: translateY(-2px); border-color: rgba(255,255,255,.2); background: var(--surface-3); }
+        .cell:hover { transform: translateY(-2px); border-color: var(--line-2); background: var(--surface-3); }
         .cell-label { font-size: 11.5px; font-weight: 600; color: var(--muted); display: flex; align-items: center; justify-content: space-between; gap: 6px; }
         .cell-frac { font-size: 19px; font-weight: 700; margin: 7px 0 9px; letter-spacing: -.5px; }
         .cell-frac small { font-size: 12px; font-weight: 500; color: var(--faint); }
@@ -1762,10 +1858,10 @@ function App() {
           background: rgba(24,31,40,.98); }
         .pop-head b { font-size: 13px; } .pop-head span { font-size: 11px; color: var(--faint); }
         .pop-item { padding: 6px; border-radius: 8px; margin-bottom: 2px; }
-        .pop-item:hover { background: rgba(255,255,255,.04); }
+        .pop-item:hover { background: var(--surface-2); }
         .pop-item label { display: flex; align-items: flex-start; gap: 9px; font-size: 12.5px; cursor: pointer; line-height: 1.35; }
         .pop-item label > span { flex: 1; }
-        .pop-item.checked label > span { color: var(--faint); text-decoration: line-through; text-decoration-color: rgba(255,255,255,.25); }
+        .pop-item.checked label > span { color: var(--faint); text-decoration: line-through; text-decoration-color: var(--line-2); }
         .field { width: calc(100% - 24px); margin: 6px 0 0 24px; background: var(--bg); border: 1px solid var(--line-2);
           border-radius: 7px; color: var(--text); font-size: 11.5px; padding: 5px 8px; font-family: inherit; }
         .field:focus { outline: none; border-color: var(--gold); }
@@ -1828,7 +1924,7 @@ function App() {
           padding: 12px 14px; max-height: 260px; overflow-y: auto; }
         .curso-item { display: flex; align-items: flex-start; gap: 9px; font-size: 12.5px; padding: 4px 0; cursor: pointer; line-height: 1.4; }
         .curso-item > span:not(.dur):not(.idx) { flex: 1; }
-        .curso-item.checked > span:not(.dur) { color: var(--faint); text-decoration: line-through; text-decoration-color: rgba(255,255,255,.25); }
+        .curso-item.checked > span:not(.dur) { color: var(--faint); text-decoration: line-through; text-decoration-color: var(--line-2); }
         .curso-item .dur { margin-left: auto; padding-left: 8px; font-size: 10.5px; color: var(--faint); flex-shrink: 0; }
         .curso-head { font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--gold);
           margin: 14px 0 7px; padding-top: 9px; border-top: 1px solid var(--line); }
@@ -1846,13 +1942,33 @@ function App() {
 
         /* ---------- Diário de estudos ---------- */
         .diario-page { padding-top: 8px; max-width: 760px; }
-        .diario-box { display: flex; gap: 10px; align-items: stretch; margin-bottom: 20px; }
-        .diario-input { flex: 1; resize: vertical; min-height: 52px; background: var(--surface); color: var(--text);
-          border: 1px solid var(--line-2); border-radius: 14px; padding: 12px 14px; font: inherit; font-size: 15px; line-height: 1.5; }
+        .diario-compose { background: var(--surface); border: 1px solid var(--line-2); border-radius: 16px;
+          padding: 12px 14px; margin-bottom: 24px; display: flex; flex-direction: column; gap: 10px; }
+        .diario-titulo-input { background: var(--surface-2); color: var(--text); border: 1px solid var(--line);
+          border-radius: 10px; padding: 9px 12px; font: inherit; font-size: 13px; font-weight: 600; }
+        .diario-titulo-input:focus { outline: none; border-color: var(--gold); }
+        .diario-titulo-input::placeholder { color: var(--faint); font-weight: 500; }
+        .diario-toolbar { display: flex; gap: 4px; }
+        .diario-toolbar button { cursor: pointer; width: 32px; height: 30px; background: var(--surface-2);
+          border: 1px solid var(--line); border-radius: 8px; color: var(--muted); font-size: 14px; }
+        .diario-toolbar button:hover { color: var(--text); border-color: var(--muted); }
+        .diario-input { min-height: 84px; background: var(--surface-2); color: var(--text);
+          border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; font: inherit; font-size: 15px;
+          line-height: 1.55; overflow-y: auto; }
         .diario-input:focus { outline: none; border-color: var(--gold); }
-        .diario-input::placeholder { color: var(--faint); }
-        .diario-add { cursor: pointer; white-space: nowrap; background: var(--gold); color: #10141a; border: none;
-          border-radius: 14px; padding: 0 18px; font: inherit; font-size: 14px; font-weight: 700; }
+        .diario-input:empty:before { content: attr(data-placeholder); color: var(--faint); pointer-events: none; }
+        .diario-compose-tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+        .diario-compose-lbl { font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: var(--muted);
+          font-weight: 700; margin-right: 2px; }
+        .diario-tagpick { cursor: pointer; font: inherit; font-size: 12px; font-weight: 700; border-radius: 999px;
+          padding: 4px 11px; background: var(--surface-2); border: 1px solid var(--line-2); }
+        .diario-tagpick.on { border-style: solid; }
+        .diario-tagpick:hover { filter: brightness(1.1); }
+        .diario-tag-new { cursor: pointer; font: inherit; font-size: 12px; font-weight: 600; border-radius: 999px;
+          padding: 4px 11px; background: transparent; border: 1px dashed var(--line-2); color: var(--muted); }
+        .diario-tag-new:hover { color: var(--gold); border-color: var(--gold); }
+        .diario-add { cursor: pointer; align-self: flex-start; white-space: nowrap; background: var(--gold); color: #10141a;
+          border: none; border-radius: 12px; padding: 11px 20px; font: inherit; font-size: 14px; font-weight: 700; }
         .diario-add:hover { filter: brightness(1.05); }
         .diario-add:disabled { opacity: .4; cursor: default; filter: none; }
         .diario-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 26px; }
@@ -1871,6 +1987,7 @@ function App() {
         .diario-tipo { font-size: 11px; font-weight: 700; letter-spacing: .4px; color: var(--muted);
           background: var(--surface-3); border-radius: 8px; padding: 3px 9px; }
         .diario-ctx { font-size: 12px; color: var(--faint); }
+        .diario-titulo { font-size: 13px; font-weight: 700; color: var(--gold); letter-spacing: .3px; }
         .diario-del { margin-left: auto; cursor: pointer; background: transparent; border: none; color: var(--faint);
           font-size: 20px; line-height: 1; padding: 0 4px; }
         .diario-del:hover { color: var(--coral); }
@@ -1894,9 +2011,37 @@ function App() {
         .diario-addmat-pop button { cursor: pointer; background: transparent; border: none; text-align: left;
           font: inherit; font-size: 13px; font-weight: 600; padding: 6px 10px; border-radius: 8px; }
         .diario-addmat-pop button:hover { background: var(--surface-3); }
+        .diario-pop-group { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--muted);
+          font-weight: 700; padding: 8px 10px 3px; }
+        .diario-pop-new { color: var(--gold) !important; font-style: italic; }
+        /* modal de criar tag */
+        .diario-tagmodal-bg { position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,.55);
+          display: flex; align-items: center; justify-content: center; padding: 20px; }
+        .diario-tagmodal { background: var(--surface); border: 1px solid var(--line-2); border-radius: 16px;
+          padding: 20px; width: 320px; max-width: 100%; display: flex; flex-direction: column; gap: 14px;
+          box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+        .diario-tagmodal-title { font-size: 15px; font-weight: 700; color: var(--text); }
+        .diario-tagmodal-input { background: var(--surface-2); color: var(--text); border: 1px solid var(--line);
+          border-radius: 10px; padding: 10px 12px; font: inherit; font-size: 14px; }
+        .diario-tagmodal-input:focus { outline: none; border-color: var(--gold); }
+        .diario-tagmodal-colors { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+        .diario-swatch { cursor: pointer; width: 26px; height: 26px; border-radius: 999px; border: 2px solid transparent;
+          padding: 0; }
+        .diario-swatch.on { border-color: var(--text); box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--muted); }
+        .diario-swatch-custom { cursor: pointer; width: 26px; height: 26px; border-radius: 999px; overflow: hidden;
+          border: 1px dashed var(--line-2); display: inline-flex; position: relative; }
+        .diario-swatch-custom input { position: absolute; inset: -6px; width: 40px; height: 40px; border: none;
+          padding: 0; background: transparent; cursor: pointer; }
+        .diario-tagmodal-preview { display: flex; }
+        .diario-tagmodal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+        .diario-tagmodal-cancel { cursor: pointer; background: transparent; border: none; color: var(--muted);
+          font: inherit; font-size: 13px; padding: 8px 12px; }
+        .diario-tagmodal-cancel:hover { color: var(--text); }
+        .diario-tagmodal-ok { cursor: pointer; background: var(--gold); color: #10141a; border: none; border-radius: 10px;
+          padding: 8px 16px; font: inherit; font-size: 13px; font-weight: 700; }
+        .diario-tagmodal-ok:disabled { opacity: .4; cursor: default; }
         @media (max-width: 640px) {
-          .diario-box { flex-direction: column; }
-          .diario-add { padding: 12px; }
+          .diario-add { align-self: stretch; text-align: center; }
           .diario-stats { grid-template-columns: 1fr; }
         }
 
@@ -1928,7 +2073,7 @@ function App() {
         .edital-line { display: flex; align-items: flex-start; gap: 9px; font-size: 13px; line-height: 1.45; padding: 5px 6px;
           border-radius: 8px; cursor: pointer; }
         .edital-line:hover { background: var(--surface-2); }
-        .edital-line.checked .edital-txt { color: var(--faint); text-decoration: line-through; text-decoration-color: rgba(255,255,255,.22); }
+        .edital-line.checked .edital-txt { color: var(--faint); text-decoration: line-through; text-decoration-color: var(--line-2); }
         .edital-n { color: var(--gold); font-weight: 700; flex-shrink: 0; min-width: 22px; }
         .edital-txt { font-weight: 400; }
         .edital-txt.b { font-weight: 650; }
@@ -2153,19 +2298,48 @@ function App() {
           <section className="diario-page">
             <button className="edital-back" onClick={() => setView("main")}>← Voltar ao painel</button>
             <p className="eyebrow">Painel de Estudos</p>
-            <h1 className="serif" style={{ marginBottom: 6 }}>Diário de Estudos</h1>
-            <p className="desc" style={{ marginBottom: 18 }}>Escreva livremente o que estudou. O app arruma a frase e classifica pela matéria.</p>
+            <h1 className="serif" style={{ marginBottom: 18 }}>Diário de Estudos</h1>
 
-            <div className="diario-box">
-              <textarea
-                className="diario-input"
-                placeholder="Ex.: corrigi questões de penal e processo penal da prova analista tjsc 2026 fgv"
-                value={diarioInput}
-                onChange={(e) => setDiarioInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); addDiario(); } }}
-                rows={2}
+            <div className="diario-compose">
+              <input
+                className="diario-titulo-input"
+                placeholder="Título (ex.: FGV · TJSC · 2026) — opcional"
+                value={composeTitulo}
+                onChange={(e) => setComposeTitulo(e.target.value)}
               />
-              <button className="diario-add" onClick={addDiario} disabled={!diarioInput.trim()}>+ Registrar</button>
+
+              <div className="diario-toolbar">
+                <button type="button" title="Negrito" onMouseDown={(ev) => { ev.preventDefault(); fmtDiario("bold"); }} style={{ fontWeight: 800 }}>B</button>
+                <button type="button" title="Itálico" onMouseDown={(ev) => { ev.preventDefault(); fmtDiario("italic"); }} style={{ fontStyle: "italic" }}>I</button>
+                <button type="button" title="Sublinhado" onMouseDown={(ev) => { ev.preventDefault(); fmtDiario("underline"); }} style={{ textDecoration: "underline" }}>U</button>
+                <button type="button" title="Tachado" onMouseDown={(ev) => { ev.preventDefault(); fmtDiario("strikeThrough"); }} style={{ textDecoration: "line-through" }}>S</button>
+              </div>
+
+              <div
+                ref={diarioRef}
+                className="diario-input"
+                contentEditable
+                suppressContentEditableWarning
+                data-placeholder="O que você estudou hoje?"
+                onInput={(e) => setDiarioHasText(!!e.currentTarget.innerText.trim())}
+                onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); addDiario(); } }}
+              />
+
+              <div className="diario-compose-tags">
+                <span className="diario-compose-lbl">Fonte</span>
+                {diarioTags.fonte.map((t) => {
+                  const on = composeFontes.includes(t.id);
+                  return (
+                    <button key={t.id} type="button" className={`diario-tagpick${on ? " on" : ""}`}
+                      style={on ? chipStyle(t.color) : { color: t.color }}
+                      onClick={() => toggleComposeFonte(t.id)}>{t.label}</button>
+                  );
+                })}
+                <button type="button" className="diario-tag-new"
+                  onClick={() => setNewTag({ group: "fonte", label: "", color: TAG_COLOR_PRESETS[0], applyTo: { kind: "compose" } })}>＋ nova fonte</button>
+              </div>
+
+              <button className="diario-add" onClick={addDiario} disabled={!diarioHasText}>+ Registrar</button>
             </div>
 
             {diario.length > 0 && (() => {
@@ -2185,37 +2359,92 @@ function App() {
               diarioPorDia().map((g) => (
                 <div key={g.k} className="diario-dia">
                   <div className="diario-dia-head">{rotuloDia(g.ts)}</div>
-                  {g.itens.map((e) => (
+                  {g.itens.map((e) => {
+                    const titulo = e.titulo || e.contexto || "";
+                    const html = e.html || e.texto || "";
+                    const fontes = e.fontes || [];
+                    const mats = e.mats || [];
+                    return (
                     <div key={e.id} className="diario-card">
                       <div className="diario-card-top">
-                        <span className="diario-tipo">{e.tipo}</span>
-                        {e.contexto && <span className="diario-ctx">{e.contexto}</span>}
+                        {titulo && <span className="diario-titulo">{titulo}</span>}
+                        {fontes.length === 0 && e.tipo && <span className="diario-tipo">{e.tipo}</span>}
                         <button className="diario-del" title="Excluir registro" onClick={() => removeDiario(e.id)}>×</button>
                       </div>
-                      <p className="diario-txt">{e.texto}</p>
+                      <div className="diario-txt" dangerouslySetInnerHTML={{ __html: html }} />
                       <div className="diario-chips">
-                        {e.mats.length === 0 && <span className="diario-chip-none">sem matéria — toque para marcar</span>}
-                        {e.mats.map((m) => (
-                          <span key={m} className="diario-chip" style={{ color: materiaColor(m), background: materiaBg(m, 0.16), borderColor: materiaBg(m, 0.35) }}>
-                            {(SUBJ_BY_ID[m] ? SUBJ_BY_ID[m].name.replace(/^Direito /, "") : m)}
-                            <button className="diario-chip-x" onClick={() => toggleMatDiario(e.id, m)} title="Tirar esta matéria">×</button>
-                          </span>
-                        ))}
+                        {fontes.length === 0 && mats.length === 0 && <span className="diario-chip-none">sem tags — toque em ＋ para marcar</span>}
+                        {fontes.map((f) => {
+                          const info = fonteTagInfo(f);
+                          return (
+                            <span key={f} className="diario-chip" style={chipStyle(info.color)}>
+                              {info.label}
+                              <button className="diario-chip-x" onClick={() => toggleFonteDiario(e.id, f)} title="Tirar esta tag">×</button>
+                            </span>
+                          );
+                        })}
+                        {mats.map((m) => {
+                          const info = matTagInfo(m);
+                          return (
+                            <span key={m} className="diario-chip" style={chipStyle(info.color)}>
+                              {info.label}
+                              <button className="diario-chip-x" onClick={() => toggleMatDiario(e.id, m)} title="Tirar esta matéria">×</button>
+                            </span>
+                          );
+                        })}
                         <details className="diario-addmat">
-                          <summary title="Adicionar matéria">+</summary>
+                          <summary title="Adicionar tag">+</summary>
                           <div className="diario-addmat-pop">
-                            {MATERIAS_SIM.filter((s) => !e.mats.includes(s.id)).map((s) => (
-                              <button key={s.id} onClick={() => toggleMatDiario(e.id, s.id)} style={{ color: materiaColor(s.id) }}>
-                                {s.name.replace(/^Direito /, "")}
-                              </button>
+                            <div className="diario-pop-group">Fonte</div>
+                            {diarioTags.fonte.filter((t) => !fontes.includes(t.id)).map((t) => (
+                              <button key={t.id} onClick={() => toggleFonteDiario(e.id, t.id)} style={{ color: t.color }}>{t.label}</button>
                             ))}
+                            <button className="diario-pop-new" onClick={() => setNewTag({ group: "fonte", label: "", color: TAG_COLOR_PRESETS[0], applyTo: { kind: "card", cardId: e.id } })}>＋ nova fonte</button>
+                            <div className="diario-pop-group">Matéria</div>
+                            {materiaOptions().filter((o) => !mats.includes(o.id)).map((o) => (
+                              <button key={o.id} onClick={() => toggleMatDiario(e.id, o.id)} style={{ color: o.color }}>{o.label}</button>
+                            ))}
+                            <button className="diario-pop-new" onClick={() => setNewTag({ group: "materia", label: "", color: TAG_COLOR_PRESETS[5], applyTo: { kind: "card", cardId: e.id } })}>＋ nova matéria</button>
                           </div>
                         </details>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ))
+            )}
+
+            {newTag && (
+              <div className="diario-tagmodal-bg" onClick={() => setNewTag(null)}>
+                <div className="diario-tagmodal" onClick={(ev) => ev.stopPropagation()}>
+                  <div className="diario-tagmodal-title">Nova tag de {newTag.group === "fonte" ? "Fonte" : "Matéria"}</div>
+                  <input
+                    autoFocus
+                    className="diario-tagmodal-input"
+                    placeholder={newTag.group === "fonte" ? "Ex.: Súmula, Vade-mécum..." : "Ex.: Prática, Redação..."}
+                    value={newTag.label}
+                    onChange={(ev) => setNewTag({ ...newTag, label: ev.target.value })}
+                    onKeyDown={(ev) => { if (ev.key === "Enter") commitNewTag(); }}
+                  />
+                  <div className="diario-tagmodal-colors">
+                    {TAG_COLOR_PRESETS.map((c) => (
+                      <button key={c} type="button" className={`diario-swatch${newTag.color === c ? " on" : ""}`}
+                        style={{ background: c }} onClick={() => setNewTag({ ...newTag, color: c })} />
+                    ))}
+                    <label className="diario-swatch-custom" title="Escolher qualquer cor">
+                      <input type="color" value={newTag.color} onChange={(ev) => setNewTag({ ...newTag, color: ev.target.value })} />
+                    </label>
+                  </div>
+                  <div className="diario-tagmodal-preview">
+                    <span className="diario-chip" style={chipStyle(newTag.color)}>{newTag.label.trim() || "prévia"}</span>
+                  </div>
+                  <div className="diario-tagmodal-actions">
+                    <button className="diario-tagmodal-cancel" onClick={() => setNewTag(null)}>Cancelar</button>
+                    <button className="diario-tagmodal-ok" onClick={commitNewTag} disabled={!newTag.label.trim()}>Criar tag</button>
+                  </div>
+                </div>
+              </div>
             )}
           </section>
         )}
