@@ -864,6 +864,17 @@ function expandBlocos(topics) {
 
 const CURSO_KEY_PREFIX = "tjsc-cursos-isolados:";
 const EDITAIS_KEY_PREFIX = "tjsc-editais:";
+// colunas de acompanhamento por tópico do edital (estilo Normio): Estudo + Revisões
+const ED_ESTUDO = [{ f: "t", lbl: "Teoria" }, { f: "l", lbl: "Lei Seca" }, { f: "q", lbl: "Questões" }];
+const ED_REV = [{ f: "r1", lbl: "1ª" }, { f: "r2", lbl: "2ª" }, { f: "r3", lbl: "3ª" }];
+// normaliza o valor salvo de um tópico: aceita o formato antigo (booleano) e o novo (objeto de 6 flags)
+function editalCell(raw) {
+  if (raw && typeof raw === "object") return raw;
+  if (raw === true) return { t: true, l: true, q: true }; // dado antigo "concluído" → vira estudo completo
+  return {};
+}
+// um tópico conta como "estudado" quando Teoria + Lei Seca + Questões estão marcados
+function editalDone(cell) { return !!(cell.t && cell.l && cell.q); }
 const PRIORIDADES_KEY = "tjsc-prioridades:list";
 const SIM_MANUAIS_KEY = "tjsc-simulados-manuais:list";
 const SIM_HIDDEN_KEY = "tjsc-simulados-ocultas:list";
@@ -1566,9 +1577,12 @@ export default function App() {
     } catch {}
   };
 
-  const toggleEdital = async (editalId, pathKey) => {
+  // marca/desmarca UMA caixinha (Teoria, Lei Seca, Questões, 1ª/2ª/3ª revisão) de um tópico
+  const toggleEditalCell = async (editalId, pathKey, field) => {
     const cur = editaisData[editalId] || {};
-    const next = { ...cur, [pathKey]: !cur[pathKey] };
+    const cell = editalCell(cur[pathKey]);
+    const nextCell = { ...cell, [field]: !cell[field] };
+    const next = { ...cur, [pathKey]: nextCell };
     setEditaisData((p) => ({ ...p, [editalId]: next }));
     try {
       await window.storage.set(EDITAIS_KEY_PREFIX + editalId, JSON.stringify(next));
@@ -2090,34 +2104,54 @@ export default function App() {
           padding: 9px 16px; font: inherit; font-size: 13px; font-weight: 600; color: var(--muted); transition: all .15s; }
         .edital-tab:hover { color: var(--text); border-color: var(--muted); }
         .edital-tab.active { background: var(--gold); color: #10141a; border-color: var(--gold); }
-        .edital-materia { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 18px 20px; margin-bottom: 16px; }
-        .edital-materia-head { width: 100%; background: transparent; border: none; border-bottom: 1px solid var(--line); cursor: pointer;
-          display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; padding: 2px 2px 10px; font: inherit; text-align: left; border-radius: 8px 8px 0 0; }
-        .edital-materia-head:hover h3 { color: var(--gold); }
-        .edital-materia-head:not(.open) { border-bottom: none; margin-bottom: 0; padding-bottom: 2px; }
-        .mat-arrow { color: var(--gold); font-size: 11px; flex-shrink: 0; align-self: center; }
-        .edital-materia-head h3 { margin: 0; font-size: 15px; font-weight: 700; color: var(--coral); letter-spacing: .2px; transition: color .15s; }
+        /* ===== Editais: tabela de acompanhamento (estilo Normio) ===== */
+        .edital-table { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+        .ed-head { display: flex; align-items: flex-end; gap: 12px; padding: 12px 16px 10px; background: var(--surface); border-bottom: 1px solid var(--line-2); }
+        .ed-head-topic { font-size: 11px; font-weight: 700; letter-spacing: .8px; color: var(--muted); text-transform: uppercase; flex: 1; }
+        .ed-checks { display: flex; align-items: center; flex-shrink: 0; }
+        .ed-head .ed-checks { align-items: flex-end; }
+        .ed-grp { display: flex; align-items: center; }
+        .ed-grp.col { flex-direction: column; align-items: stretch; }
+        .ed-grp-title { font-size: 10px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--gold); text-align: center; margin-bottom: 5px; }
+        .ed-cols { display: flex; }
+        .ed-col { display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .ed-col.est { width: 58px; }
+        .ed-col.rev { width: 34px; }
+        .ed-collabel { font-size: 10.5px; color: var(--faint); font-weight: 600; text-align: center; line-height: 1.15; }
+        .ed-vdiv { width: 1px; align-self: stretch; background: var(--line-2); margin: 0 9px; }
+        .ed-vdiv.tall { min-height: 32px; }
+        .ed-materia + .ed-materia .ed-band, .ed-head + .ed-materia .ed-band { border-top: 1px solid var(--line); }
+        .ed-band { width: 100%; display: flex; align-items: center; gap: 10px; padding: 11px 16px; background: var(--surface-2);
+          border: none; border-left: 3px solid var(--coral); cursor: pointer; font: inherit; text-align: left; }
+        .ed-band:hover h3 { color: var(--gold); }
+        .ed-band h3 { margin: 0; font-size: 14px; font-weight: 700; color: var(--coral); letter-spacing: .2px; transition: color .15s; }
+        .mat-arrow { color: var(--gold); font-size: 11px; flex-shrink: 0; }
         .edital-count { margin-left: auto; font-size: 11px; color: var(--faint); }
         .edital-link { font-size: 10px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase; color: var(--gold);
           background: rgba(240,200,90,.12); border: 1px solid rgba(240,200,90,.35); border-radius: 999px; padding: 2px 9px; }
-        .edital-item { margin-bottom: 4px; }
+        .ed-row { display: flex; align-items: center; gap: 12px; padding: 6px 16px; border-top: 1px solid var(--line); }
+        .ed-row:hover { background: var(--surface-2); }
+        .ed-topic { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; font-size: 13px; line-height: 1.4; }
+        .ed-row.d1 .ed-topic { padding-left: 22px; }
+        .ed-row.d2 .ed-topic { padding-left: 44px; }
+        .ed-row.done .edital-txt { color: var(--muted); }
+        .ed-check { width: 17px; height: 17px; margin: 0; }
+        .edital-n { color: var(--gold); font-weight: 700; flex-shrink: 0; min-width: 22px; }
+        .edital-txt { font-weight: 400; }
+        .edital-txt.b { font-weight: 650; }
+        @media (max-width: 720px) {
+          .ed-col.est { width: 40px; }
+          .ed-col.rev { width: 27px; }
+          .ed-collabel { font-size: 9px; }
+          .ed-vdiv { margin: 0 5px; }
+          .ed-head, .ed-band, .ed-row { padding-left: 10px; padding-right: 10px; gap: 8px; }
+        }
         .to-top { position: fixed; right: 22px; bottom: 22px; width: 46px; height: 46px; border-radius: 50%;
           border: 1px solid var(--line-2); background: var(--surface-2); color: var(--gold); font-size: 20px; line-height: 1;
           cursor: pointer; box-shadow: 0 6px 18px rgba(0,0,0,.28); opacity: 0; transform: translateY(12px); pointer-events: none;
           transition: opacity .2s, transform .2s, background .15s; z-index: 200; }
         .to-top.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
         .to-top:hover { background: var(--gold); color: #10141a; }
-        .edital-line { display: flex; align-items: flex-start; gap: 9px; font-size: 13px; line-height: 1.45; padding: 5px 6px;
-          border-radius: 8px; cursor: pointer; }
-        .edital-line:hover { background: var(--surface-2); }
-        .edital-line.checked .edital-txt { color: var(--faint); text-decoration: line-through; text-decoration-color: var(--line-2); }
-        .edital-n { color: var(--gold); font-weight: 700; flex-shrink: 0; min-width: 22px; }
-        .edital-txt { font-weight: 400; }
-        .edital-txt.b { font-weight: 650; }
-        .edital-sub { margin-left: 26px; font-size: 12.5px; }
-        .edital-sub .edital-n { color: var(--muted); font-weight: 600; min-width: 26px; }
-        .edital-subsub { margin-left: 50px; font-size: 12px; }
-        .edital-subsub .edital-n { color: var(--faint); font-weight: 600; min-width: 28px; }
 
         /* post-it de PRIORIDADES */
         .postit { width: 300px; margin: 22px 0 4px auto; background: #f7e7a3; color: #3a3320;
@@ -2251,54 +2285,70 @@ export default function App() {
                 {(() => {
                   const ed = EDITAIS[openEdital] || EDITAIS[0];
                   const v = editaisData[ed.id] || {};
+                  const renderNode = (node, key, depth) => {
+                    const kids = node.subs || [];
+                    const hasKids = kids.length > 0;
+                    const bold = depth === 0 || hasKids;
+                    const cell = editalCell(v[key]);
+                    const check = (c) => (
+                      <span key={c.f} className={`ed-col ${c.rev ? "rev" : "est"}`}>
+                        <input type="checkbox" className="ed-check" checked={!!cell[c.f]}
+                          onChange={() => toggleEditalCell(ed.id, key, c.f)} aria-label={c.lbl} />
+                      </span>
+                    );
+                    return (
+                      <React.Fragment key={key}>
+                        <div className={`ed-row d${depth}${editalDone(cell) ? " done" : ""}`}>
+                          <div className="ed-topic">
+                            {node.n && <span className="edital-n">{node.n}</span>}
+                            <span className={`edital-txt${bold ? " b" : ""}`}>{node.txt}</span>
+                          </div>
+                          <div className="ed-checks">
+                            <div className="ed-grp">{ED_ESTUDO.map((c) => check(c))}</div>
+                            <span className="ed-vdiv" />
+                            <div className="ed-grp">{ED_REV.map((c) => check({ ...c, rev: true }))}</div>
+                          </div>
+                        </div>
+                        {kids.map((c, ci) => renderNode(c, `${key}.${ci}`, depth + 1))}
+                      </React.Fragment>
+                    );
+                  };
                   return (
-                    <div className="edital-body">
+                    <div className="edital-table">
+                      <div className="ed-head">
+                        <div className="ed-topic ed-head-topic">Tópico</div>
+                        <div className="ed-checks">
+                          <div className="ed-grp col">
+                            <div className="ed-grp-title">Estudo</div>
+                            <div className="ed-cols">{ED_ESTUDO.map((c) => <span key={c.f} className="ed-col est ed-collabel">{c.lbl}</span>)}</div>
+                          </div>
+                          <span className="ed-vdiv tall" />
+                          <div className="ed-grp col">
+                            <div className="ed-grp-title">Revisões</div>
+                            <div className="ed-cols">{ED_REV.map((c) => <span key={c.f} className="ed-col rev ed-collabel">{c.lbl}</span>)}</div>
+                          </div>
+                        </div>
+                      </div>
                       {ed.materias.map((m, mi) => {
                         let done = 0, total = 0;
                         const countNode = (node, key) => {
-                          total++; if (v[key]) done++;
+                          total++; if (editalDone(editalCell(v[key]))) done++;
                           (node.subs || []).forEach((c, ci) => countNode(c, `${key}.${ci}`));
                         };
                         m.itens.forEach((it, ii) => countNode(it, `${mi}.${ii}`));
                         const matKey = `${ed.id}:${mi}`;
                         const matOpen = !!openMat[matKey];
+                        const sid = editalSubjId(m.nome);
+                        const pp = sid ? subjProgress(sid) : null;
                         return (
-                          <div key={mi} className="edital-materia">
-                            <button className={`edital-materia-head${matOpen ? " open" : ""}`} onClick={() => setOpenMat((p) => ({ ...p, [matKey]: !p[matKey] }))}>
+                          <div key={mi} className="ed-materia">
+                            <button className={`ed-band${matOpen ? " open" : ""}`} onClick={() => setOpenMat((p) => ({ ...p, [matKey]: !p[matKey] }))}>
                               <span className="mat-arrow">{matOpen ? "▾" : "▸"}</span>
                               <h3>{m.nome}</h3>
-                              {(() => {
-                                const sid = editalSubjId(m.nome);
-                                const pp = sid ? subjProgress(sid) : null;
-                                return pp != null ? (
-                                  <span className="edital-link" title="Progresso desta matéria no painel principal (Teoria/Lei Seca/Jurisprudência/Questões/Anki)">
-                                    painel {pp}%
-                                  </span>
-                                ) : null;
-                              })()}
+                              {pp != null && <span className="edital-link" title="Progresso desta matéria no painel principal (Teoria/Lei Seca/Jurisprudência/Questões/Anki)">painel {pp}%</span>}
                               <span className="mono edital-count">{done}/{total}</span>
                             </button>
-                            {matOpen && (() => {
-                              const renderNode = (node, key, depth) => {
-                                const kids = node.subs || [];
-                                const hasKids = kids.length > 0;
-                                const cls = depth === 0 ? "edital-line" : depth === 1 ? "edital-line edital-sub" : "edital-line edital-subsub";
-                                const bold = depth === 0 || hasKids;
-                                return (
-                                  <React.Fragment key={key}>
-                                    <label className={`${cls}${v[key] ? " checked" : ""}`}>
-                                      <input type="checkbox" checked={!!v[key]} onChange={() => toggleEdital(ed.id, key)} style={{ marginTop: 3 }} />
-                                      {node.n && <span className="edital-n">{node.n}</span>}
-                                      <span className={`edital-txt${bold ? " b" : ""}`}>{node.txt}</span>
-                                    </label>
-                                    {kids.map((c, ci) => renderNode(c, `${key}.${ci}`, depth + 1))}
-                                  </React.Fragment>
-                                );
-                              };
-                              return m.itens.map((it, ii) => (
-                                <div key={ii} className="edital-item">{renderNode(it, `${mi}.${ii}`, 0)}</div>
-                              ));
-                            })()}
+                            {matOpen && m.itens.map((it, ii) => renderNode(it, `${mi}.${ii}`, 0))}
                           </div>
                         );
                       })}
