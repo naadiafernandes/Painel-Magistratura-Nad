@@ -1211,7 +1211,18 @@ function App() {
   const [diarioPeriodo, setDiarioPeriodo] = useState("semana");
   const [diarioHasText, setDiarioHasText] = useState(false);
   const [newTag, setNewTag] = useState(null); // { group, label, color, applyTo }
+  const [editId, setEditId] = useState(null); // registro sendo editado
+  const [editTitulo, setEditTitulo] = useState("");
   const diarioRef = useRef(null);
+  const editRef = useRef(null);
+  // ao entrar em edição, joga o texto salvo na caixa uma única vez (sem sobrescrever a digitação depois)
+  useEffect(() => {
+    if (editId != null && editRef.current) {
+      const alvo = diario.find((x) => x.id === editId);
+      editRef.current.innerHTML = alvo ? (alvo.html || alvo.texto || "") : "";
+      editRef.current.focus();
+    }
+  }, [editId]);
   const [view, setView] = useState("main");
   const [openEdital, setOpenEdital] = useState(0);
   const [openMat, setOpenMat] = useState({});
@@ -1382,11 +1393,12 @@ function App() {
     setDiarioTags(t);
     try { window.storage.set(DIARIO_TAGS_KEY, JSON.stringify(t)); } catch {}
   };
-  // aplica negrito/itálico/sublinhado/tachado no texto que está sendo escrito
-  const fmtDiario = (cmd) => {
+  // aplica negrito/itálico/sublinhado/tachado no texto que está sendo escrito/editado
+  const fmtOn = (cmd, ref) => {
     try { document.execCommand(cmd, false); } catch {}
-    if (diarioRef.current) diarioRef.current.focus();
+    if (ref && ref.current) ref.current.focus();
   };
+  const fmtDiario = (cmd) => fmtOn(cmd, diarioRef);
   const addDiario = () => {
     const el = diarioRef.current;
     const plain = (el ? el.innerText : "").trim();
@@ -1410,6 +1422,21 @@ function App() {
     setDiarioHasText(false);
   };
   const removeDiario = (id) => saveDiario(diario.filter((e) => e.id !== id));
+  // edição de um registro já salvo (título + texto com formatação)
+  const startEditDiario = (e) => {
+    setEditId(e.id);
+    setEditTitulo(e.titulo || e.contexto || "");
+  };
+  const cancelEditDiario = () => { setEditId(null); setEditTitulo(""); };
+  const saveEditDiario = (id) => {
+    const el = editRef.current;
+    if (!el) return;
+    const plain = el.innerText.trim();
+    if (!plain) return; // não deixa apagar tudo por engano
+    const html = el.innerHTML.trim();
+    saveDiario(diario.map((e) => (e.id === id ? { ...e, titulo: editTitulo.trim(), html, texto: undefined } : e)));
+    cancelEditDiario();
+  };
   // adiciona/tira uma matéria de um registro (para corrigir a classificação na mão)
   const toggleMatDiario = (id, matId) => {
     saveDiario(diario.map((e) => {
@@ -2099,9 +2126,21 @@ function App() {
           background: var(--surface-3); border-radius: 8px; padding: 3px 9px; }
         .diario-ctx { font-size: 12px; color: var(--faint); }
         .diario-titulo { font-size: 13px; font-weight: 700; color: var(--gold); letter-spacing: .3px; }
-        .diario-del { margin-left: auto; cursor: pointer; background: transparent; border: none; color: var(--faint);
+        .diario-card-fontes { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+        .diario-edit-btn { margin-left: auto; cursor: pointer; background: transparent; border: none; color: var(--faint);
+          font-size: 15px; line-height: 1; padding: 0 3px; }
+        .diario-edit-btn:hover { color: var(--gold); }
+        .diario-del { cursor: pointer; background: transparent; border: none; color: var(--faint);
           font-size: 20px; line-height: 1; padding: 0 4px; }
         .diario-del:hover { color: var(--coral); }
+        .diario-edit { display: flex; flex-direction: column; gap: 10px; margin-bottom: 4px; }
+        .diario-edit-actions { display: flex; gap: 8px; justify-content: flex-end; }
+        .diario-edit-cancel { cursor: pointer; background: transparent; border: none; color: var(--muted);
+          font: inherit; font-size: 13px; padding: 8px 12px; }
+        .diario-edit-cancel:hover { color: var(--text); }
+        .diario-edit-save { cursor: pointer; background: var(--green); color: #fff; border: none; border-radius: 10px;
+          padding: 9px 18px; font: inherit; font-size: 13px; font-weight: 700; }
+        .diario-edit-save:hover { filter: brightness(1.05); }
         .diario-txt { margin: 0 0 12px; font-size: 15px; line-height: 1.55; color: var(--text); }
         .diario-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
         .diario-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 700;
@@ -2471,23 +2510,52 @@ function App() {
                     const mats = e.mats || [];
                     return (
                     <div key={e.id} className="diario-card">
-                      <div className="diario-card-top">
-                        {titulo && <span className="diario-titulo">{titulo}</span>}
-                        {fontes.length === 0 && e.tipo && <span className="diario-tipo">{e.tipo}</span>}
-                        <button className="diario-del" title="Excluir registro" onClick={() => removeDiario(e.id)}>×</button>
-                      </div>
-                      <div className="diario-txt" dangerouslySetInnerHTML={{ __html: html }} />
+                      {fontes.length > 0 && (
+                        <div className="diario-card-fontes">
+                          {fontes.map((f) => {
+                            const info = fonteTagInfo(f);
+                            return (
+                              <span key={f} className="diario-chip" style={chipStyle(info.color)}>
+                                {info.label}
+                                <button className="diario-chip-x" onClick={() => toggleFonteDiario(e.id, f)} title="Tirar esta tag">×</button>
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {editId === e.id ? (
+                        <div className="diario-edit">
+                          <input className="diario-titulo-input" placeholder="Título (ex.: FGV · TJSC · 2026) — opcional"
+                            value={editTitulo} onChange={(ev) => setEditTitulo(ev.target.value)} />
+                          <div className="diario-toolbar">
+                            <button type="button" title="Negrito" onMouseDown={(ev) => { ev.preventDefault(); fmtOn("bold", editRef); }} style={{ fontWeight: 800 }}>B</button>
+                            <button type="button" title="Itálico" onMouseDown={(ev) => { ev.preventDefault(); fmtOn("italic", editRef); }} style={{ fontStyle: "italic" }}>I</button>
+                            <button type="button" title="Sublinhado" onMouseDown={(ev) => { ev.preventDefault(); fmtOn("underline", editRef); }} style={{ textDecoration: "underline" }}>U</button>
+                            <button type="button" title="Tachado (⌘⇧X)" onMouseDown={(ev) => { ev.preventDefault(); fmtOn("strikeThrough", editRef); }} style={{ textDecoration: "line-through" }}>S</button>
+                          </div>
+                          <div ref={editRef} className="diario-input" contentEditable suppressContentEditableWarning
+                            onKeyDown={(ev) => {
+                              if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); saveEditDiario(e.id); return; }
+                              if ((ev.metaKey || ev.ctrlKey) && ev.shiftKey && ev.key.toLowerCase() === "x") { ev.preventDefault(); fmtOn("strikeThrough", editRef); }
+                            }} />
+                          <div className="diario-edit-actions">
+                            <button className="diario-edit-cancel" onClick={cancelEditDiario}>Cancelar</button>
+                            <button className="diario-edit-save" onClick={() => saveEditDiario(e.id)}>Salvar</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="diario-card-top">
+                            {titulo && <span className="diario-titulo">{titulo}</span>}
+                            {fontes.length === 0 && e.tipo && <span className="diario-tipo">{e.tipo}</span>}
+                            <button className="diario-edit-btn" title="Editar registro" onClick={() => startEditDiario(e)}>✎</button>
+                            <button className="diario-del" title="Excluir registro" onClick={() => removeDiario(e.id)}>×</button>
+                          </div>
+                          <div className="diario-txt" dangerouslySetInnerHTML={{ __html: html }} />
+                        </>
+                      )}
                       <div className="diario-chips">
                         {fontes.length === 0 && mats.length === 0 && <span className="diario-chip-none">sem tags — toque em ＋ para marcar</span>}
-                        {fontes.map((f) => {
-                          const info = fonteTagInfo(f);
-                          return (
-                            <span key={f} className="diario-chip" style={chipStyle(info.color)}>
-                              {info.label}
-                              <button className="diario-chip-x" onClick={() => toggleFonteDiario(e.id, f)} title="Tirar esta tag">×</button>
-                            </span>
-                          );
-                        })}
                         {mats.map((m) => {
                           const info = matTagInfo(m);
                           return (
@@ -2539,7 +2607,7 @@ function App() {
                         <div className="diario-acomp-big">{x.count}<small>{x.count === 1 ? "registro" : "registros"}</small></div>
                         <div className="diario-acomp-mini">
                           <div className="diario-acomp-cell"><b>{x.dias}</b><span>{x.dias === 1 ? "dia" : "dias"}</span></div>
-                          <div className="diario-acomp-cell"><b>{x.media.toFixed(1).replace(".", ",")}</b><span>por dia</span></div>
+                          <div className="diario-acomp-cell"><b>{Math.round(x.media)}</b><span>por dia</span></div>
                           <div className="diario-acomp-cell"><b>{x.streak}🔥</b><span>sequência</span></div>
                         </div>
                         {x.mats.length > 0 && (
