@@ -1054,6 +1054,7 @@ export default function App() {
   const [diarioTags, setDiarioTags] = useState({ fonte: DEFAULT_FONTE_TAGS, materia: [] });
   const [composeTitulo, setComposeTitulo] = useState("");
   const [composeFontes, setComposeFontes] = useState([]);
+  const [composeMats, setComposeMats] = useState([]);
   const [diarioHasText, setDiarioHasText] = useState(false);
   const [newTag, setNewTag] = useState(null); // { group, label, color, applyTo }
   const diarioRef = useRef(null);
@@ -1241,18 +1242,21 @@ export default function App() {
     const plain = (el ? el.innerText : "").trim();
     if (!plain) return;
     const html = (el ? el.innerHTML : "").trim();
+    const mats = detectMaterias(plain);
+    composeMats.forEach((m) => { if (!mats.includes(m)) mats.push(m); });
     const entry = {
       id: Date.now(),
       ts: Date.now(),
       titulo: composeTitulo.trim() || detectContexto(plain),
       html,
       fontes: composeFontes.slice(),
-      mats: detectMaterias(plain),
+      mats,
     };
     saveDiario([entry, ...diario]);
     if (el) el.innerHTML = "";
     setComposeTitulo("");
     setComposeFontes([]);
+    setComposeMats([]);
     setDiarioHasText(false);
   };
   const removeDiario = (id) => saveDiario(diario.filter((e) => e.id !== id));
@@ -1275,11 +1279,22 @@ export default function App() {
   const toggleComposeFonte = (fid) => {
     setComposeFontes((f) => (f.includes(fid) ? f.filter((x) => x !== fid) : [...f, fid]));
   };
-  // cria uma tag nova (Fonte ou Matéria) com a cor escolhida
+  const toggleComposeMat = (mid) => {
+    setComposeMats((m) => (m.includes(mid) ? m.filter((x) => x !== mid) : [...m, mid]));
+  };
+  // abre o mesmo painel, mas para editar uma tag que já existe (renomear/trocar cor/excluir)
+  const openEditTag = (group, tag) => setNewTag({ mode: "edit", group, id: tag.id, label: tag.label, color: tag.color });
+  // cria uma tag nova (Fonte ou Matéria) com a cor escolhida — ou salva a edição
   const commitNewTag = () => {
     if (!newTag) return;
     const label = newTag.label.trim();
     if (!label) return;
+    if (newTag.mode === "edit") {
+      const next = { ...diarioTags, [newTag.group]: diarioTags[newTag.group].map((t) => (t.id === newTag.id ? { ...t, label, color: newTag.color } : t)) };
+      saveDiarioTags(next);
+      setNewTag(null);
+      return;
+    }
     const id = "t" + Date.now();
     const tag = { id, label, color: newTag.color };
     const next = { ...diarioTags, [newTag.group]: [...diarioTags[newTag.group], tag] };
@@ -1287,6 +1302,7 @@ export default function App() {
     const applyTo = newTag.applyTo;
     if (applyTo) {
       if (applyTo.kind === "compose") setComposeFontes((f) => [...f, id]);
+      else if (applyTo.kind === "compose-mat") setComposeMats((m) => [...m, id]);
       else if (applyTo.kind === "card") {
         if (newTag.group === "fonte") toggleFonteDiario(applyTo.cardId, id);
         else toggleMatDiario(applyTo.cardId, id);
@@ -1302,6 +1318,7 @@ export default function App() {
       setComposeFontes((f) => f.filter((x) => x !== id));
       saveDiario(diario.map((e) => ({ ...e, fontes: (e.fontes || []).filter((f) => f !== id) })));
     } else {
+      setComposeMats((m) => m.filter((x) => x !== id));
       saveDiario(diario.map((e) => ({ ...e, mats: (e.mats || []).filter((m) => m !== id) })));
     }
   };
@@ -1849,17 +1866,23 @@ export default function App() {
         .diario-compose-tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
         .diario-compose-lbl { font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: var(--muted);
           font-weight: 700; margin-right: 2px; }
-        .diario-tagpick { cursor: pointer; font: inherit; font-size: 12px; font-weight: 700; border-radius: 999px;
-          padding: 4px 11px; background: var(--surface-2); border: 1px solid var(--line-2); }
-        .diario-tagpick.on { border-style: solid; }
-        .diario-tagpick:hover { filter: brightness(1.1); }
+        .diario-tagpick-wrap { display: inline-flex; align-items: center; border-radius: 999px;
+          border: 1px solid var(--line-2); background: var(--surface-2); overflow: hidden; }
+        .diario-tagpick-wrap.on { border-style: solid; }
+        .diario-tagpick-wrap:hover { filter: brightness(1.08); }
+        .diario-tagpick-lbl { cursor: pointer; font: inherit; font-size: 12px; font-weight: 700; color: inherit;
+          background: transparent; border: none; padding: 4px 3px 4px 11px; }
+        .diario-tagpick-edit { cursor: pointer; background: transparent; border: none; color: inherit; opacity: .45;
+          font-size: 11px; line-height: 1; padding: 4px 8px 4px 3px; }
+        .diario-tagpick-edit:hover { opacity: 1; }
         .diario-tag-new { cursor: pointer; font: inherit; font-size: 12px; font-weight: 600; border-radius: 999px;
           padding: 4px 11px; background: transparent; border: 1px dashed var(--line-2); color: var(--muted); }
         .diario-tag-new:hover { color: var(--gold); border-color: var(--gold); }
+        .diario-compose-hint { font-size: 11px; color: var(--faint); font-style: italic; }
         .diario-add { cursor: pointer; align-self: flex-start; white-space: nowrap; background: var(--gold); color: #10141a;
-          border: none; border-radius: 12px; padding: 11px 20px; font: inherit; font-size: 14px; font-weight: 700; }
+          border: none; border-radius: 12px; padding: 11px 22px; font: inherit; font-size: 14px; font-weight: 700; }
         .diario-add:hover { filter: brightness(1.05); }
-        .diario-add:disabled { opacity: .4; cursor: default; filter: none; }
+        .diario-add:disabled { cursor: default; background: var(--surface-3); color: var(--faint); }
         .diario-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 26px; }
         .diario-stat { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px;
           display: flex; flex-direction: column; gap: 4px; }
@@ -1922,13 +1945,17 @@ export default function App() {
         .diario-swatch-custom input { position: absolute; inset: -6px; width: 40px; height: 40px; border: none;
           padding: 0; background: transparent; cursor: pointer; }
         .diario-tagmodal-preview { display: flex; }
-        .diario-tagmodal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+        .diario-tagmodal-actions { display: flex; gap: 8px; align-items: center; }
+        .diario-tagmodal-del { cursor: pointer; background: transparent; border: none; color: var(--coral);
+          font: inherit; font-size: 13px; font-weight: 600; padding: 8px 4px; margin-right: auto; }
+        .diario-tagmodal-del:hover { text-decoration: underline; }
         .diario-tagmodal-cancel { cursor: pointer; background: transparent; border: none; color: var(--muted);
           font: inherit; font-size: 13px; padding: 8px 12px; }
         .diario-tagmodal-cancel:hover { color: var(--text); }
-        .diario-tagmodal-ok { cursor: pointer; background: var(--gold); color: #10141a; border: none; border-radius: 10px;
-          padding: 8px 16px; font: inherit; font-size: 13px; font-weight: 700; }
-        .diario-tagmodal-ok:disabled { opacity: .4; cursor: default; }
+        .diario-tagmodal-ok { cursor: pointer; background: var(--green); color: #fff; border: none; border-radius: 10px;
+          padding: 9px 18px; font: inherit; font-size: 13px; font-weight: 700; }
+        .diario-tagmodal-ok:hover { filter: brightness(1.05); }
+        .diario-tagmodal-ok:disabled { cursor: default; background: var(--surface-3); color: var(--faint); filter: none; }
         @media (max-width: 640px) {
           .diario-add { align-self: stretch; text-align: center; }
           .diario-stats { grid-template-columns: 1fr; }
@@ -2222,13 +2249,30 @@ export default function App() {
                 {diarioTags.fonte.map((t) => {
                   const on = composeFontes.includes(t.id);
                   return (
-                    <button key={t.id} type="button" className={`diario-tagpick${on ? " on" : ""}`}
-                      style={on ? chipStyle(t.color) : { color: t.color }}
-                      onClick={() => toggleComposeFonte(t.id)}>{t.label}</button>
+                    <span key={t.id} className={`diario-tagpick-wrap${on ? " on" : ""}`} style={on ? chipStyle(t.color) : { color: t.color }}>
+                      <button type="button" className="diario-tagpick-lbl" onClick={() => toggleComposeFonte(t.id)}>{t.label}</button>
+                      <button type="button" className="diario-tagpick-edit" title="Editar tag" onClick={() => openEditTag("fonte", t)}>✎</button>
+                    </span>
                   );
                 })}
                 <button type="button" className="diario-tag-new"
                   onClick={() => setNewTag({ group: "fonte", label: "", color: TAG_COLOR_PRESETS[0], applyTo: { kind: "compose" } })}>＋ nova fonte</button>
+              </div>
+
+              <div className="diario-compose-tags">
+                <span className="diario-compose-lbl">Matéria</span>
+                {diarioTags.materia.map((t) => {
+                  const on = composeMats.includes(t.id);
+                  return (
+                    <span key={t.id} className={`diario-tagpick-wrap${on ? " on" : ""}`} style={on ? chipStyle(t.color) : { color: t.color }}>
+                      <button type="button" className="diario-tagpick-lbl" onClick={() => toggleComposeMat(t.id)}>{t.label}</button>
+                      <button type="button" className="diario-tagpick-edit" title="Editar tag" onClick={() => openEditTag("materia", t)}>✎</button>
+                    </span>
+                  );
+                })}
+                <button type="button" className="diario-tag-new"
+                  onClick={() => setNewTag({ group: "materia", label: "", color: TAG_COLOR_PRESETS[5], applyTo: { kind: "compose-mat" } })}>＋ nova matéria</button>
+                <span className="diario-compose-hint">a matéria também é reconhecida sozinha pela frase</span>
               </div>
 
               <button className="diario-add" onClick={addDiario} disabled={!diarioHasText}>+ Registrar</button>
@@ -2310,11 +2354,11 @@ export default function App() {
             {newTag && (
               <div className="diario-tagmodal-bg" onClick={() => setNewTag(null)}>
                 <div className="diario-tagmodal" onClick={(ev) => ev.stopPropagation()}>
-                  <div className="diario-tagmodal-title">Nova tag de {newTag.group === "fonte" ? "Fonte" : "Matéria"}</div>
+                  <div className="diario-tagmodal-title">{newTag.mode === "edit" ? "Editar" : "Nova"} tag de {newTag.group === "fonte" ? "Fonte" : "Matéria"}</div>
                   <input
                     autoFocus
                     className="diario-tagmodal-input"
-                    placeholder={newTag.group === "fonte" ? "Ex.: Súmula, Vade-mécum..." : "Ex.: Prática, Redação..."}
+                    placeholder={newTag.group === "fonte" ? "Ex.: Súmula, etc." : "Ex.: Prática, etc."}
                     value={newTag.label}
                     onChange={(ev) => setNewTag({ ...newTag, label: ev.target.value })}
                     onKeyDown={(ev) => { if (ev.key === "Enter") commitNewTag(); }}
@@ -2332,8 +2376,11 @@ export default function App() {
                     <span className="diario-chip" style={chipStyle(newTag.color)}>{newTag.label.trim() || "prévia"}</span>
                   </div>
                   <div className="diario-tagmodal-actions">
+                    {newTag.mode === "edit" && (
+                      <button className="diario-tagmodal-del" onClick={() => { deleteTag(newTag.group, newTag.id); setNewTag(null); }}>Excluir</button>
+                    )}
                     <button className="diario-tagmodal-cancel" onClick={() => setNewTag(null)}>Cancelar</button>
-                    <button className="diario-tagmodal-ok" onClick={commitNewTag} disabled={!newTag.label.trim()}>Criar tag</button>
+                    <button className="diario-tagmodal-ok" onClick={commitNewTag} disabled={!newTag.label.trim()}>{newTag.mode === "edit" ? "Salvar" : "Criar tag"}</button>
                   </div>
                 </div>
               </div>
