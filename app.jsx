@@ -937,6 +937,42 @@ const NAV_REST = [
 ];
 const NAV = [...NAV_TRIO, ...NAV_REST];
 
+// ícones de linha para o menu lateral (estilo Normio)
+const NAV_ICON_PATHS = {
+  home: <><path d="M3 10.5 12 3l9 7.5" /><path d="M5 9.5V21h14V9.5" /></>,
+  file: <><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /></>,
+  book: <><path d="M4 5a2 2 0 0 1 2-2h13v15H6a2 2 0 0 0-2 2z" /><path d="M4 19a2 2 0 0 0 2 2h13" /></>,
+  layers: <><path d="M12 3 3 8l9 5 9-5z" /><path d="M3 13l9 5 9-5" /></>,
+  info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v5" /><path d="M12 8h.01" /></>,
+  clipboard: <><rect x="7" y="4" width="10" height="17" rx="2" /><path d="M9.5 4V3h5v1" /><path d="M9.5 9h5M9.5 13h5M9.5 17h3" /></>,
+  video: <><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M10 9l5 3-5 3z" /></>,
+};
+function Ic({ n }) {
+  return (
+    <svg className="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      {NAV_ICON_PATHS[n] || null}
+    </svg>
+  );
+}
+// grupos do menu lateral
+const NAV_GROUPS = [
+  { label: "Navegação", items: [
+    { key: "painel", icon: "home", label: "Painel", kind: "home" },
+    { key: "editais", icon: "file", label: "Editais verticalizados", kind: "view", view: "editais" },
+    { key: "diario", icon: "book", label: "Diário de estudos", kind: "view", view: "diario" },
+  ] },
+  { label: "Matérias", items: [
+    { key: "sec-base", n: "1", label: "Matérias-base", kind: "anchor" },
+    { key: "sec-altamedia", n: "2", label: "Importância média-alta", kind: "anchor" },
+    { key: "sec-baixamedia", n: "3", label: "Importância média-baixa", kind: "anchor" },
+  ] },
+  { label: "Acervo", items: [
+    { key: "sec-informativos", icon: "info", label: "Informativos", kind: "anchor" },
+    { key: "sec-simulados", icon: "clipboard", label: "Simulados e provas", kind: "anchor" },
+    { key: "sec-cursos", icon: "video", label: "Cursos isolados", kind: "anchor" },
+  ] },
+];
+
 const DIM_LABEL = { teoria: "Teoria", leiSeca: "Lei Seca", jurisprudencia: "Jurisprudência", questoes: "Questões (temas TEC)", anki: "Anki" };
 const DIM_ORDER = ["teoria", "leiSeca", "jurisprudencia", "questoes", "anki"];
 const KEY_PREFIX = "tjsc-matriz5:";
@@ -1055,6 +1091,7 @@ export default function App() {
   const [composeTitulo, setComposeTitulo] = useState("");
   const [composeFontes, setComposeFontes] = useState([]);
   const [composeMats, setComposeMats] = useState([]);
+  const [diarioPeriodo, setDiarioPeriodo] = useState("semana");
   const [diarioHasText, setDiarioHasText] = useState(false);
   const [newTag, setNewTag] = useState(null); // { group, label, color, applyTo }
   const diarioRef = useRef(null);
@@ -1078,11 +1115,7 @@ export default function App() {
   const [showTop, setShowTop] = useState(false);
   const [navOpen, setNavOpen] = useState(() => {
     if (typeof window === "undefined") return true;
-    try {
-      const saved = localStorage.getItem("navOpen");
-      if (saved !== null) return saved === "1";
-    } catch (e) {}
-    return window.innerWidth >= 1500;
+    return window.innerWidth >= 1025;
   });
 
   // guarda a preferência de menu aberto/fechado
@@ -1092,7 +1125,7 @@ export default function App() {
 
   // fecha o menu ao navegar em telas estreitas (onde vira sobreposição)
   const closeNavIfNarrow = () => {
-    if (typeof window !== "undefined" && window.innerWidth < 1500) setNavOpen(false);
+    if (typeof window !== "undefined" && window.innerWidth < 1025) setNavOpen(false);
   };
 
   // mostra o botão "voltar ao topo" depois de rolar um pouco
@@ -1374,6 +1407,32 @@ export default function App() {
     const topNome = topId && SUBJ_BY_ID[topId] ? SUBJ_BY_ID[topId].name.replace(/^Direito /, "") : "—";
     return { semana, streak, topNome };
   };
+  // extrato do acompanhamento: números do período escolhido (semana/mês/ano/tudo)
+  const diarioExtrato = (periodo) => {
+    const now = new Date();
+    let start = 0;
+    if (periodo === "semana") { const d = new Date(now); const dow = (d.getDay() + 6) % 7; d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - dow); start = d.getTime(); }
+    else if (periodo === "mes") { start = new Date(now.getFullYear(), now.getMonth(), 1).getTime(); }
+    else if (periodo === "ano") { start = new Date(now.getFullYear(), 0, 1).getTime(); }
+    const itens = diario.filter((e) => e.ts >= start);
+    const count = itens.length;
+    const dias = new Set(itens.map((e) => diaKey(e.ts))).size;
+    // sequência de dias seguidos (sempre global, é o "pique" atual)
+    const allDias = new Set(diario.map((e) => diaKey(e.ts)));
+    let streak = 0; const cur = new Date();
+    if (!allDias.has(diaKey(cur.getTime()))) cur.setDate(cur.getDate() - 1);
+    while (allDias.has(diaKey(cur.getTime()))) { streak++; cur.setDate(cur.getDate() - 1); }
+    // ranking por matéria e por fonte
+    const matTally = {}; const fonteTally = {};
+    itens.forEach((e) => {
+      (e.mats || []).forEach((m) => { matTally[m] = (matTally[m] || 0) + 1; });
+      (e.fontes || []).forEach((f) => { fonteTally[f] = (fonteTally[f] || 0) + 1; });
+    });
+    const mats = Object.keys(matTally).map((id) => ({ id, n: matTally[id], ...matTagInfo(id) })).sort((a, b) => b.n - a.n);
+    const fontes = Object.keys(fonteTally).map((id) => ({ id, n: fonteTally[id], ...fonteTagInfo(id) })).sort((a, b) => b.n - a.n);
+    const media = dias ? count / dias : 0;
+    return { count, dias, streak, mats, fontes, media };
+  };
 
   const saveManuais = (arr) => {
     setSimManuais(arr);
@@ -1607,34 +1666,33 @@ export default function App() {
     <div className="root">
       <style>{`
         :root {
-          --bg:#0a0e13; --surface:#141a22; --surface-2:#1a212b; --surface-3:#212a35;
-          --line:rgba(255,255,255,.07); --line-2:rgba(255,255,255,.12);
-          --text:#eae7df; --muted:#95a1b0; --faint:#69737f;
-          --gold:#f0c85a; --coral:#e8837a; --green:#59c98a; --green-bg:rgba(89,201,138,.14);
+          --bg:#121215; --surface:#18181b; --surface-2:#1f1f23; --surface-3:#27272a;
+          --line:#27272a; --line-2:#3f3f46;
+          --text:#fafafa; --muted:#a1a1aa; --faint:#71717a;
+          --gold:#facc15; --coral:#f0997b; --green:#4ade80; --green-bg:rgba(74,222,128,.14);
+          --sidebar:#161619; --nav-active-bg:#27272a; --hero:#0f1929; --accent-btn:#facc15; --on-accent:#1a1206;
         }
         :root[data-theme="light"] {
-          --bg:#fafafa; --surface:#ffffff; --surface-2:#f4f4f6; --surface-3:#ececef;
-          --line:#e9e9ee; --line-2:#dcdce2;
-          --text:#15161a; --muted:#6b6d76; --faint:#a5a6ae;
-          --gold:#b7860f; --coral:#c2410c; --green:#15803d; --green-bg:#e9f6ee;
+          --bg:#fafafa; --surface:#ffffff; --surface-2:#f4f4f5; --surface-3:#e4e4e7;
+          --line:#e4e4e7; --line-2:#d4d4d8;
+          --text:#18181b; --muted:#71717a; --faint:#a1a1aa;
+          --gold:#ca8a04; --coral:#c2410c; --green:#15803d; --green-bg:#e9f6ee;
+          --sidebar:#f4f4f5; --nav-active-bg:#ffffff; --hero:#1e293b; --accent-btn:#ca8a04; --on-accent:#ffffff;
         }
         * { box-sizing: border-box; }
         .root {
-          font-family: 'Inter',-apple-system,'Segoe UI',sans-serif;
+          font-family: ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
           color: var(--text);
           min-height: 100%;
-          padding: 0 18px 80px;
-          background:
-            radial-gradient(1100px 520px at 15% -8%, rgba(240,200,90,.09), transparent 60%),
-            radial-gradient(900px 480px at 92% 4%, rgba(127,150,196,.10), transparent 60%),
-            var(--bg);
-        }
-        :root[data-theme="light"] .root {
+          padding: 0 clamp(16px,3vw,40px) 90px;
           background: var(--bg);
+        }
+        @media (min-width: 1025px) {
+          .root { padding-left: 296px; }
         }
         :root[data-theme="light"] .stat { background: var(--surface); }
         :root[data-theme="light"] .pop, :root[data-theme="light"] .pop-head { background: rgba(255,255,255,.98); }
-        .serif { font-family: 'Iowan Old Style','Georgia',serif; }
+        .serif { font-family: inherit; font-weight: 800; letter-spacing: -.5px; }
         .mono { font-family: 'SF Mono','JetBrains Mono','Consolas',monospace; font-variant-numeric: tabular-nums; }
         .wrap { max-width: 1080px; margin: 0 auto; }
         input[type=checkbox] { appearance: none; -webkit-appearance: none; margin: 0; width: 18px; height: 18px;
@@ -1646,12 +1704,13 @@ export default function App() {
           border-bottom: 2.3px solid #06120b; transform: rotate(-45deg); margin-top: -2px; }
 
         /* ---- hero ---- */
-        .hero { padding: 40px 0 26px; }
-        .eyebrow { font-size: 11px; letter-spacing: 2.4px; text-transform: uppercase; color: var(--gold); font-weight: 600; margin: 0 0 10px; }
-        .hero h1 { font-size: clamp(26px, 4vw, 38px); line-height: 1.08; margin: 0 0 10px; letter-spacing: -.5px; font-weight: 600; }
+        .hero { background: var(--hero); border-radius: 18px; padding: 30px 34px; margin: 26px 0 20px; }
+        .eyebrow { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: var(--gold); font-weight: 700; margin: 0 0 12px; }
+        .hero h1 { font-size: clamp(24px, 3.6vw, 33px); line-height: 1.1; margin: 0 0 12px; letter-spacing: -.6px; font-weight: 800; color: #f8fafc; }
         .hero h1 em { font-style: normal; color: var(--gold); }
-        .hero p { font-size: 14px; color: var(--muted); margin: 0; max-width: 640px; line-height: 1.5; }
-        .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 26px; }
+        .hero-sub { font-size: 14.5px; color: #cbd5e1; margin: 0; max-width: 620px; line-height: 1.55; }
+        .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 0 0 22px; }
+        @media (max-width: 720px) { .stats { grid-template-columns: 1fr; } }
         .stat { background: var(--surface);
           border: 1px solid var(--line); border-radius: 16px; padding: 16px 18px; }
         .stat-top { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
@@ -1667,48 +1726,46 @@ export default function App() {
         .tier { background: var(--surface); border: 1px solid var(--line); border-radius: 20px;
           padding: 6px 22px 22px; margin-bottom: 22px; scroll-margin-top: 62px; }
 
-        /* menu lateral de navegação */
-        .sidenav { position: fixed; top: 50%; left: calc((100vw - 1080px) / 2 - 234px);
-          transform: translateY(-50%); z-index: 300; display: flex; flex-direction: column; gap: 8px; width: 214px;
-          transition: opacity .24s ease, transform .24s ease; }
-        .sidenav.closed { opacity: 0; transform: translateY(-50%) translateX(-28px); pointer-events: none; }
-        .sidenav a { text-decoration: none; }
+        /* ===== menu lateral (estilo Normio) ===== */
+        .sidebar { position: fixed; top: 46px; left: 0; bottom: 0; width: 264px; z-index: 300;
+          background: var(--sidebar); border-right: 1px solid var(--line);
+          display: flex; flex-direction: column; padding: 16px 14px 26px;
+          overflow-y: auto; transition: transform .24s ease; }
+        .sidebar a, .sidebar button { text-decoration: none; }
+        .side-logo { display: flex; align-items: center; gap: 9px; padding: 4px 8px 6px; }
+        .side-logo .mark { width: 30px; height: 30px; border-radius: 9px; background: var(--accent-btn); color: var(--on-accent);
+          display: grid; place-items: center; font-size: 16px; font-weight: 800; flex-shrink: 0; }
+        .side-logo .name { font-size: 17px; font-weight: 800; letter-spacing: -.3px; color: var(--text); }
+        .nav-group { margin-top: 18px; }
+        .nav-group-label { font-size: 10.5px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+          color: var(--faint); padding: 0 10px 7px; }
+        .nav-item { display: flex; align-items: center; gap: 11px; width: 100%; padding: 9px 10px; border-radius: 8px;
+          font-size: 13px; font-weight: 500; color: var(--muted); line-height: 1.2; background: transparent;
+          border: none; cursor: pointer; text-align: left; font-family: inherit; transition: background .14s, color .14s; margin-bottom: 1px; }
+        .nav-item:hover { background: var(--surface-3); color: var(--text); }
+        .nav-item.active { background: var(--nav-active-bg); color: var(--text); font-weight: 600; box-shadow: inset 2px 0 0 var(--gold); }
+        :root[data-theme="light"] .nav-item.active { box-shadow: inset 2px 0 0 var(--gold), 0 1px 3px rgba(0,0,0,.07); }
+        .nav-ic { width: 18px; height: 18px; flex-shrink: 0; opacity: .8; }
+        .nav-item.active .nav-ic { opacity: 1; color: var(--gold); }
+        .nav-n { flex-shrink: 0; width: 21px; height: 21px; border-radius: 6px; display: grid; place-items: center;
+          font-size: 11px; font-weight: 700; color: var(--faint); background: var(--surface-3); }
+        .nav-item.active .nav-n { color: var(--on-accent); background: var(--gold); }
+        .nav-item .lbl { flex: 1; }
 
-        /* botão de recolher/expandir o menu */
-        .nav-toggle { position: fixed; top: 56px; left: 14px; z-index: 400;
-          width: 44px; height: 44px; border-radius: 13px; display: grid; place-items: center;
-          border: 1px solid var(--line-2); background: var(--surface-2); color: var(--muted); cursor: pointer;
-          box-shadow: 0 6px 18px rgba(0,0,0,.28); transition: background .15s, color .15s, transform .15s; }
+        /* botão de recolher/expandir (só em telas estreitas) */
+        .nav-toggle { position: fixed; top: 53px; left: 12px; z-index: 400; display: none;
+          width: 42px; height: 42px; border-radius: 12px; place-items: center;
+          border: 1px solid var(--line-2); background: var(--surface); color: var(--muted); cursor: pointer;
+          box-shadow: 0 4px 14px rgba(0,0,0,.18); transition: background .15s, color .15s, transform .15s; }
         .nav-toggle:hover { background: var(--surface-3); color: var(--text); }
         .nav-toggle:active { transform: scale(.94); }
         .nav-toggle svg { width: 20px; height: 20px; }
-
-        /* fundo escurecido quando o menu vira sobreposição (telas estreitas) */
-        .nav-backdrop { position: fixed; inset: 0; z-index: 290; background: rgba(0,0,0,.45);
+        .nav-backdrop { position: fixed; inset: 0; z-index: 290; background: rgba(0,0,0,.5);
           opacity: 0; pointer-events: none; transition: opacity .24s ease; }
-        .nav-editais { display: block; text-align: center; font-size: 12px; font-weight: 800; letter-spacing: .5px;
-          color: var(--coral); background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 12px;
-          padding: 13px 12px; line-height: 1.3; transition: all .15s; }
-        .nav-editais:hover { background: var(--surface-3); }
-        .nav-editais.active { background: var(--coral); color: #10141a; border-color: var(--coral); }
-        .nav-trio { display: flex; flex-direction: column; gap: 6px; background: var(--surface);
-          border: 1px solid var(--line-2); border-radius: 14px; padding: 10px; }
-        .nav-btn { display: flex; align-items: center; gap: 11px; padding: 11px 12px; border-radius: 11px;
-          font-size: 12.5px; font-weight: 700; letter-spacing: .3px; color: var(--muted); line-height: 1.2;
-          transition: background .15s, color .15s; }
-        .nav-btn:hover { background: var(--surface-2); color: var(--text); }
-        .nav-btn.active { color: var(--gold); background: var(--surface-2); }
-        .nav-num { flex-shrink: 0; width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center;
-          font-size: 14px; font-weight: 800; color: var(--faint); background: var(--surface-3); border: 1px solid var(--line-2); }
-        .nav-btn.active .nav-num { color: #10141a; background: var(--gold); border-color: var(--gold); }
-        .nav-rest { border: 1px solid var(--line); background: var(--surface); }
-        /* em telas estreitas o menu vira sobreposição sobre o conteúdo */
-        @media (max-width: 1499px) {
-          .sidenav { left: 16px; max-width: calc(100vw - 32px);
-            max-height: calc(100vh - 96px); overflow-y: auto; padding: 4px;
-            background: var(--surface); border: 1px solid var(--line-2); border-radius: 18px;
-            box-shadow: 0 18px 44px rgba(0,0,0,.45); }
-          .sidenav.closed { transform: translateY(-50%) translateX(-120%); }
+        @media (max-width: 1024px) {
+          .sidebar { box-shadow: 0 18px 44px rgba(0,0,0,.4); }
+          .sidebar.closed { transform: translateX(-100%); }
+          .nav-toggle { display: grid; }
           .nav-backdrop.active { opacity: 1; pointer-events: auto; }
         }
         .tier-head { display: flex; align-items: center; gap: 14px; padding: 20px 2px 16px; }
@@ -1847,7 +1904,32 @@ export default function App() {
         .editais-page { padding-top: 8px; }
 
         /* ---------- Diário de estudos ---------- */
-        .diario-page { padding-top: 8px; max-width: 760px; }
+        .diario-page { padding-top: 8px; max-width: 1000px; }
+        .diario-layout { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 22px; align-items: start; }
+        .diario-main { min-width: 0; }
+        .diario-side { position: sticky; top: 62px; }
+        /* painel de acompanhamento (extratos) */
+        .diario-acomp { background: var(--surface); border: 1px solid var(--line-2); border-radius: 16px; padding: 16px 16px 18px; }
+        .diario-acomp-title { font-size: 13px; font-weight: 800; letter-spacing: .2px; color: var(--text); margin-bottom: 12px; }
+        .diario-acomp-tabs { display: flex; gap: 3px; background: var(--surface-2); border-radius: 11px; padding: 3px; margin-bottom: 16px; }
+        .diario-acomp-tab { flex: 1; cursor: pointer; font: inherit; font-size: 12px; font-weight: 700; color: var(--muted);
+          background: transparent; border: none; border-radius: 8px; padding: 7px 4px; transition: all .12s; }
+        .diario-acomp-tab:hover { color: var(--text); }
+        .diario-acomp-tab.on { background: var(--gold); color: var(--on-accent, #10141a); }
+        .diario-acomp-big { font-size: 34px; font-weight: 800; color: var(--text); line-height: 1; }
+        .diario-acomp-big small { font-size: 13px; font-weight: 600; color: var(--muted); margin-left: 7px; }
+        .diario-acomp-mini { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin: 14px 0 2px; }
+        .diario-acomp-cell { background: var(--surface-2); border-radius: 10px; padding: 9px 4px; text-align: center; }
+        .diario-acomp-cell b { display: block; font-size: 16px; color: var(--text); }
+        .diario-acomp-cell span { font-size: 10px; color: var(--muted); letter-spacing: .2px; }
+        .diario-acomp-sec { font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin: 18px 0 9px; }
+        .diario-acomp-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+        .diario-acomp-row-lbl { font-size: 12px; font-weight: 700; width: 88px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .diario-acomp-track { flex: 1; height: 7px; background: var(--surface-3); border-radius: 99px; overflow: hidden; }
+        .diario-acomp-track i { display: block; height: 100%; border-radius: 99px; }
+        .diario-acomp-n { font-size: 12px; font-weight: 700; color: var(--muted); min-width: 14px; text-align: right; }
+        .diario-acomp-empty { font-size: 12px; color: var(--faint); font-style: italic; margin: 4px 0 2px; }
+        @media (max-width: 860px) { .diario-layout { grid-template-columns: 1fr; } .diario-side { position: static; } }
         .diario-compose { background: var(--surface); border: 1px solid var(--line-2); border-radius: 16px;
           padding: 12px 14px; margin-bottom: 24px; display: flex; flex-direction: column; gap: 10px; }
         .diario-titulo-input { background: var(--surface-2); color: var(--text); border: 1px solid var(--line);
@@ -2038,21 +2120,10 @@ export default function App() {
           flex-shrink: 0; opacity: .45; filter: grayscale(.3); transition: opacity .15s, transform .1s; }
         .man-del:hover { opacity: 1; transform: scale(1.15); }
 
-        /* ===== refinamentos: popover, menu, post-it ===== */
+        /* ===== refinamentos: popover, post-it ===== */
         .root { overflow-x: clip; }
         .pop { width: 300px; left: 50%; margin-left: -150px; max-width: calc(100vw - 28px); }
         @media (max-width: 640px){ .pop { width: calc(100vw - 28px); margin-left: calc(-50vw + 14px); } }
-        .sidenav { gap: 6px; width: 218px; }
-        @media (min-width: 1500px) { .sidenav { left: calc((100vw - 1080px)/2 - 240px); } }
-        .nav-editais { background: var(--surface); border: 1px solid var(--line); font-weight: 700; letter-spacing: .8px; border-radius: 13px; padding: 12px; }
-        .nav-editais:hover { border-color: var(--coral); color: var(--coral); background: var(--surface-2); }
-        .nav-editais.active { background: var(--coral); color: #10141a; border-color: var(--coral); }
-        .nav-trio { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 8px; gap: 3px; }
-        .nav-btn { padding: 10px 12px; border-radius: 10px; font-weight: 600; letter-spacing: .2px; }
-        .nav-btn.active { background: rgba(240,200,90,.10); color: var(--gold); box-shadow: inset 3px 0 0 var(--gold); }
-        .nav-num { width: 24px; height: 24px; border-radius: 7px; font-size: 13px; font-weight: 700; background: var(--surface-2); border: 1px solid var(--line); }
-        .nav-btn.active .nav-num { background: var(--gold); color: #10141a; border-color: var(--gold); }
-        .nav-rest { border: 1px solid var(--line); border-radius: 12px; }
         .postit { background: var(--surface); color: var(--text); border: 1px solid var(--line-2); border-left: 3px solid #e5c55c;
           border-radius: 14px; box-shadow: 0 8px 22px rgba(0,0,0,.18); transform: none; padding: 16px 16px 18px; }
         .postit-head { color: #e5c55c; border-bottom: 1px solid var(--line); font-weight: 700; letter-spacing: .6px; }
@@ -2090,46 +2161,36 @@ export default function App() {
         aria-hidden="true"
       />
 
-      <nav className={`sidenav${navOpen ? "" : " closed"}`} aria-label="Navegação por seções">
-        <a
-          href="#editais"
-          className={`nav-editais${view === "editais" ? " active" : ""}`}
-          onClick={(e) => { e.preventDefault(); setView("editais"); window.scrollTo(0, 0); closeNavIfNarrow(); }}
-        >
-          EDITAIS VERTICALIZADOS
-        </a>
-        <a
-          href="#diario"
-          className={`nav-editais${view === "diario" ? " active" : ""}`}
-          style={{ marginTop: 8 }}
-          onClick={(e) => { e.preventDefault(); setView("diario"); window.scrollTo(0, 0); closeNavIfNarrow(); }}
-        >
-          DIÁRIO DE ESTUDOS
-        </a>
-        <div className="nav-trio">
-          {NAV_TRIO.map((n) => (
-            <a
-              key={n.id}
-              href={`#${n.id}`}
-              className={`nav-btn${view === "main" && activeSec === n.id ? " active" : ""}`}
-              onClick={(e) => { e.preventDefault(); setView("main"); setTimeout(() => goTo(n.id), 0); closeNavIfNarrow(); }}
-            >
-              <span className="nav-num">{n.n}</span>
-              <span className="nav-label">{n.label}</span>
-            </a>
-          ))}
+      <aside className={`sidebar${navOpen ? "" : " closed"}`} aria-label="Navegação">
+        <div className="side-logo">
+          <span className="mark">⚖</span>
+          <span className="name">MagisNAD</span>
         </div>
-        {NAV_REST.map((n) => (
-          <a
-            key={n.id}
-            href={`#${n.id}`}
-            className={`nav-btn nav-rest${view === "main" && activeSec === n.id ? " active" : ""}`}
-            onClick={(e) => { e.preventDefault(); setView("main"); setTimeout(() => goTo(n.id), 0); closeNavIfNarrow(); }}
-          >
-            <span className="nav-label">{n.label}</span>
-          </a>
+        {NAV_GROUPS.map((g) => (
+          <div className="nav-group" key={g.label}>
+            <div className="nav-group-label">{g.label}</div>
+            {g.items.map((it) => {
+              const active =
+                it.kind === "view" ? view === it.view
+                : it.kind === "home" ? (view === "main" && !showTop)
+                : (view === "main" && showTop && activeSec === it.key);
+              const handle = (e) => {
+                e.preventDefault();
+                if (it.kind === "view") { setView(it.view); window.scrollTo(0, 0); }
+                else if (it.kind === "home") { setView("main"); window.scrollTo({ top: 0, behavior: "smooth" }); }
+                else { setView("main"); setTimeout(() => goTo(it.key), 0); }
+                closeNavIfNarrow();
+              };
+              return (
+                <button key={it.key} className={`nav-item${active ? " active" : ""}`} onClick={handle}>
+                  {it.n ? <span className="nav-n">{it.n}</span> : <Ic n={it.icon} />}
+                  <span className="lbl">{it.label}</span>
+                </button>
+              );
+            })}
+          </div>
         ))}
-      </nav>
+      </aside>
 
       <div className="wrap">
         {view === "editais" && (
@@ -2216,7 +2277,9 @@ export default function App() {
             <p className="eyebrow">Painel de Estudos</p>
             <h1 className="serif" style={{ marginBottom: 18 }}>Diário de Estudos</h1>
 
-            <div className="diario-compose">
+            <div className="diario-layout">
+              <div className="diario-main">
+              <div className="diario-compose">
               <input
                 className="diario-titulo-input"
                 placeholder="Título (ex.: FGV · TJSC · 2026) — opcional"
@@ -2277,17 +2340,6 @@ export default function App() {
 
               <button className="diario-add" onClick={addDiario} disabled={!diarioHasText}>+ Registrar</button>
             </div>
-
-            {diario.length > 0 && (() => {
-              const r = diarioResumo();
-              return (
-                <div className="diario-stats">
-                  <div className="diario-stat"><span className="diario-stat-label">Essa semana</span><span className="diario-stat-num">{r.semana}<small> {r.semana === 1 ? "registro" : "registros"}</small></span></div>
-                  <div className="diario-stat"><span className="diario-stat-label">Sequência</span><span className="diario-stat-num">{r.streak}<small> {r.streak === 1 ? "dia" : "dias"}</small></span></div>
-                  <div className="diario-stat"><span className="diario-stat-label">Mais estudada</span><span className="diario-stat-num" style={{ fontSize: 18 }}>{r.topNome}</span></div>
-                </div>
-              );
-            })()}
 
             {diario.length === 0 ? (
               <p className="desc" style={{ marginTop: 24, textAlign: "center", opacity: .7 }}>Nenhum registro ainda. Escreva a primeira frase acima.</p>
@@ -2350,6 +2402,59 @@ export default function App() {
                 </div>
               ))
             )}
+              </div>
+
+              <aside className="diario-side">
+                <div className="diario-acomp">
+                  <div className="diario-acomp-title">📊 Acompanhamento</div>
+                  <div className="diario-acomp-tabs">
+                    {[["semana", "Semana"], ["mes", "Mês"], ["ano", "Ano"], ["tudo", "Tudo"]].map(([id, lbl]) => (
+                      <button key={id} type="button" className={`diario-acomp-tab${diarioPeriodo === id ? " on" : ""}`} onClick={() => setDiarioPeriodo(id)}>{lbl}</button>
+                    ))}
+                  </div>
+                  {(() => {
+                    const x = diarioExtrato(diarioPeriodo);
+                    if (x.count === 0) return <p className="diario-acomp-empty">Nada registrado nesse período ainda.</p>;
+                    const maxMat = x.mats[0] ? x.mats[0].n : 1;
+                    const maxFonte = x.fontes[0] ? x.fontes[0].n : 1;
+                    return (
+                      <>
+                        <div className="diario-acomp-big">{x.count}<small>{x.count === 1 ? "registro" : "registros"}</small></div>
+                        <div className="diario-acomp-mini">
+                          <div className="diario-acomp-cell"><b>{x.dias}</b><span>{x.dias === 1 ? "dia" : "dias"}</span></div>
+                          <div className="diario-acomp-cell"><b>{x.media.toFixed(1).replace(".", ",")}</b><span>por dia</span></div>
+                          <div className="diario-acomp-cell"><b>{x.streak}🔥</b><span>sequência</span></div>
+                        </div>
+                        {x.mats.length > 0 && (
+                          <>
+                            <div className="diario-acomp-sec">Por matéria</div>
+                            {x.mats.slice(0, 6).map((m) => (
+                              <div key={m.id} className="diario-acomp-row">
+                                <span className="diario-acomp-row-lbl" style={{ color: m.color }}>{m.label}</span>
+                                <span className="diario-acomp-track"><i style={{ width: `${Math.max(6, Math.round(m.n / maxMat * 100))}%`, background: m.color }} /></span>
+                                <span className="diario-acomp-n">{m.n}</span>
+                              </div>
+                            ))}
+                          </>
+                        )}
+                        {x.fontes.length > 0 && (
+                          <>
+                            <div className="diario-acomp-sec">Por fonte</div>
+                            {x.fontes.slice(0, 6).map((f) => (
+                              <div key={f.id} className="diario-acomp-row">
+                                <span className="diario-acomp-row-lbl" style={{ color: f.color }}>{f.label}</span>
+                                <span className="diario-acomp-track"><i style={{ width: `${Math.max(6, Math.round(f.n / maxFonte * 100))}%`, background: f.color }} /></span>
+                                <span className="diario-acomp-n">{f.n}</span>
+                              </div>
+                            ))}
+                          </>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+              </aside>
+            </div>
 
             {newTag && (
               <div className="diario-tagmodal-bg" onClick={() => setNewTag(null)}>
@@ -2392,9 +2497,9 @@ export default function App() {
         {/* ---------- HERO ---------- */}
         <header className="hero">
           <p className="eyebrow">Painel de Estudos</p>
-          <h1 className="serif">Carreiras Jurídicas<br /><em>Magistratura Estadual e Ministério Público</em></h1>
-          <button className="editais-open" onClick={() => { setView("editais"); window.scrollTo(0, 0); }}>📋 Editais Verticalizados</button>
-          <button className="editais-open" style={{ marginLeft: 8 }} onClick={() => { setView("diario"); window.scrollTo(0, 0); }}>📔 Diário de Estudos</button>
+          <h1 className="serif">Carreiras jurídicas <em>— Magistratura Estadual e Ministério Público</em></h1>
+          <p className="hero-sub">Acompanhe seu progresso por matéria, edital e diário de estudos, tudo em um só lugar.</p>
+        </header>
 
           <div className="stats">
             <div className="stat">
@@ -2422,7 +2527,6 @@ export default function App() {
               <Bar done={infoDone} total={infoTotal} color="#7f96c4" />
             </div>
           </div>
-        </header>
 
         {/* ---------- PRIORIDADES (post-it) ---------- */}
         <aside className="postit">
