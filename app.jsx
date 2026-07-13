@@ -2201,7 +2201,7 @@ export default function App() {
                 <button type="button" title="Negrito" onMouseDown={(ev) => { ev.preventDefault(); fmtDiario("bold"); }} style={{ fontWeight: 800 }}>B</button>
                 <button type="button" title="Itálico" onMouseDown={(ev) => { ev.preventDefault(); fmtDiario("italic"); }} style={{ fontStyle: "italic" }}>I</button>
                 <button type="button" title="Sublinhado" onMouseDown={(ev) => { ev.preventDefault(); fmtDiario("underline"); }} style={{ textDecoration: "underline" }}>U</button>
-                <button type="button" title="Tachado" onMouseDown={(ev) => { ev.preventDefault(); fmtDiario("strikeThrough"); }} style={{ textDecoration: "line-through" }}>S</button>
+                <button type="button" title="Tachado (⌘⇧X)" onMouseDown={(ev) => { ev.preventDefault(); fmtDiario("strikeThrough"); }} style={{ textDecoration: "line-through" }}>S</button>
               </div>
 
               <div
@@ -2211,7 +2211,10 @@ export default function App() {
                 suppressContentEditableWarning
                 data-placeholder="O que você estudou hoje?"
                 onInput={(e) => setDiarioHasText(!!e.currentTarget.innerText.trim())}
-                onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); addDiario(); } }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); addDiario(); return; }
+                  if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "x") { e.preventDefault(); fmtDiario("strikeThrough"); }
+                }}
               />
 
               <div className="diario-compose-tags">
