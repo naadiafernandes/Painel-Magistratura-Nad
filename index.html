@@ -1031,6 +1031,14 @@ const regFonte = (id) => REG_FONTES.find((f) => f.id === id) || { id, label: id,
 const fmtTempo = (min) => { min = Math.max(0, Math.round(min || 0)); const h = Math.floor(min / 60), m = min % 60; return h ? `${h}h${m ? String(m).padStart(2, "0") : "00"}` : `${m}min`; };
 const SIM_MANUAIS_KEY = "tjsc-simulados-manuais:list";
 const SIM_HIDDEN_KEY = "tjsc-simulados-ocultas:list";
+const SIM_FEITOS_KEY = "tjsc-simulados-feitos:v1";     // simulados que ela registrou (nota)
+const SIM_SUG_KEY = "tjsc-simulados-sugestoes:v1";      // lista ordenável de próximos simulados
+
+// nota (%) de um simulado feito
+const simPct = (s) => { const t = (s.acertos || 0) + (s.brancos || 0) + (s.erros || 0); return t ? Math.round(((s.acertos || 0) / t) * 100) : 0; };
+const simTotalQ = (s) => (s.acertos || 0) + (s.brancos || 0) + (s.erros || 0);
+const SIM_UID = () => Date.now() + Math.floor(Math.random() * 1000);
+const simFmtData = (ts) => new Date(ts).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
 
 // ---------- Editais verticalizados (dados injetados pelo build) ----------
 const EDITAIS = (typeof window !== "undefined" && window.EDITAIS) || []; /* dados em editais.js */
@@ -2559,6 +2567,176 @@ function CursosView({ cursoData, onToggle, onBack }) {
   );
 }
 
+// ===== ESTUDEI: Novo/editar simulado (nota) =====
+function SimNovoModal({ inicial, onClose, onSave }) {
+  const init = inicial || {};
+  const editando = !!init.id;
+  const [nome, setNome] = useState(init.nome || "");
+  const [quando, setQuando] = useState("hoje");
+  const [dataOutra, setDataOutra] = useState("");
+  const [acertos, setAcertos] = useState(init.acertos != null ? String(init.acertos) : "");
+  const [brancos, setBrancos] = useState(init.brancos != null ? String(init.brancos) : "");
+  const [erros, setErros] = useState(init.erros != null ? String(init.erros) : "");
+  const a = parseInt(acertos || 0, 10), b = parseInt(brancos || 0, 10), e = parseInt(erros || 0, 10);
+  const total = a + b + e;
+  const pct = total ? Math.round((a / total) * 100) : 0;
+  const pode = nome.trim() && total > 0;
+  const salvar = () => {
+    if (!pode) return;
+    let ts = editando ? init.ts : Date.now();
+    if (quando === "ontem") ts = Date.now() - 86400000;
+    else if (quando === "outra" && dataOutra) { const p = Date.parse(dataOutra + "T12:00:00"); if (!isNaN(p)) ts = p; }
+    else if (quando === "hoje" && !editando) ts = Date.now();
+    onSave({ id: init.id || SIM_UID(), nome: nome.trim(), ts, acertos: a, brancos: b, erros: e });
+  };
+  return (
+    <div className="reg-overlay" onClick={onClose}>
+      <div className="reg-modal" onClick={(ev) => ev.stopPropagation()}>
+        <div className="reg-head"><span>{editando ? "Editar simulado" : "Novo simulado"}</span><button className="reg-close" onClick={onClose} title="Fechar">×</button></div>
+        <div className="reg-body">
+          <label className="reg-lbl">Nome do simulado</label>
+          <input className="reg-in" value={nome} onChange={(ev) => setNome(ev.target.value)} placeholder="ex.: 3º Simulado TJ SC" autoFocus />
+
+          <label className="reg-lbl" style={{ marginTop: 14 }}>Quando</label>
+          <div className="reg-when">
+            {[["hoje", "Hoje"], ["ontem", "Ontem"], ["outra", "Outra data"]].map(([k, l]) => (
+              <button key={k} className={`reg-pill${quando === k ? " on" : ""}`} onClick={() => setQuando(k)}>{l}</button>
+            ))}
+            {quando === "outra" && <input type="date" className="reg-date" value={dataOutra} onChange={(ev) => setDataOutra(ev.target.value)} />}
+          </div>
+
+          <div className="reg-3col" style={{ marginTop: 14 }}>
+            <div><label className="reg-lbl">Acertos</label><input className="reg-in reg-num" type="number" min="0" value={acertos} onChange={(ev) => setAcertos(ev.target.value)} placeholder="0" /></div>
+            <div><label className="reg-lbl">Brancos</label><input className="reg-in reg-num" type="number" min="0" value={brancos} onChange={(ev) => setBrancos(ev.target.value)} placeholder="0" /></div>
+            <div><label className="reg-lbl">Erros</label><input className="reg-in reg-num" type="number" min="0" value={erros} onChange={(ev) => setErros(ev.target.value)} placeholder="0" /></div>
+          </div>
+          <div className="sim-modal-pct">{total ? <>Nota: <b>{pct}%</b> <span>· {a}/{total} questões</span></> : <span style={{ color: "var(--faint)" }}>Preencha acertos, brancos e erros.</span>}</div>
+        </div>
+        <div className="reg-foot">
+          <button className="reg-cancel" onClick={onClose}>Cancelar</button>
+          <button className="reg-save" onClick={salvar} disabled={!pode}>Salvar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ===== ESTUDEI: Simulados (registro + desempenho + sugestões ordenáveis) =====
+function SimuladosView({ feitos, sugestoes, onNovo, onEditFeito, onDeleteFeito, onRegistrarSug, onReorder, onAddSug, onDeleteSug, onBack }) {
+  const [novoSug, setNovoSug] = useState("");
+  const [over, setOver] = useState(null);
+  const dragI = useRef(null);
+  const feitosOrd = [...feitos].sort((a, b) => b.ts - a.ts);
+  const asc = [...feitos].sort((a, b) => a.ts - b.ts);
+  const ultimo = feitosOrd[0];
+  const media = feitos.length ? Math.round(feitos.reduce((s, x) => s + simPct(x), 0) / feitos.length) : 0;
+  const barCor = (p) => (p >= 70 ? "var(--green)" : p >= 50 ? "var(--gold)" : "var(--coral)");
+
+  const chart = (() => {
+    if (asc.length < 2) return <div className="es-hint">Registre pelo menos dois simulados pra ver a evolução.</div>;
+    const vals = asc.map(simPct);
+    const lo = Math.max(0, Math.min(...vals) - 8), hi = Math.min(100, Math.max(...vals) + 8);
+    const span = Math.max(1, hi - lo);
+    const W = 560, H = 150, padL = 38, padR = 18, padT = 22, padB = 30;
+    const X = (i) => padL + (i / (asc.length - 1)) * (W - padL - padR);
+    const Y = (v) => padT + (1 - (v - lo) / span) * (H - padT - padB);
+    const poly = asc.map((s, i) => `${X(i)},${Y(simPct(s))}`).join(" ");
+    const showData = asc.length <= 6;
+    return (
+      <div className="sim-chart">
+        <svg viewBox={`0 0 ${W} ${H}`} width="100%" height="150" role="img" aria-label="Evolução do desempenho">
+          <line x1={padL} y1={H - padB} x2={W - padR} y2={H - padB} stroke="var(--line)" strokeWidth="1" />
+          <polyline points={poly} fill="none" stroke="var(--gold)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+          {asc.map((s, i) => {
+            const p = simPct(s);
+            return (
+              <g key={s.id}>
+                <circle cx={X(i)} cy={Y(p)} r="4.5" fill="var(--gold)" />
+                <text x={X(i)} y={Y(p) - 9} fill="var(--muted)" fontSize="11" textAnchor="middle">{p}%</text>
+                {showData && <text x={X(i)} y={H - 10} fill="var(--faint)" fontSize="10.5" textAnchor="middle">{simFmtData(s.ts)}</text>}
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+    );
+  })();
+
+  const dropAt = (i) => {
+    const from = dragI.current; dragI.current = null; setOver(null);
+    if (from == null || from === i) return;
+    const arr = [...sugestoes];
+    const [m] = arr.splice(from, 1);
+    arr.splice(i, 0, m);
+    onReorder(arr);
+  };
+  const addSug = () => { const t = novoSug.trim(); if (!t) return; onAddSug(t); setNovoSug(""); };
+
+  return (
+    <section className="editais-page es-page">
+      <button className="edital-back" onClick={onBack}>← Voltar ao painel</button>
+      <p className="eyebrow">ESTUDEI</p>
+      <h1 className="serif" style={{ marginBottom: 10 }}>Simulados</h1>
+      <p className="es-sub">Registre cada simulado que você fez e acompanhe sua evolução.</p>
+
+      <div className="mat-topcards">
+        <div className="panel"><div className="dp-lbl">Simulados feitos</div><div className="dp-big mat-big">{feitos.length}</div></div>
+        <div className="panel"><div className="dp-lbl">Último simulado</div>
+          {ultimo ? <><div className="dp-big mat-big">{simPct(ultimo)}%</div><div className="sim-cardnote">{ultimo.acertos || 0} acertos · {ultimo.brancos || 0} brancos · {ultimo.erros || 0} erros</div></> : <div className="dp-big mat-big" style={{ color: "var(--faint)" }}>—</div>}
+        </div>
+        <div className="panel"><div className="dp-lbl">Média geral</div><div className="dp-big mat-big">{feitos.length ? media + "%" : "—"}</div></div>
+      </div>
+
+      <button className="sim-newbtn" onClick={() => onNovo()}>+ Novo simulado</button>
+
+      <div className="sechead-es">Seu desempenho</div>
+      {chart}
+
+      <div className="sechead-es">Meus simulados</div>
+      {feitosOrd.length === 0 ? <div className="es-hint">Nenhum simulado ainda. Toque em “+ Novo simulado” pra registrar o primeiro.</div>
+        : feitosOrd.map((s) => {
+          const p = simPct(s);
+          return (
+            <div className="sim-row" key={s.id}>
+              <span className="sim-bar" style={{ background: barCor(p) }} />
+              <div className="sim-main"><div className="sim-name">{s.nome}</div><div className="sim-when">{simFmtData(s.ts)}</div></div>
+              <span className="sim-frac mono">{s.acertos || 0}/{simTotalQ(s)}</span>
+              <span className="sim-pct mono">{p}%</span>
+              <div className="sim-tools">
+                <button title="Editar" onClick={() => onEditFeito(s)}>✎</button>
+                <button title="Apagar" onClick={() => onDeleteFeito(s.id)}>🗑</button>
+              </div>
+            </div>
+          );
+        })}
+
+      <div className="sechead-es" style={{ marginTop: 24 }}>Sugestões de próximos simulados</div>
+      {sugestoes.map((it, i) => (
+        <div
+          key={it.id}
+          className={`sug${over === i ? " over" : ""}`}
+          draggable
+          onDragStart={() => { dragI.current = i; }}
+          onDragOver={(ev) => { ev.preventDefault(); if (over !== i) setOver(i); }}
+          onDragLeave={() => { if (over === i) setOver(null); }}
+          onDrop={() => dropAt(i)}
+          onDragEnd={() => { dragI.current = null; setOver(null); }}
+        >
+          <span className="grip" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>
+          <span className="sug-name">{it.nome}</span>
+          <button className="sug-reg" onClick={() => onRegistrarSug(it.nome)}>registrar →</button>
+          <button className="sug-del" title="Remover da lista" onClick={() => onDeleteSug(it.id)}>×</button>
+        </div>
+      ))}
+      <div className="sug-add">
+        <span className="sug-plus">+</span>
+        <input value={novoSug} onChange={(ev) => setNovoSug(ev.target.value)} onKeyDown={(ev) => { if (ev.key === "Enter") addSug(); }} placeholder="adicionar uma prova (ex.: TJ RS 2026)" />
+        {novoSug.trim() && <button className="sug-addbtn" onClick={addSug}>adicionar</button>}
+      </div>
+    </section>
+  );
+}
+
 function App() {
   const [data, setData] = useState({});
   const [simData, setSimData] = useState({});
@@ -2606,6 +2784,9 @@ function App() {
   const [prioInput, setPrioInput] = useState("");
   const [simManuais, setSimManuais] = useState([]);
   const [simHidden, setSimHidden] = useState([]);
+  const [simFeitos, setSimFeitos] = useState([]);
+  const [simSug, setSimSug] = useState([]);
+  const [simModal, setSimModal] = useState(null); // null = fechado; {} ou {id,...} = aberto
   const [manNome, setManNome] = useState("");
   const [manAno, setManAno] = useState("");
   const [manBanca, setManBanca] = useState("");
@@ -2739,6 +2920,14 @@ function App() {
       try { const r = await window.storage.get(SIM_MANUAIS_KEY); manuais = r ? JSON.parse(r.value) : []; } catch { manuais = []; }
       let ocultas = [];
       try { const r = await window.storage.get(SIM_HIDDEN_KEY); ocultas = r ? JSON.parse(r.value) : []; } catch { ocultas = []; }
+      let feitos = [];
+      try { const r = await window.storage.get(SIM_FEITOS_KEY); feitos = r ? JSON.parse(r.value) : []; } catch { feitos = []; }
+      let sug = null;
+      try { const r = await window.storage.get(SIM_SUG_KEY); sug = r ? JSON.parse(r.value) : null; } catch { sug = null; }
+      if (!Array.isArray(sug)) {
+        // primeira vez: semeia com o catálogo de provas anteriores
+        sug = SIMULADOS.flatMap((g) => g.provas).map((nome) => ({ id: SIM_UID(), nome }));
+      }
       let diaEntries = [];
       try { const r = await window.storage.get(DIARIO_KEY); diaEntries = r ? JSON.parse(r.value) : []; } catch { diaEntries = []; }
       let diaTags = null;
@@ -2756,6 +2945,8 @@ function App() {
       setRevStatus(rvs);
       setSimManuais(manuais);
       setSimHidden(ocultas);
+      setSimFeitos(feitos);
+      setSimSug(sug);
       setDiario(diaEntries);
       if (diaTags && diaTags.fonte) setDiarioTags({ fonte: diaTags.fonte, materia: diaTags.materia || [] });
       setLoaded(true);
@@ -2799,6 +2990,18 @@ function App() {
   const removeRegistro = (id) => saveRegistros(registros.filter((r) => r.id !== id));
   const abrirRegistro = (r) => { setRegEditing(r || null); setRegOpen(true); };
   const fecharRegistro = () => { setRegOpen(false); setRegEditing(null); };
+
+  // ---------- Simulados (ESTUDEI) ----------
+  const saveSimFeitos = (arr) => { setSimFeitos(arr); try { window.storage.set(SIM_FEITOS_KEY, JSON.stringify(arr)); } catch {} };
+  const saveSimSug = (arr) => { setSimSug(arr); try { window.storage.set(SIM_SUG_KEY, JSON.stringify(arr)); } catch {} };
+  const upsertSimFeito = (s) => {
+    const existe = simFeitos.some((x) => x.id === s.id);
+    saveSimFeitos(existe ? simFeitos.map((x) => (x.id === s.id ? s : x)) : [s, ...simFeitos]);
+    setSimModal(null);
+  };
+  const removeSimFeito = (id) => saveSimFeitos(simFeitos.filter((s) => s.id !== id));
+  const addSimSug = (nome) => saveSimSug([...simSug, { id: SIM_UID(), nome }]);
+  const removeSimSug = (id) => saveSimSug(simSug.filter((s) => s.id !== id));
   const saveDataProva = (v) => { setDataProva(v); try { window.storage.set(DATAPROVA_KEY, JSON.stringify(v)); } catch {} };
   const saveMetas = (v) => { setMetas(v); try { window.storage.set(METAS_KEY, JSON.stringify(v)); } catch {} };
   const marcarRevisao = (id, destino) => {
@@ -3618,6 +3821,40 @@ function App() {
         .curso-subs { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
         @media (max-width: 640px) { .curso-subs { grid-template-columns: 1fr; } }
 
+        /* Simulados (ESTUDEI) */
+        .sim-cardnote { font-size: 12px; color: var(--faint); margin-top: 6px; }
+        .sim-newbtn { display: inline-flex; align-items: center; gap: 8px; background: var(--gold); color: var(--on-accent,#2a1f04);
+          font: inherit; font-weight: 800; font-size: 14px; border: none; border-radius: 12px; padding: 12px 18px; cursor: pointer; margin: 18px 0 6px; }
+        .sim-chart { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 18px 14px 8px; }
+        .sim-row { display: flex; align-items: center; gap: 12px; background: var(--surface); border: 1px solid var(--line);
+          border-radius: 13px; padding: 12px 14px; margin-bottom: 9px; }
+        .sim-bar { width: 4px; align-self: stretch; border-radius: 99px; flex-shrink: 0; }
+        .sim-main { flex: 1; min-width: 0; }
+        .sim-name { font-weight: 700; font-size: 14px; }
+        .sim-when { font-size: 12px; color: var(--faint); margin-top: 2px; }
+        .sim-frac { font-size: 12px; color: var(--muted); margin-left: auto; }
+        .sim-pct { font-size: 15px; font-weight: 800; color: var(--gold); min-width: 44px; text-align: right; }
+        .sim-tools { display: flex; gap: 4px; }
+        .sim-tools button { font: inherit; font-size: 13px; background: none; border: none; color: var(--faint); cursor: pointer; padding: 4px 6px; border-radius: 7px; }
+        .sim-tools button:hover { color: var(--text); background: var(--surface-2); }
+        .sim-modal-pct { margin-top: 14px; font-size: 13.5px; color: var(--muted); }
+        .sim-modal-pct b { color: var(--gold); font-size: 16px; }
+        .sug { display: flex; align-items: center; gap: 11px; background: var(--surface); border: 1px solid var(--line);
+          border-radius: 13px; padding: 12px 14px; margin-bottom: 9px; }
+        .sug.over { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold); }
+        .grip { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; cursor: grab; flex-shrink: 0; padding: 2px; }
+        .grip:active { cursor: grabbing; }
+        .grip i { width: 3.5px; height: 3.5px; border-radius: 50%; background: var(--faint); }
+        .sug-name { font-size: 13.5px; flex: 1; min-width: 0; }
+        .sug-reg { font: inherit; font-size: 12px; font-weight: 800; color: var(--gold); background: none; border: none; cursor: pointer; white-space: nowrap; padding: 4px 6px; }
+        .sug-del { font: inherit; font-size: 16px; line-height: 1; color: var(--faint); background: none; border: none; cursor: pointer; padding: 2px 6px; }
+        .sug-del:hover { color: var(--coral); }
+        .sug-add { display: flex; align-items: center; gap: 11px; border: 1px dashed var(--line-2); border-radius: 13px; padding: 12px 14px; margin-top: 4px; }
+        .sug-plus { color: var(--gold); font-size: 18px; font-weight: 800; flex-shrink: 0; }
+        .sug-add input { flex: 1; background: none; border: none; color: var(--text); font: inherit; font-size: 13.5px; outline: none; }
+        .sug-add input::placeholder { color: var(--faint); }
+        .sug-addbtn { font: inherit; font-size: 12px; font-weight: 800; color: var(--gold); background: none; border: none; cursor: pointer; }
+
         /* botão de acesso aos editais (no topo do painel) */
         .editais-open { margin-top: 18px; display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
           background: var(--surface-2); color: var(--text); border: 1px solid var(--line-2); border-radius: 11px;
@@ -4236,6 +4473,7 @@ function App() {
         <span className="reg-fab-ic">＋</span><span className="reg-fab-tx">Registrar estudo</span>
       </button>
       {regOpen && <RegistroModal inicial={regEditing} onClose={fecharRegistro} onSave={upsertRegistro} />}
+      {simModal && <SimNovoModal inicial={simModal} onClose={() => setSimModal(null)} onSave={upsertSimFeito} />}
       {regToast && <div className="reg-toast">Estudo registrado ✓</div>}
 
       <div className="wrap">
@@ -4737,12 +4975,18 @@ function App() {
         )}
 
         {view === "es-simulados" && (
-          <section style={{ paddingTop: 8, maxWidth: 1040, margin: "0 auto" }}>
-            <button className="edital-back" onClick={() => setView("es-painel")}>← Voltar</button>
-            <p className="eyebrow">ESTUDEI</p>
-            <h1 className="serif" style={{ marginBottom: 14 }}>Simulados e provas</h1>
-            {secSimulados}
-          </section>
+          <SimuladosView
+            feitos={simFeitos}
+            sugestoes={simSug}
+            onNovo={(nome) => setSimModal(nome ? { nome } : {})}
+            onEditFeito={(s) => setSimModal(s)}
+            onDeleteFeito={removeSimFeito}
+            onRegistrarSug={(nome) => setSimModal({ nome })}
+            onReorder={saveSimSug}
+            onAddSug={addSimSug}
+            onDeleteSug={removeSimSug}
+            onBack={() => setView("es-painel")}
+          />
         )}
 
         {view === "main" && (<>
