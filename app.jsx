@@ -970,6 +970,11 @@ function cursoProgress(c, cursoData) {
   c.itens.forEach((it, i) => { if (it && it.h) return; total += 1; if (v[i]) done += 1; });
   return { done, total };
 }
+// barra de progresso (versão de escopo de módulo, p/ componentes fora do App)
+function Bar({ done, total, color }) {
+  const p = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
+  return <div className="bar"><i style={{ width: `${p}%`, background: color || "var(--gold)" }} /></div>;
+}
 // nome da matéria (como aparece na grade) -> curso isolado correspondente
 const CURSO_BY_MATNOME = {};
 Object.entries(CURSO_TEORIA).forEach(([subjId, curId]) => {
@@ -1034,7 +1039,7 @@ const NAV_GROUPS = [
     { key: "es-revisoes", icon: "refresh", label: "Revisões", kind: "view", view: "es-revisoes" },
     { key: "es-historico", icon: "clock", label: "Histórico", kind: "view", view: "es-historico" },
     { key: "es-estatisticas", icon: "chart", label: "Estatísticas", kind: "view", view: "es-estatisticas" },
-    { key: "sec-simulados", icon: "clipboard", label: "Simulados", kind: "anchor" },
+    { key: "es-simulados", icon: "clipboard", label: "Simulados", kind: "view", view: "es-simulados" },
   ] },
   { label: "Navegação", items: [
     { key: "painel", icon: "home", label: "Painel", kind: "home" },
@@ -2052,10 +2057,7 @@ function FraseDoDia() {
   const now = new Date();
   const doy = Math.floor((now - new Date(now.getFullYear(), 0, 0)) / 86400000);
   return (
-    <div className="panel frase-card">
-      <span className="frase-mk">“</span>
-      <span className="frase-tx">{FRASES[doy % FRASES.length]}</span>
-    </div>
+    <div className="frase-solta">{FRASES[doy % FRASES.length]}</div>
   );
 }
 function DataProva({ data, nome, onSave }) {
@@ -2229,6 +2231,18 @@ function MateriaDetail({ materia, registros, cursoData, onToggleCurso, onBack, o
         <div className="panel"><div className="dp-lbl">Registros</div><div className="dp-big mat-big">{regs.length}</div></div>
       </div>
       {regs.length ? (<><div className="sechead-es">Por fonte</div><CiclosPizzas registros={regs} /></>) : null}
+      {curso && (() => {
+        const { done, total } = cursoProgress(curso, cursoData);
+        const pct = total ? Math.round((done / total) * 100) : 0;
+        return (
+          <>
+            <div className="sechead-es">Teoria · curso em vídeo</div>
+            <p className="es-sub" style={{ marginTop: -4 }}>Marque a aula assistida — vira um estudo de Teoria automático. <b>{done}/{total} · {pct}%</b></p>
+            <div style={{ marginBottom: 12 }}><Bar done={done} total={total} color={CURSO_COR} /></div>
+            <CursoAulas curso={curso} cursoData={cursoData} onToggle={onToggleCurso} />
+          </>
+        );
+      })()}
       <div className="sechead-es">Registros</div>
       {regs.length === 0 ? <div className="es-hint">Nada registrado nesta matéria ainda.</div>
         : regs.map((r) => <RegRow key={r.id} r={r} onEdit={onEdit} onDelete={onDelete} />)}
@@ -3146,6 +3160,91 @@ export default function App() {
     <div className="bar"><i style={{ width: `${pct(done, total)}%`, background: color || "var(--gold)" }} /></div>
   );
 
+  // bloco de Simulados: reutilizado no painel antigo e na página própria do ESTUDEI
+  const secSimulados = (
+    <section id="sec-simulados" className="panel">
+      <div className="panel-head">
+        <span className="panel-dot" style={{ background: "var(--coral)", boxShadow: "0 0 12px var(--coral)" }} />
+        <h2>SIMULADOS | PROVAS ANTERIORES</h2>
+        <span className="panel-count mono">{simDone}/{simTotal} resolvidas</span>
+      </div>
+      <p className="desc">2026-2024 · várias bancas</p>
+
+      {simGroups.map((g) => {
+        const isYearOpen = openYear === g.grupo;
+        const yearDone = g.provas.filter((p) => (simData[p.nome] || {}).checked).length;
+        return (
+          <div key={g.grupo} className="sim-year">
+            <button className="year-head" onClick={() => setOpenYear(isYearOpen ? null : g.grupo)}>
+              <span className="year-arrow">{isYearOpen ? "▾" : "▸"}</span>
+              <span className="year-label">{g.grupo}</span>
+              <span className="year-count mono">{yearDone}/{g.provas.length}</span>
+            </button>
+            {isYearOpen && (
+              <div className="year-body">
+                {g.provas.map((p) => {
+                  const nome = p.nome;
+                  const v = simData[nome] || {};
+                  const tot = provaTotals(nome);
+                  const isOpen = openProva === nome;
+                  return (
+                    <div key={nome} className="sim-prova">
+                      <div className="sim-prova-row">
+                        <input type="checkbox" checked={!!v.checked} onChange={() => toggleSim(nome, { checked: !v.checked })} />
+                        <button className="sim-name" onClick={() => setOpenProva(isOpen ? null : nome)}>
+                          <span className="sim-arrow">{isOpen ? "▾" : "▸"}</span>
+                          <span style={{ flex: 1 }}>{nome}</span>
+                          {p.banca && <span className="banca-tag" style={{ background: bancaBg(p.banca, .16), color: bancaColor(p.banca), border: "1px solid " + bancaBg(p.banca, .4) }}>{p.banca}</span>}
+                          {tot && <span className="sim-frac mono">{tot.a}/{tot.q}</span>}
+                          <span className="sim-overall mono">{tot == null ? "—" : tot.pct + "%"}</span>
+                        </button>
+                        <button className="man-del" title="Excluir esta prova" onClick={() => deleteProva(p, g.grupo)}>🗑</button>
+                      </div>
+                      {isOpen && (
+                        <div className="sim-mats">
+                          {provaMats(nome).map((m) => {
+                            const md = (v.mats || {})[m.key] || {};
+                            const pctm = matPct(md);
+                            return (
+                              <div key={m.key} className="sim-mat">
+                                <span className="sim-mat-name">{m.name}</span>
+                                <input className="qn mono" placeholder="—" inputMode="numeric" value={md.a || ""} onChange={(e) => setMat(nome, m.key, "a", e.target.value)} />
+                                <span className="sim-de">de</span>
+                                <input className="qn mono" placeholder="—" inputMode="numeric" value={md.q || ""} onChange={(e) => setMat(nome, m.key, "q", e.target.value)} />
+                                <span className="sim-mat-pct mono">{pctm == null ? "" : pctm + "%"}</span>
+                                <button className="man-del sim-mat-del" title="Remover matéria desta prova" onClick={() => (m.custom ? removeCustomMat(nome, m.key) : hideMat(nome, m.key))}>🗑</button>
+                              </div>
+                            );
+                          })}
+                          <div className="sim-mat-add">
+                            <input placeholder="+ adicionar matéria a esta prova..." value={matAddInput}
+                              onChange={(e) => setMatAddInput(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === "Enter") addProvaMat(nome); }} />
+                            <button onClick={() => addProvaMat(nome)}>+</button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      <div className="man-add">
+        <input className="man-nome" placeholder="Adicionar prova (ex.: TJ RS 2026)" value={manNome}
+          onChange={(e) => setManNome(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") addManual(); }} />
+        <input className="man-ano" placeholder="ano" value={manAno}
+          onChange={(e) => setManAno(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") addManual(); }} />
+        <input className="man-banca" placeholder="banca" value={manBanca}
+          onChange={(e) => setManBanca(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") addManual(); }} />
+        <button className="man-btn" onClick={addManual}>+ Adicionar</button>
+      </div>
+    </section>
+  );
+
   return (
     <div className="root">
       <style>{`
@@ -3382,6 +3481,12 @@ export default function App() {
           margin: 14px 0 7px; padding-top: 9px; border-top: 1px solid var(--line); }
         .curso-box > .curso-head:first-child { margin-top: 0; padding-top: 0; border-top: none; }
         .idx { color: var(--faint); flex-shrink: 0; font-size: 11px; }
+        .curso-card { margin-bottom: 14px; }
+        .curso-cardhead { display: flex; align-items: center; gap: 10px; width: 100%; background: none; border: none;
+          padding: 0; cursor: pointer; text-align: left; color: inherit; font: inherit; }
+        .curso-caret { color: var(--faint); font-size: 11px; width: 12px; flex-shrink: 0; }
+        .curso-subs { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+        @media (max-width: 640px) { .curso-subs { grid-template-columns: 1fr; } }
 
         /* botão de acesso aos editais (no topo do painel) */
         .editais-open { margin-top: 18px; display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
@@ -3849,9 +3954,8 @@ export default function App() {
         @media (max-width: 560px){ .es-hero-cor { position: static; justify-content: flex-end; margin-bottom: 14px; } }
 
         /* ===== Painel: frase, data da prova, meta ===== */
-        .frase-card { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
-        .frase-mk { font-family: Georgia, "Times New Roman", serif; font-size: 40px; line-height: .5; color: var(--gold); opacity: .55; }
-        .frase-tx { font-size: 15px; font-style: italic; color: var(--text); }
+        .frase-solta { margin: 16px 0 4px; padding-left: 14px; border-left: 3px solid var(--gold);
+          font-size: 15.5px; font-style: italic; color: var(--muted); line-height: 1.5; }
         .painel-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
         @media (max-width: 720px){ .painel-2col { grid-template-columns: 1fr; } }
 
@@ -4488,11 +4592,11 @@ export default function App() {
             </aside>
 
             <FraseDoDia />
+            <Constancia registros={registros} />
             <div className="painel-2col">
               <DataProva data={dataProva && dataProva.data} nome={dataProva && dataProva.nome} onSave={saveDataProva} />
               <MetaSemana registros={registros} metas={metas} onSave={saveMetas} />
             </div>
-            <Constancia registros={registros} />
             <div className="sechead-es">Ciclos</div>
             <CiclosPizzas registros={registros} />
           </section>
@@ -4500,6 +4604,15 @@ export default function App() {
 
         {view === "caixa" && (
           <CaixaView onBack={() => setView("es-painel")} onArquivarEdital={arquivarNoEdital} />
+        )}
+
+        {view === "es-simulados" && (
+          <section style={{ paddingTop: 8, maxWidth: 1040, margin: "0 auto" }}>
+            <button className="edital-back" onClick={() => setView("es-painel")}>← Voltar</button>
+            <p className="eyebrow">ESTUDEI</p>
+            <h1 className="serif" style={{ marginBottom: 14 }}>Simulados e provas</h1>
+            {secSimulados}
+          </section>
         )}
 
         {view === "main" && (<>
@@ -4681,87 +4794,7 @@ export default function App() {
         </section>
 
         {/* ---------- SIMULADOS ---------- */}
-        <section id="sec-simulados" className="panel">
-          <div className="panel-head">
-            <span className="panel-dot" style={{ background: "var(--coral)", boxShadow: "0 0 12px var(--coral)" }} />
-            <h2>SIMULADOS | PROVAS ANTERIORES</h2>
-            <span className="panel-count mono">{simDone}/{simTotal} resolvidas</span>
-          </div>
-          <p className="desc">2026-2024 · várias bancas</p>
-
-          {simGroups.map((g) => {
-            const isYearOpen = openYear === g.grupo;
-            const yearDone = g.provas.filter((p) => (simData[p.nome] || {}).checked).length;
-            return (
-              <div key={g.grupo} className="sim-year">
-                <button className="year-head" onClick={() => setOpenYear(isYearOpen ? null : g.grupo)}>
-                  <span className="year-arrow">{isYearOpen ? "▾" : "▸"}</span>
-                  <span className="year-label">{g.grupo}</span>
-                  <span className="year-count mono">{yearDone}/{g.provas.length}</span>
-                </button>
-                {isYearOpen && (
-                  <div className="year-body">
-                    {g.provas.map((p) => {
-                      const nome = p.nome;
-                      const v = simData[nome] || {};
-                      const tot = provaTotals(nome);
-                      const isOpen = openProva === nome;
-                      return (
-                        <div key={nome} className="sim-prova">
-                          <div className="sim-prova-row">
-                            <input type="checkbox" checked={!!v.checked} onChange={() => toggleSim(nome, { checked: !v.checked })} />
-                            <button className="sim-name" onClick={() => setOpenProva(isOpen ? null : nome)}>
-                              <span className="sim-arrow">{isOpen ? "▾" : "▸"}</span>
-                              <span style={{ flex: 1 }}>{nome}</span>
-                              {p.banca && <span className="banca-tag" style={{ background: bancaBg(p.banca, .16), color: bancaColor(p.banca), border: "1px solid " + bancaBg(p.banca, .4) }}>{p.banca}</span>}
-                              {tot && <span className="sim-frac mono">{tot.a}/{tot.q}</span>}
-                              <span className="sim-overall mono">{tot == null ? "—" : tot.pct + "%"}</span>
-                            </button>
-                            <button className="man-del" title="Excluir esta prova" onClick={() => deleteProva(p, g.grupo)}>🗑</button>
-                          </div>
-                          {isOpen && (
-                            <div className="sim-mats">
-                              {provaMats(nome).map((m) => {
-                                const md = (v.mats || {})[m.key] || {};
-                                const pctm = matPct(md);
-                                return (
-                                  <div key={m.key} className="sim-mat">
-                                    <span className="sim-mat-name">{m.name}</span>
-                                    <input className="qn mono" placeholder="—" inputMode="numeric" value={md.a || ""} onChange={(e) => setMat(nome, m.key, "a", e.target.value)} />
-                                    <span className="sim-de">de</span>
-                                    <input className="qn mono" placeholder="—" inputMode="numeric" value={md.q || ""} onChange={(e) => setMat(nome, m.key, "q", e.target.value)} />
-                                    <span className="sim-mat-pct mono">{pctm == null ? "" : pctm + "%"}</span>
-                                    <button className="man-del sim-mat-del" title="Remover matéria desta prova" onClick={() => (m.custom ? removeCustomMat(nome, m.key) : hideMat(nome, m.key))}>🗑</button>
-                                  </div>
-                                );
-                              })}
-                              <div className="sim-mat-add">
-                                <input placeholder="+ adicionar matéria a esta prova..." value={matAddInput}
-                                  onChange={(e) => setMatAddInput(e.target.value)}
-                                  onKeyDown={(e) => { if (e.key === "Enter") addProvaMat(nome); }} />
-                                <button onClick={() => addProvaMat(nome)}>+</button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-
-          <div className="man-add">
-            <input className="man-nome" placeholder="Adicionar prova (ex.: TJ RS 2026)" value={manNome}
-              onChange={(e) => setManNome(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") addManual(); }} />
-            <input className="man-ano" placeholder="ano" value={manAno}
-              onChange={(e) => setManAno(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") addManual(); }} />
-            <input className="man-banca" placeholder="banca" value={manBanca}
-              onChange={(e) => setManBanca(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") addManual(); }} />
-            <button className="man-btn" onClick={addManual}>+ Adicionar</button>
-          </div>
-        </section>
+        {secSimulados}
 
         {/* ---------- CURSOS ISOLADOS ---------- */}
         <section id="sec-cursos" className="panel">
