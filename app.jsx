@@ -2347,6 +2347,8 @@ export default function App() {
         .ed-note-btn.has { background: var(--gold); border-color: var(--gold); color: #2a2410; }
         .ed-note-btn.open { border-color: var(--gold); color: var(--gold); }
         .ed-obs-flag { color: var(--gold); font-size: 11px; flex-shrink: 0; }
+        .ed-nota-badge { display: inline-flex; align-items: center; gap: 3px; font-size: 10px; font-weight: 700;
+          padding: 1px 8px; border-radius: 99px; background: var(--gold); color: #2a2410; flex-shrink: 0; letter-spacing: .2px; }
         .ed-row.has-obs { background: rgba(240,200,90,.10); border-left: 3px solid var(--gold); }
         .ed-row.has-obs:hover { background: rgba(240,200,90,.16); }
         .ed-note-edit { padding: 4px 16px 12px 40px; border-top: 1px solid var(--line); background: rgba(240,200,90,.06); }
@@ -2604,7 +2606,11 @@ export default function App() {
                             ) : (
                               <span className={`edital-txt${bold ? " b" : ""}`}>{node.txt}</span>
                             )}
-                            {flag && <span className="ed-obs-flag" title={RICH ? "Este tópico tem notas" : "Este tópico tem observação"}>✎</span>}
+                            {RICH && hasNotas ? (
+                              <span className="ed-nota-badge" title={`${cell.notas.length} caixinha(s) de nota`}>✎ nota</span>
+                            ) : flag ? (
+                              <span className="ed-obs-flag" title={RICH ? "Este tópico tem notas" : "Este tópico tem observação"}>✎</span>
+                            ) : null}
                           </div>
                           <div className="ed-checks">
                             <div className="ed-grp">{ED_ESTUDO.map((c) => check(c))}</div>
