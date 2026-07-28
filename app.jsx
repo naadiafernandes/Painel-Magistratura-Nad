@@ -1563,19 +1563,32 @@ const ES_PAGES = {
 };
 
 // ===== ESTUDEI: Registrar estudo (janelinha) =====
-function RegistroModal({ onClose, onSave }) {
+function RegistroModal({ inicial, onClose, onSave }) {
+  const init = inicial || {};
+  const editando = !!init.id;
   const materias = [...new Set(SECTIONS.flatMap((s) => s.subjects.map((x) => x.name)))].sort();
-  const [quando, setQuando] = useState("hoje");
-  const [dataOutra, setDataOutra] = useState("");
-  const [fonte, setFonte] = useState("teoria");
-  const [materia, setMateria] = useState("");
-  const [topico, setTopico] = useState("");
-  const [horas, setHoras] = useState("");
-  const [min, setMin] = useState("");
-  const [acertos, setAcertos] = useState("");
-  const [erros, setErros] = useState("");
-  const [coment, setComent] = useState("");
-  const [concluido, setConcluido] = useState(false);
+  const localISO = (ts) => { const d = new Date(ts); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+  const whenTs = (ts) => {
+    if (!ts) return { q: "hoje", d: "" };
+    const day = new Date(ts); day.setHours(0, 0, 0, 0);
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const diff = Math.round((today - day) / 86400000);
+    if (diff === 0) return { q: "hoje", d: "" };
+    if (diff === 1) return { q: "ontem", d: "" };
+    return { q: "outra", d: localISO(ts) };
+  };
+  const w0 = whenTs(init.ts);
+  const [quando, setQuando] = useState(w0.q);
+  const [dataOutra, setDataOutra] = useState(w0.d);
+  const [fonte, setFonte] = useState(init.fonte || "teoria");
+  const [materia, setMateria] = useState(init.materia || "");
+  const [topico, setTopico] = useState(init.topico || "");
+  const [horas, setHoras] = useState(init.tempo ? String(Math.floor(init.tempo / 60) || "") : "");
+  const [min, setMin] = useState(init.tempo ? String(init.tempo % 60 || "") : "");
+  const [acertos, setAcertos] = useState(init.acertos ? String(init.acertos) : "");
+  const [erros, setErros] = useState(init.erros ? String(init.erros) : "");
+  const [coment, setComent] = useState(init.coment || "");
+  const [concluido, setConcluido] = useState(!!init.concluido);
 
   const podeSalvar = fonte && materia.trim();
   const salvar = () => {
@@ -1583,9 +1596,10 @@ function RegistroModal({ onClose, onSave }) {
     let ts = Date.now();
     if (quando === "ontem") ts = Date.now() - 86400000;
     else if (quando === "outra" && dataOutra) { const p = Date.parse(dataOutra + "T12:00:00"); if (!isNaN(p)) ts = p; }
+    else if (quando === "hoje" && editando && whenTs(init.ts).q === "hoje") ts = init.ts;
     const tempo = (parseInt(horas || 0, 10) * 60) + parseInt(min || 0, 10);
     onSave({
-      id: Date.now(), ts, fonte,
+      id: init.id || Date.now(), ts, fonte,
       materia: materia.trim(), topico: topico.trim(), tempo,
       acertos: parseInt(acertos || 0, 10), erros: parseInt(erros || 0, 10),
       coment: coment.trim(), concluido,
@@ -1595,7 +1609,7 @@ function RegistroModal({ onClose, onSave }) {
   return (
     <div className="reg-overlay" onClick={onClose}>
       <div className="reg-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="reg-head"><span>Registrar estudo</span><button className="reg-close" onClick={onClose} title="Fechar">×</button></div>
+        <div className="reg-head"><span>{editando ? "Editar estudo" : "Registrar estudo"}</span><button className="reg-close" onClick={onClose} title="Fechar">×</button></div>
         <div className="reg-body">
           <div className="reg-when">
             {[["hoje", "Hoje"], ["ontem", "Ontem"], ["outra", "Outra data"]].map(([k, l]) => (
@@ -1654,7 +1668,7 @@ function RegistroModal({ onClose, onSave }) {
 }
 
 // ===== ESTUDEI: Histórico dos registros =====
-function RegHistorico({ registros, onBack, onDelete }) {
+function RegHistorico({ registros, onBack, onDelete, onEdit }) {
   const ordenado = [...registros].sort((a, b) => b.ts - a.ts);
   const grupos = [], byDay = {};
   for (const r of ordenado) {
@@ -1691,6 +1705,7 @@ function RegHistorico({ registros, onBack, onDelete }) {
                   <span className="hist-fonte" style={{ color: f.color, background: `color-mix(in srgb, ${f.color} 15%, transparent)` }}>{f.label}</span>
                   {r.concluido ? <span className="hist-done" title="Concluído → revisão">✓ tópico</span> : null}
                 </div>
+                <button className="hist-edit" onClick={() => onEdit(r)} title="Editar">✎</button>
                 <button className="hist-del" onClick={() => onDelete(r.id)} title="Apagar">×</button>
               </div>
             );
@@ -1698,6 +1713,58 @@ function RegHistorico({ registros, onBack, onDelete }) {
         </div>
       ))}
     </section>
+  );
+}
+
+// ===== ESTUDEI: agregados dos registros =====
+function aggFontes(registros) {
+  const m = {};
+  for (const r of registros) {
+    const k = r.fonte || "outro";
+    if (!m[k]) m[k] = { tempo: 0, acertos: 0, erros: 0, n: 0 };
+    m[k].tempo += r.tempo || 0; m[k].acertos += r.acertos || 0; m[k].erros += r.erros || 0; m[k].n += 1;
+  }
+  return m;
+}
+function CiclosPizzas({ registros }) {
+  const agg = aggFontes(registros);
+  const fontes = REG_FONTES.filter((f) => agg[f.id]);
+  const total = Object.values(agg).reduce((s, a) => s + a.tempo, 0);
+  if (!fontes.length) return <div className="es-hint">Registre um estudo pra ver seus ciclos encherem.</div>;
+  return (
+    <div className="ciclo-grid">
+      {fontes.map((f) => {
+        const a = agg[f.id];
+        const p = total ? Math.round((a.tempo / total) * 100) : 0;
+        const q = a.acertos + a.erros;
+        return (
+          <div className="ciclo-card" key={f.id}>
+            <div className="ciclo-donut" style={{ "--p": p, "--c": f.color }}>
+              <div className="ciclo-hole"><b>{fmtTempo(a.tempo)}</b></div>
+            </div>
+            <div className="ciclo-nm" style={{ color: f.color }}>{f.label}</div>
+            <div className="ciclo-mt">{p}% do tempo{q ? ` · ${a.acertos}/${q}q` : ""}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+function Constancia({ registros }) {
+  const dias = new Set(registros.map((r) => new Date(r.ts).toDateString()));
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const key = (offset) => new Date(today.getTime() - offset * 86400000).toDateString();
+  let streak = 0;
+  for (let i = dias.has(key(0)) ? 0 : 1; i < 500; i++) { if (dias.has(key(i))) streak++; else break; }
+  const cells = [];
+  for (let i = 27; i >= 0; i--) cells.push({ i, on: dias.has(key(i)), hoje: i === 0 });
+  return (
+    <div className="panel es-consta">
+      <div className="consta-head"><span>Constância nos estudos</span><b>{streak} {streak === 1 ? "dia" : "dias"} seguidos</b></div>
+      <div className="consta-strip">
+        {cells.map((c) => <span key={c.i} className={`consta-day${c.on ? " on" : ""}${c.hoje ? " today" : ""}`} />)}
+      </div>
+    </div>
   );
 }
 
@@ -1736,6 +1803,7 @@ export default function App() {
   const [prioridades, setPrioridades] = useState([]);
   const [registros, setRegistros] = useState([]);
   const [regOpen, setRegOpen] = useState(false);
+  const [regEditing, setRegEditing] = useState(null);
   const [regToast, setRegToast] = useState(false);
   const [prioInput, setPrioInput] = useState("");
   const [simManuais, setSimManuais] = useState([]);
@@ -1899,8 +1967,15 @@ export default function App() {
 
   // ---------- Registrar estudo ----------
   const saveRegistros = (arr) => { setRegistros(arr); try { window.storage.set(REGISTROS_KEY, JSON.stringify(arr)); } catch {} };
-  const addRegistro = (r) => { saveRegistros([r, ...registros]); setRegOpen(false); setRegToast(true); setTimeout(() => setRegToast(false), 2200); };
+  const upsertRegistro = (r) => {
+    const existe = registros.some((x) => x.id === r.id);
+    saveRegistros(existe ? registros.map((x) => (x.id === r.id ? r : x)) : [r, ...registros]);
+    setRegOpen(false); setRegEditing(null);
+    setRegToast(true); setTimeout(() => setRegToast(false), 2200);
+  };
   const removeRegistro = (id) => saveRegistros(registros.filter((r) => r.id !== id));
+  const abrirRegistro = (r) => { setRegEditing(r || null); setRegOpen(true); };
+  const fecharRegistro = () => { setRegOpen(false); setRegEditing(null); };
 
   // ---------- Diário de estudos ----------
   const saveDiario = (arr) => {
@@ -3027,7 +3102,30 @@ export default function App() {
         .hist-done { font-size: 11px; font-weight: 700; color: var(--green); white-space: nowrap; }
         .hist-del { background: transparent; border: none; color: var(--faint); font-size: 18px; line-height: 1; cursor: pointer; flex: none; }
         .hist-del:hover { color: var(--coral); }
+        .hist-edit { background: transparent; border: none; color: var(--faint); font-size: 15px; line-height: 1; cursor: pointer; flex: none; }
+        .hist-edit:hover { color: var(--gold); }
         @media (max-width: 560px){ .hist-row { flex-wrap: wrap; } .hist-meta { width: 100%; justify-content: flex-start; } }
+
+        /* ===== Ciclos (pizzas) ===== */
+        .ciclo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; margin-top: 6px; }
+        .ciclo-card { background: var(--surface); border: 1px solid var(--line-2); border-radius: 16px; padding: 18px 14px 16px; text-align: center; }
+        .ciclo-donut { width: 106px; height: 106px; margin: 0 auto; border-radius: 50%;
+          background: conic-gradient(var(--c) calc(var(--p) * 1%), var(--surface-2) 0); display: grid; place-items: center; }
+        .ciclo-hole { width: 74px; height: 74px; border-radius: 50%; background: var(--surface); display: grid; place-items: center; }
+        .ciclo-hole b { font-size: 15px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+        .ciclo-nm { font-size: 14px; font-weight: 700; margin-top: 11px; }
+        .ciclo-mt { font-size: 11.5px; color: var(--faint); margin-top: 3px; }
+
+        /* ===== Constância ===== */
+        .es-consta { margin-top: 8px; }
+        .consta-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px;
+          font-size: 13px; font-weight: 600; color: var(--muted); }
+        .consta-head b { color: var(--gold); font-size: 14px; }
+        .consta-strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(20px, 1fr)); gap: 6px; }
+        .consta-day { aspect-ratio: 1; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--line-2); }
+        .consta-day.on { background: var(--gold); border-color: transparent; }
+        .consta-day.today { outline: 2px solid var(--gold); outline-offset: 2px; }
+        .sechead-es { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin: 26px 4px 12px; }
       `}</style>
 
       <button
@@ -3086,10 +3184,10 @@ export default function App() {
         ))}
       </aside>
 
-      <button className="reg-fab" onClick={() => setRegOpen(true)} title="Registrar estudo">
+      <button className="reg-fab" onClick={() => abrirRegistro(null)} title="Registrar estudo">
         <span className="reg-fab-ic">＋</span><span className="reg-fab-tx">Registrar estudo</span>
       </button>
-      {regOpen && <RegistroModal onClose={() => setRegOpen(false)} onSave={addRegistro} />}
+      {regOpen && <RegistroModal inicial={regEditing} onClose={fecharRegistro} onSave={upsertRegistro} />}
       {regToast && <div className="reg-toast">Estudo registrado ✓</div>}
 
       <div className="wrap">
@@ -3525,7 +3623,7 @@ export default function App() {
           </section>
         )}
 
-        {ES_PAGES[view] && view !== "es-historico" && (
+        {ES_PAGES[view] && !["es-historico", "es-ciclos", "es-painel"].includes(view) && (
           <EsStub
             title={ES_PAGES[view].title}
             sub={ES_PAGES[view].sub}
@@ -3534,7 +3632,26 @@ export default function App() {
           />
         )}
         {view === "es-historico" && (
-          <RegHistorico registros={registros} onBack={() => setView("main")} onDelete={removeRegistro} />
+          <RegHistorico registros={registros} onBack={() => setView("main")} onDelete={removeRegistro} onEdit={abrirRegistro} />
+        )}
+        {view === "es-ciclos" && (
+          <section className="editais-page es-page">
+            <button className="edital-back" onClick={() => setView("main")}>← Voltar ao painel</button>
+            <p className="eyebrow">ESTUDEI</p>
+            <h1 className="serif" style={{ marginBottom: 10 }}>Ciclos</h1>
+            <p className="es-sub">Cada fonte enche conforme você registra — o tempo total manda no tamanho da fatia.</p>
+            <CiclosPizzas registros={registros} />
+          </section>
+        )}
+        {view === "es-painel" && (
+          <section className="editais-page es-page">
+            <button className="edital-back" onClick={() => setView("main")}>← Voltar ao painel</button>
+            <p className="eyebrow">ESTUDEI</p>
+            <h1 className="serif" style={{ marginBottom: 10 }}>Painel</h1>
+            <Constancia registros={registros} />
+            <div className="sechead-es">Ciclos</div>
+            <CiclosPizzas registros={registros} />
+          </section>
         )}
 
         {view === "caixa" && (
