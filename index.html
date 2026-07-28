@@ -1080,6 +1080,10 @@ const NAV_ICON_PATHS = {
   info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v5" /><path d="M12 8h.01" /></>,
   clipboard: <><rect x="7" y="4" width="10" height="17" rx="2" /><path d="M9.5 4V3h5v1" /><path d="M9.5 9h5M9.5 13h5M9.5 17h3" /></>,
   video: <><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M10 9l5 3-5 3z" /></>,
+  pie: <><circle cx="12" cy="12" r="9" /><path d="M12 12V3" /><path d="M12 12l7.8 4.5" /></>,
+  refresh: <><path d="M20 12a8 8 0 1 1-2.3-5.6" /><path d="M20 4v4h-4" /></>,
+  clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3.5 2" /></>,
+  chart: <><path d="M5 21V10" /><path d="M12 21V4" /><path d="M19 21v-7" /></>,
 };
 function Ic({ n }) {
   return (
@@ -1090,6 +1094,16 @@ function Ic({ n }) {
 }
 // grupos do menu lateral
 const NAV_GROUPS = [
+  { label: "ESTUDEI", items: [
+    { key: "es-painel", icon: "home", label: "Painel", kind: "view", view: "es-painel" },
+    { key: "es-materias", icon: "layers", label: "Matérias", kind: "view", view: "es-materias" },
+    { key: "es-editais", icon: "file", label: "Editais", kind: "view", view: "es-editais" },
+    { key: "es-ciclos", icon: "pie", label: "Ciclos", kind: "view", view: "es-ciclos" },
+    { key: "es-revisoes", icon: "refresh", label: "Revisões", kind: "view", view: "es-revisoes" },
+    { key: "es-historico", icon: "clock", label: "Histórico", kind: "view", view: "es-historico" },
+    { key: "es-estatisticas", icon: "chart", label: "Estatísticas", kind: "view", view: "es-estatisticas" },
+    { key: "es-simulados", icon: "clipboard", label: "Simulados", kind: "view", view: "es-simulados" },
+  ] },
   { label: "Navegação", items: [
     { key: "painel", icon: "home", label: "Painel", kind: "home" },
     { key: "editais", icon: "file", label: "Editais verticalizados", kind: "view", view: "editais" },
@@ -1386,6 +1400,83 @@ function TopicNotes({ label, materia, initial, onBack, onSave }) {
     </section>
   );
 }
+
+// ===== ESTUDEI: telas de estrutura (ainda sem conteúdo) =====
+function EsStub({ title, sub, blocks, onBack }) {
+  return (
+    <section className="editais-page es-page">
+      <button className="edital-back" onClick={onBack}>← Voltar ao painel</button>
+      <p className="eyebrow">ESTUDEI</p>
+      <h1 className="serif" style={{ marginBottom: 10 }}>{title}</h1>
+      {sub && <p className="es-sub">{sub}</p>}
+      <div className="es-hint">🚧 Estrutura pronta — o conteúdo você vai preenchendo aos poucos.</div>
+      <div className="es-grid">
+        {blocks.map((b, i) => (
+          <div className="es-box" key={i}>
+            <div className="es-t">{b.t}</div>
+            {b.d && <div className="es-d">{b.d}</div>}
+            <div className="es-empty">vazio por enquanto</div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+const ES_PAGES = {
+  "es-painel": { title: "Painel", sub: "A tela inicial: seu ritmo, seus ciclos e o que estudar agora.", blocks: [
+    { t: "Cards de topo", d: "Tempo de estudo, desempenho, progresso no edital, data da prova" },
+    { t: "Frase do dia" },
+    { t: "Prioridades", d: "Sua caixa de anotações soltas" },
+    { t: "Constância", d: "Dias seguidos + fita de dias" },
+    { t: "Ciclos", d: "Pizzas por fonte: teoria, lei seca, jurisprudência, questões" },
+    { t: "Painel de matérias", d: "Tabela: tempo, acertos, erros, %" },
+    { t: "Meta da semana", d: "Horas, questões, revisões" },
+    { t: "Histórico da semana", d: "Barras por dia" },
+    { t: "Revisões de hoje" },
+  ] },
+  "es-materias": { title: "Matérias", sub: "As disciplinas e, dentro delas, o material + acompanhamento.", blocks: [
+    { t: "Grade de matérias", d: "Tópicos estudados/totais, questões" },
+    { t: "Nova matéria" },
+    { t: "Página da matéria", d: "Cards de topo, histórico, revisões, edital verticalizado, evolução" },
+  ] },
+  "es-editais": { title: "Editais", sub: "A verticalização geral por matéria e tópico.", blocks: [
+    { t: "Progresso no edital" },
+    { t: "Lista de matérias (sanfona)", d: "Acertos, erros, %, barra" },
+    { t: "Tópicos", d: "Com acompanhamento, notas e link do material" },
+  ] },
+  "es-ciclos": { title: "Ciclos", sub: "O planejamento em pizza — o coração visual.", blocks: [
+    { t: "Pizza do ciclo", d: "Fatias por bloco, total no centro" },
+    { t: "Sequência dos estudos", d: "Blocos com barra: estudado / alvo" },
+    { t: "Editar ciclo", d: "Blocos + minutos, duplicar, remover" },
+    { t: "Ciclos completos / progresso" },
+    { t: "Recomeçar · replanejar · remover" },
+  ] },
+  "es-revisoes": { title: "Revisões", sub: "Sem prazos. Só entra quando você conclui o tópico.", blocks: [
+    { t: "A fazer" },
+    { t: "Feitas" },
+    { t: "Guardadas" },
+    { t: "Filtros", d: "Por matéria / fonte" },
+  ] },
+  "es-historico": { title: "Histórico", sub: "Linha do tempo de tudo que você estudou.", blocks: [
+    { t: "Cards de topo" },
+    { t: "Por dia", d: "Matéria, tópico, tempo, acertos/erros, fonte" },
+    { t: "Filtros" },
+  ] },
+  "es-estatisticas": { title: "Estatísticas", sub: "Os gráficos do seu estudo.", blocks: [
+    { t: "Desempenho", d: "Rosca %, questões, acertos/erros" },
+    { t: "Tempo de estudo", d: "Média/dia, dias estudados, total" },
+    { t: "Constância" },
+    { t: "Evolução no tempo" },
+    { t: "Horas de estudo" },
+    { t: "Filtros" },
+  ] },
+  "es-simulados": { title: "Simulados", sub: "Registrar simulados e acompanhar o desempenho.", blocks: [
+    { t: "Simulados realizados" },
+    { t: "Último simulado", d: "Acertos, brancos, erros, %" },
+    { t: "Seu desempenho" },
+    { t: "Novo simulado" },
+  ] },
+};
 
 function App() {
   const [data, setData] = useState({});
@@ -2627,6 +2718,19 @@ function App() {
         .postit-item { border-bottom: 1px solid var(--line); }
         .postit-item.done span { color: var(--faint); }
         .postit-x { color: var(--faint); }
+
+        /* ===== ESTUDEI: telas de estrutura vazias ===== */
+        .es-page { max-width: 980px; }
+        .es-sub { font-size: 13.5px; color: var(--muted); margin: 0 0 14px; max-width: 640px; line-height: 1.55; }
+        .es-hint { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted);
+          background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 999px; padding: 7px 14px; margin: 2px 0 22px; }
+        .es-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(215px, 1fr)); gap: 14px; }
+        .es-box { border: 1.5px dashed var(--line-2); border-radius: 16px; padding: 16px 16px 14px; background: var(--surface);
+          min-height: 98px; display: flex; flex-direction: column; gap: 6px; transition: border-color .15s; }
+        .es-box:hover { border-color: var(--gold); }
+        .es-box .es-t { font-size: 13.5px; font-weight: 700; color: var(--text); letter-spacing: -.1px; }
+        .es-box .es-d { font-size: 12px; color: var(--faint); line-height: 1.45; }
+        .es-box .es-empty { margin-top: auto; font-size: 11px; color: var(--faint); font-style: italic; opacity: .75; }
       `}</style>
 
       <button
@@ -3116,6 +3220,15 @@ function App() {
               </div>
             )}
           </section>
+        )}
+
+        {ES_PAGES[view] && (
+          <EsStub
+            title={ES_PAGES[view].title}
+            sub={ES_PAGES[view].sub}
+            blocks={ES_PAGES[view].blocks}
+            onBack={() => setView("main")}
+          />
         )}
 
         {view === "main" && (<>
