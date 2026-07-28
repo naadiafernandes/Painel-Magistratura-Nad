@@ -1000,6 +1000,19 @@ function editalCell(raw) {
 // um tópico conta como "estudado" quando Teoria + Lei Seca + Questões estão marcados
 function editalDone(cell) { return !!(cell.t && cell.l && cell.q); }
 const PRIORIDADES_KEY = "tjsc-prioridades:list";
+const REGISTROS_KEY = "tjsc-registros:v1";
+// fontes de estudo do "Registrar estudo" (categorias do ESTUDEI, adaptadas)
+const REG_FONTES = [
+  { id: "teoria",   label: "Teoria",         color: "#7fa8e6" },
+  { id: "leiseca",  label: "Lei seca",       color: "#5fbf87" },
+  { id: "juris",    label: "Jurisprudência", color: "#b48ee6" },
+  { id: "questoes", label: "Questões",       color: "#e6c060" },
+  { id: "revisao",  label: "Revisão",        color: "#e68a8a" },
+  { id: "simulado", label: "Simulado",       color: "#e69a5f" },
+  { id: "anki",     label: "Anki",           color: "#e6739a" },
+];
+const regFonte = (id) => REG_FONTES.find((f) => f.id === id) || { id, label: id, color: "#9995a4" };
+const fmtTempo = (min) => { min = Math.max(0, Math.round(min || 0)); const h = Math.floor(min / 60), m = min % 60; return h ? `${h}h${m ? String(m).padStart(2, "0") : "00"}` : `${m}min`; };
 const SIM_MANUAIS_KEY = "tjsc-simulados-manuais:list";
 const SIM_HIDDEN_KEY = "tjsc-simulados-ocultas:list";
 
@@ -1667,6 +1680,145 @@ const ES_PAGES = {
   ] },
 };
 
+// ===== ESTUDEI: Registrar estudo (janelinha) =====
+function RegistroModal({ onClose, onSave }) {
+  const materias = [...new Set(SECTIONS.flatMap((s) => s.subjects.map((x) => x.name)))].sort();
+  const [quando, setQuando] = useState("hoje");
+  const [dataOutra, setDataOutra] = useState("");
+  const [fonte, setFonte] = useState("teoria");
+  const [materia, setMateria] = useState("");
+  const [topico, setTopico] = useState("");
+  const [horas, setHoras] = useState("");
+  const [min, setMin] = useState("");
+  const [acertos, setAcertos] = useState("");
+  const [erros, setErros] = useState("");
+  const [coment, setComent] = useState("");
+  const [concluido, setConcluido] = useState(false);
+
+  const podeSalvar = fonte && materia.trim();
+  const salvar = () => {
+    if (!podeSalvar) return;
+    let ts = Date.now();
+    if (quando === "ontem") ts = Date.now() - 86400000;
+    else if (quando === "outra" && dataOutra) { const p = Date.parse(dataOutra + "T12:00:00"); if (!isNaN(p)) ts = p; }
+    const tempo = (parseInt(horas || 0, 10) * 60) + parseInt(min || 0, 10);
+    onSave({
+      id: Date.now(), ts, fonte,
+      materia: materia.trim(), topico: topico.trim(), tempo,
+      acertos: parseInt(acertos || 0, 10), erros: parseInt(erros || 0, 10),
+      coment: coment.trim(), concluido,
+    });
+  };
+
+  return (
+    <div className="reg-overlay" onClick={onClose}>
+      <div className="reg-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="reg-head"><span>Registrar estudo</span><button className="reg-close" onClick={onClose} title="Fechar">×</button></div>
+        <div className="reg-body">
+          <div className="reg-when">
+            {[["hoje", "Hoje"], ["ontem", "Ontem"], ["outra", "Outra data"]].map(([k, l]) => (
+              <button key={k} className={`reg-pill${quando === k ? " on" : ""}`} onClick={() => setQuando(k)}>{l}</button>
+            ))}
+            {quando === "outra" && <input type="date" className="reg-date" value={dataOutra} onChange={(e) => setDataOutra(e.target.value)} />}
+          </div>
+
+          <label className="reg-lbl">Fonte</label>
+          <div className="reg-fontes">
+            {REG_FONTES.map((f) => (
+              <button key={f.id} className={`reg-chip${fonte === f.id ? " on" : ""}`} onClick={() => setFonte(f.id)}
+                style={fonte === f.id ? { color: f.color, borderColor: f.color, background: `color-mix(in srgb, ${f.color} 16%, transparent)` } : undefined}>{f.label}</button>
+            ))}
+          </div>
+
+          <div className="reg-2col">
+            <div>
+              <label className="reg-lbl">Matéria</label>
+              <input className="reg-in" list="reg-materias" value={materia} onChange={(e) => setMateria(e.target.value)} placeholder="ex.: Direito Administrativo" />
+              <datalist id="reg-materias">{materias.map((m) => <option key={m} value={m} />)}</datalist>
+            </div>
+            <div>
+              <label className="reg-lbl">Tópico <span className="reg-opt">(opcional)</span></label>
+              <input className="reg-in" value={topico} onChange={(e) => setTopico(e.target.value)} placeholder="ex.: Súmulas do STJ" />
+            </div>
+          </div>
+
+          <div className="reg-3col">
+            <div>
+              <label className="reg-lbl">Tempo</label>
+              <div className="reg-time">
+                <input className="reg-in reg-num" type="number" min="0" value={horas} onChange={(e) => setHoras(e.target.value)} placeholder="0" /><span>h</span>
+                <input className="reg-in reg-num" type="number" min="0" max="59" value={min} onChange={(e) => setMin(e.target.value)} placeholder="00" /><span>min</span>
+              </div>
+            </div>
+            <div><label className="reg-lbl">Acertos</label><input className="reg-in reg-num" type="number" min="0" value={acertos} onChange={(e) => setAcertos(e.target.value)} placeholder="0" /></div>
+            <div><label className="reg-lbl">Erros</label><input className="reg-in reg-num" type="number" min="0" value={erros} onChange={(e) => setErros(e.target.value)} placeholder="0" /></div>
+          </div>
+
+          <label className="reg-lbl">Comentário <span className="reg-opt">(opcional)</span></label>
+          <textarea className="reg-in reg-area" value={coment} onChange={(e) => setComent(e.target.value)} placeholder="o que estudou, o que faltou..." />
+
+          <label className="reg-check">
+            <input type="checkbox" checked={concluido} onChange={(e) => setConcluido(e.target.checked)} />
+            <span>Concluí este tópico — mandar pra revisão <small>(sem prazo)</small></span>
+          </label>
+        </div>
+        <div className="reg-foot">
+          <button className="reg-cancel" onClick={onClose}>Cancelar</button>
+          <button className="reg-save" onClick={salvar} disabled={!podeSalvar}>Salvar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ===== ESTUDEI: Histórico dos registros =====
+function RegHistorico({ registros, onBack, onDelete }) {
+  const ordenado = [...registros].sort((a, b) => b.ts - a.ts);
+  const grupos = [], byDay = {};
+  for (const r of ordenado) {
+    const key = new Date(r.ts).toISOString().slice(0, 10);
+    if (!byDay[key]) { byDay[key] = { key, ts: r.ts, itens: [] }; grupos.push(byDay[key]); }
+    byDay[key].itens.push(r);
+  }
+  const fmtDia = (ts) => new Date(ts).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" });
+  const totalDia = (g) => g.itens.reduce((s, r) => s + (r.tempo || 0), 0);
+
+  return (
+    <section className="editais-page es-page">
+      <button className="edital-back" onClick={onBack}>← Voltar ao painel</button>
+      <p className="eyebrow">ESTUDEI</p>
+      <h1 className="serif" style={{ marginBottom: 10 }}>Histórico</h1>
+      <p className="es-sub">Tudo que você registrou, dia a dia.</p>
+      {registros.length === 0 ? (
+        <div className="es-hint">Nada registrado ainda — toque em <b style={{ margin: "0 4px" }}>＋ Registrar estudo</b> pra começar.</div>
+      ) : grupos.map((g) => (
+        <div className="hist-day" key={g.key}>
+          <div className="hist-dayhead"><span>{fmtDia(g.ts)}</span><span className="hist-daytot">{fmtTempo(totalDia(g))}</span></div>
+          {g.itens.map((r) => {
+            const f = regFonte(r.fonte);
+            return (
+              <div className="hist-row" key={r.id}>
+                <span className="hist-bar" style={{ background: f.color }} />
+                <div className="hist-main">
+                  <div className="hist-mat">{r.materia}{r.topico ? <span className="hist-top"> · {r.topico}</span> : null}</div>
+                  {r.coment ? <div className="hist-com">{r.coment}</div> : null}
+                </div>
+                <div className="hist-meta">
+                  {(r.acertos || r.erros) ? <span className="hist-qa">{r.acertos}✓ {r.erros}✗</span> : null}
+                  {r.tempo ? <span className="hist-tempo">{fmtTempo(r.tempo)}</span> : null}
+                  <span className="hist-fonte" style={{ color: f.color, background: `color-mix(in srgb, ${f.color} 15%, transparent)` }}>{f.label}</span>
+                  {r.concluido ? <span className="hist-done" title="Concluído → revisão">✓ tópico</span> : null}
+                </div>
+                <button className="hist-del" onClick={() => onDelete(r.id)} title="Apagar">×</button>
+              </div>
+            );
+          })}
+        </div>
+      ))}
+    </section>
+  );
+}
+
 function App() {
   const [data, setData] = useState({});
   const [simData, setSimData] = useState({});
@@ -1700,6 +1852,9 @@ function App() {
   const [noteDraft, setNoteDraft] = useState("");
   const [openTopic, setOpenTopic] = useState(null); // { editalId, key, label, materia } — página de notas do tópico
   const [prioridades, setPrioridades] = useState([]);
+  const [registros, setRegistros] = useState([]);
+  const [regOpen, setRegOpen] = useState(false);
+  const [regToast, setRegToast] = useState(false);
   const [prioInput, setPrioInput] = useState("");
   const [simManuais, setSimManuais] = useState([]);
   const [simHidden, setSimHidden] = useState([]);
@@ -1822,6 +1977,8 @@ function App() {
       }
       let prio = [];
       try { const r = await window.storage.get(PRIORIDADES_KEY); prio = r ? JSON.parse(r.value) : []; } catch { prio = []; }
+      let regs = [];
+      try { const r = await window.storage.get(REGISTROS_KEY); regs = r ? JSON.parse(r.value) : []; } catch { regs = []; }
       let manuais = [];
       try { const r = await window.storage.get(SIM_MANUAIS_KEY); manuais = r ? JSON.parse(r.value) : []; } catch { manuais = []; }
       let ocultas = [];
@@ -1836,6 +1993,7 @@ function App() {
       setCursoData(cursos);
       setEditaisData(eds);
       setPrioridades(prio);
+      setRegistros(regs);
       setSimManuais(manuais);
       setSimHidden(ocultas);
       setDiario(diaEntries);
@@ -1856,6 +2014,11 @@ function App() {
   };
   const togglePrioridade = (id) => savePrioridades(prioridades.map((p) => (p.id === id ? { ...p, done: !p.done } : p)));
   const removePrioridade = (id) => savePrioridades(prioridades.filter((p) => p.id !== id));
+
+  // ---------- Registrar estudo ----------
+  const saveRegistros = (arr) => { setRegistros(arr); try { window.storage.set(REGISTROS_KEY, JSON.stringify(arr)); } catch {} };
+  const addRegistro = (r) => { saveRegistros([r, ...registros]); setRegOpen(false); setRegToast(true); setTimeout(() => setRegToast(false), 2200); };
+  const removeRegistro = (id) => saveRegistros(registros.filter((r) => r.id !== id));
 
   // ---------- Diário de estudos ----------
   const saveDiario = (arr) => {
@@ -2920,6 +3083,69 @@ function App() {
         .es-box .es-t { font-size: 13.5px; font-weight: 700; color: var(--text); letter-spacing: -.1px; }
         .es-box .es-d { font-size: 12px; color: var(--faint); line-height: 1.45; }
         .es-box .es-empty { margin-top: auto; font-size: 11px; color: var(--faint); font-style: italic; opacity: .75; }
+
+        /* ===== Registrar estudo (botão flutuante + janelinha) ===== */
+        .reg-fab { position: fixed; right: 20px; bottom: 20px; z-index: 400; display: inline-flex; align-items: center; gap: 8px;
+          background: var(--gold); color: #2a2410; border: none; border-radius: 999px; padding: 12px 18px; cursor: pointer;
+          font: inherit; font-size: 14px; font-weight: 700; box-shadow: 0 8px 24px rgba(0,0,0,.28); }
+        .reg-fab:hover { filter: brightness(1.05); }
+        .reg-fab-ic { font-size: 18px; line-height: 1; margin-top: -1px; }
+        @media (max-width: 640px){ .reg-fab-tx { display: none; } .reg-fab { padding: 15px; } .reg-fab-ic { margin: 0; } }
+
+        .reg-overlay { position: fixed; inset: 0; z-index: 600; background: rgba(0,0,0,.5); backdrop-filter: blur(2px);
+          display: flex; align-items: flex-start; justify-content: center; padding: 40px 16px; overflow-y: auto; }
+        .reg-modal { width: 560px; max-width: 100%; background: var(--surface); border: 1px solid var(--line-2); border-radius: 18px;
+          box-shadow: 0 20px 60px rgba(0,0,0,.4); overflow: hidden; }
+        .reg-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--line);
+          font-size: 16px; font-weight: 700; color: var(--text); }
+        .reg-close { background: transparent; border: none; color: var(--faint); font-size: 24px; line-height: 1; cursor: pointer; }
+        .reg-close:hover { color: var(--text); }
+        .reg-body { padding: 6px 20px 18px; display: flex; flex-direction: column; }
+        .reg-lbl { font-size: 11px; letter-spacing: .5px; text-transform: uppercase; color: var(--faint); font-weight: 700; margin: 12px 0 6px; }
+        .reg-opt { text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--faint); }
+        .reg-when { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
+        .reg-pill, .reg-chip { background: var(--surface-2); border: 1px solid var(--line-2); color: var(--muted); border-radius: 999px;
+          padding: 7px 14px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+        .reg-pill.on { background: var(--gold); color: #2a2410; border-color: var(--gold); }
+        .reg-fontes { display: flex; gap: 8px; flex-wrap: wrap; }
+        .reg-date { background: var(--surface-2); border: 1px solid var(--line-2); color: var(--text); border-radius: 8px; padding: 7px 10px; font: inherit; font-size: 13px; }
+        .reg-in { width: 100%; background: var(--surface-2); border: 1px solid var(--line-2); color: var(--text); border-radius: 10px;
+          padding: 10px 12px; font: inherit; font-size: 14px; box-sizing: border-box; }
+        .reg-in::placeholder { color: var(--faint); }
+        .reg-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .reg-3col { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 12px; align-items: end; }
+        @media (max-width: 560px){ .reg-2col, .reg-3col { grid-template-columns: 1fr; } }
+        .reg-time { display: flex; align-items: center; gap: 6px; }
+        .reg-time span { color: var(--faint); font-size: 13px; }
+        .reg-num { text-align: center; }
+        .reg-area { min-height: 62px; resize: vertical; }
+        .reg-check { display: flex; align-items: center; gap: 9px; margin-top: 16px; font-size: 13.5px; color: var(--text); cursor: pointer; }
+        .reg-check small { color: var(--faint); }
+        .reg-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 20px; border-top: 1px solid var(--line); }
+        .reg-cancel { background: transparent; border: 1px solid var(--line-2); color: var(--muted); border-radius: 10px; padding: 9px 18px; font: inherit; font-weight: 600; cursor: pointer; }
+        .reg-save { background: var(--gold); color: #2a2410; border: none; border-radius: 10px; padding: 9px 22px; font: inherit; font-weight: 700; cursor: pointer; }
+        .reg-save:disabled { opacity: .45; cursor: not-allowed; }
+        .reg-toast { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 700; background: var(--green);
+          color: #06210f; font-weight: 700; font-size: 13.5px; padding: 10px 18px; border-radius: 999px; box-shadow: 0 8px 24px rgba(0,0,0,.3); }
+
+        /* ===== Histórico dos registros ===== */
+        .hist-day { margin-top: 18px; }
+        .hist-dayhead { display: flex; justify-content: space-between; align-items: baseline; padding: 0 4px 8px; border-bottom: 1px solid var(--line);
+          font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+        .hist-daytot { color: var(--gold); }
+        .hist-row { display: flex; align-items: center; gap: 12px; padding: 12px 4px; border-bottom: 1px solid var(--line); }
+        .hist-bar { width: 4px; align-self: stretch; border-radius: 3px; flex: none; }
+        .hist-main { flex: 1; min-width: 0; }
+        .hist-mat { font-size: 14px; font-weight: 600; color: var(--text); }
+        .hist-top { color: var(--muted); font-weight: 500; }
+        .hist-com { font-size: 12.5px; color: var(--faint); margin-top: 2px; }
+        .hist-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+        .hist-qa, .hist-tempo { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+        .hist-fonte { font-size: 11.5px; font-weight: 700; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+        .hist-done { font-size: 11px; font-weight: 700; color: var(--green); white-space: nowrap; }
+        .hist-del { background: transparent; border: none; color: var(--faint); font-size: 18px; line-height: 1; cursor: pointer; flex: none; }
+        .hist-del:hover { color: var(--coral); }
+        @media (max-width: 560px){ .hist-row { flex-wrap: wrap; } .hist-meta { width: 100%; justify-content: flex-start; } }
       `}</style>
 
       <button
@@ -2977,6 +3203,12 @@ function App() {
           </div>
         ))}
       </aside>
+
+      <button className="reg-fab" onClick={() => setRegOpen(true)} title="Registrar estudo">
+        <span className="reg-fab-ic">＋</span><span className="reg-fab-tx">Registrar estudo</span>
+      </button>
+      {regOpen && <RegistroModal onClose={() => setRegOpen(false)} onSave={addRegistro} />}
+      {regToast && <div className="reg-toast">Estudo registrado ✓</div>}
 
       <div className="wrap">
         {openTopic && (() => {
@@ -3411,13 +3643,16 @@ function App() {
           </section>
         )}
 
-        {ES_PAGES[view] && (
+        {ES_PAGES[view] && view !== "es-historico" && (
           <EsStub
             title={ES_PAGES[view].title}
             sub={ES_PAGES[view].sub}
             blocks={ES_PAGES[view].blocks}
             onBack={() => setView("main")}
           />
+        )}
+        {view === "es-historico" && (
+          <RegHistorico registros={registros} onBack={() => setView("main")} onDelete={removeRegistro} />
         )}
 
         {view === "caixa" && (
