@@ -998,7 +998,7 @@ const NAV_GROUPS = [
   { label: "ESTUDEI", items: [
     { key: "es-painel", icon: "home", label: "Painel", kind: "view", view: "es-painel" },
     { key: "es-materias", icon: "layers", label: "Matérias", kind: "view", view: "es-materias" },
-    { key: "es-editais", icon: "file", label: "Editais", kind: "view", view: "editais" },
+    { key: "es-editais", icon: "file", label: "Editais Verticalizados", kind: "view", view: "editais" },
     { key: "es-ciclos", icon: "pie", label: "Ciclos", kind: "view", view: "es-ciclos" },
     { key: "es-revisoes", icon: "refresh", label: "Revisões", kind: "view", view: "es-revisoes" },
     { key: "es-historico", icon: "clock", label: "Histórico", kind: "view", view: "es-historico" },
@@ -1007,7 +1007,6 @@ const NAV_GROUPS = [
   ] },
   { label: "Navegação", items: [
     { key: "painel", icon: "home", label: "Painel", kind: "home" },
-    { key: "editais", icon: "file", label: "Editais verticalizados", kind: "view", view: "editais" },
     { key: "diario", icon: "book", label: "Diário de estudos", kind: "view", view: "diario" },
     { key: "caixa", icon: "inbox", label: "Caixa de entrada", kind: "view", view: "caixa" },
   ] },
