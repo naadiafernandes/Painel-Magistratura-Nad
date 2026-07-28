@@ -1292,6 +1292,27 @@ function caixaMelhorTopico(texto, topicos) {
 }
 function caixaEsc(s) { return (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
 function caixaTxtToHtml(s) { return caixaEsc(s).replace(/\n/g, "<br>"); }
+// acha, no edital verticalizado, o endereço (matéria + tópico) onde a nota deve ser arquivada
+function caixaResolveEdital(matId, topico) {
+  if (!matId || !topico || typeof window === "undefined" || !window.EDITAIS || !window.EDITAIS[0]) return null;
+  const ed = window.EDITAIS[0];
+  const nome = CAIXA_MAT_EDITAL[matId];
+  if (!nome) return null;
+  const mi = (ed.materias || []).findIndex((m) => m.nome === nome);
+  if (mi < 0) return null;
+  const itens = ed.materias[mi].itens || [];
+  const norm = (s) => (s || "").trim().replace(/\.$/, "");
+  const ii = itens.findIndex((it) => norm(it.txt) === norm(topico));
+  if (ii < 0) return null;
+  return { editalId: ed.id, pathKey: mi + "." + ii, label: ed.materias[mi].nome + " › " + norm(itens[ii].txt) };
+}
+// monta o texto (rich) que a nota vira como caixinha dentro do tópico do edital
+function caixaNotaToHtml(n) {
+  let h = "<b>" + caixaEsc(n.destaque || "") + "</b>";
+  if (n.verMais && n.verMais.replace(/<[^>]*>/g, "").trim()) h += "<br><br>" + n.verMais;
+  if (n.fonte) h += "<br><br><i>" + caixaEsc(n.fonte) + "</i>";
+  return h;
+}
 // mapeia a categoria do Buscador -> id da matéria do painel (quando a frase não denuncia sozinha)
 function caixaCatToMat(cat) {
   const c = diaNorm(cat);
@@ -1371,11 +1392,12 @@ function CaixaEdit({ html, plain, onSave, className, placeholder }) {
   );
 }
 
-function CaixaView({ onBack }) {
+function CaixaView({ onBack, onArquivarEdital }) {
   const [notas, setNotas] = useState([]);
   const [texto, setTexto] = useState("");
   const [aberto, setAberto] = useState({});
   const [matPicker, setMatPicker] = useState(null);
+  const [aviso, setAviso] = useState({});
   const [carregou, setCarregou] = useState(false);
 
   useEffect(() => { try { document.execCommand("styleWithCSS", false, true); } catch (e) {} }, []);
@@ -1404,6 +1426,17 @@ function CaixaView({ onBack }) {
   const remover = (id) => persist(notas.filter((n) => n.id !== id));
   const update = (id, patch) => persist(notas.map((n) => n.id === id ? { ...n, ...patch } : n));
   const setDestino = (id, d) => persist(notas.map((n) => n.id === id ? { ...n, destino: n.destino === d ? null : d } : n));
+  const clickDestino = (n, d) => {
+    if (d !== "edital") { setDestino(n.id, d); return; }
+    if (n.arquivadoEdital) { setAviso((a) => ({ ...a, [n.id]: "Esta nota já está no edital: " + n.arquivadoEdital })); return; }
+    const r = onArquivarEdital ? onArquivarEdital(n) : { ok: false };
+    if (r && r.ok) {
+      persist(notas.map((x) => x.id === n.id ? { ...x, destino: "edital", arquivadoEdital: r.label } : x));
+      setAviso((a) => ({ ...a, [n.id]: "Arquivada no edital: " + r.label }));
+    } else {
+      setAviso((a) => ({ ...a, [n.id]: "Escolha a matéria e o tópico acima para arquivar no edital." }));
+    }
+  };
   const toggleFav = (id) => persist(notas.map((n) => n.id === id ? { ...n, favorito: !n.favorito } : n));
   const toggleAberto = (id) => setAberto((o) => ({ ...o, [id]: !o[id] }));
   const toggleMat = (id, mid) => persist(notas.map((n) => {
@@ -1471,6 +1504,7 @@ function CaixaView({ onBack }) {
         .caixa-del:hover{ color:var(--coral); }
         .caixa-empty{ text-align:center; color:var(--faint); font-size:13.5px; margin-top:30px; line-height:1.6; }
         .caixa-count{ font-size:12px; color:var(--faint); margin-bottom:14px; }
+        .caixa-aviso{ font-size:12px; color:var(--green); margin-top:9px; }
       `}</style>
       <button className="edital-back" onClick={onBack}>← Voltar ao painel</button>
       <p className="eyebrow">Painel de Estudos</p>
@@ -1547,14 +1581,19 @@ function CaixaView({ onBack }) {
                 )}
 
                 <div className="caixa-actions">
-                  {CAIXA_DESTINOS.map((d) => (
-                    <button key={d.id} className={"caixa-act" + (n.destino === d.id ? " on" : "")} onClick={() => setDestino(n.id, d.id)}>
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d={d.ic} /></svg>
-                      {d.label}
-                    </button>
-                  ))}
+                  {CAIXA_DESTINOS.map((d) => {
+                    const on = d.id === "edital" ? (!!n.arquivadoEdital || n.destino === "edital") : n.destino === d.id;
+                    const lbl = (d.id === "edital" && n.arquivadoEdital) ? "✓ no edital verticalizado" : d.label;
+                    return (
+                      <button key={d.id} className={"caixa-act" + (on ? " on" : "")} onClick={() => clickDestino(n, d.id)}>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d={d.ic} /></svg>
+                        {lbl}
+                      </button>
+                    );
+                  })}
                   <button className="caixa-act caixa-del" title="Apagar nota" onClick={() => remover(n.id)}>apagar</button>
                 </div>
+                {aviso[n.id] && <div className="caixa-aviso">{aviso[n.id]}</div>}
               </div>
             );
           })}
@@ -1942,26 +1981,7 @@ function RegHistorico({ registros, onBack, onDelete, onEdit }) {
       ) : grupos.map((g) => (
         <div className="hist-day" key={g.key}>
           <div className="hist-dayhead"><span>{fmtDia(g.ts)}</span><span className="hist-daytot">{fmtTempo(totalDia(g))}</span></div>
-          {g.itens.map((r) => {
-            const f = regFonte(r.fonte);
-            return (
-              <div className="hist-row" key={r.id}>
-                <span className="hist-bar" style={{ background: f.color }} />
-                <div className="hist-main">
-                  <div className="hist-mat">{r.materia}{r.topico ? <span className="hist-top"> · {r.topico}</span> : null}</div>
-                  {r.coment ? <div className="hist-com">{r.coment}</div> : null}
-                </div>
-                <div className="hist-meta">
-                  {(r.acertos || r.erros) ? <span className="hist-qa">{r.acertos}✓ {r.erros}✗</span> : null}
-                  {r.tempo ? <span className="hist-tempo">{fmtTempo(r.tempo)}</span> : null}
-                  <span className="hist-fonte" style={{ color: f.color, background: `color-mix(in srgb, ${f.color} 15%, transparent)` }}>{f.label}</span>
-                  {r.concluido ? <span className="hist-done" title="Concluído → revisão">✓ tópico</span> : null}
-                </div>
-                <button className="hist-edit" onClick={() => onEdit(r)} title="Editar">✎</button>
-                <button className="hist-del" onClick={() => onDelete(r.id)} title="Apagar">×</button>
-              </div>
-            );
-          })}
+          {g.itens.map((r) => <RegRow key={r.id} r={r} onEdit={onEdit} onDelete={onDelete} />)}
         </div>
       ))}
     </section>
@@ -2660,6 +2680,20 @@ function App() {
     const next = { ...cur, [pathKey]: nextCell };
     setEditaisData((p) => ({ ...p, [editalId]: next }));
     try { await window.storage.set(EDITAIS_KEY_PREFIX + editalId, JSON.stringify(next)); } catch {}
+  };
+
+  // arquiva uma nota da Caixa de entrada como caixinha dentro do tópico certo do edital verticalizado
+  const arquivarNoEdital = (nota) => {
+    const r = caixaResolveEdital(nota.mats && nota.mats[0], nota.topico);
+    if (!r) return { ok: false };
+    const box = { id: TN_UID(), html: caixaNotaToHtml(nota), tags: nota.fonte ? [{ label: nota.fonte, ci: 1 }] : [] };
+    const cur = editaisData[r.editalId] || {};
+    const cell = editalCell(cur[r.pathKey]);
+    const nextCell = { ...cell, notas: [...(cell.notas || []), box] };
+    const next = { ...cur, [r.pathKey]: nextCell };
+    setEditaisData((p) => ({ ...p, [r.editalId]: next }));
+    try { window.storage.set(EDITAIS_KEY_PREFIX + r.editalId, JSON.stringify(next)); } catch {}
+    return { ok: true, label: r.label };
   };
 
   // abre a página de notas de um tópico (só no edital TJSC Juiz 2025)
@@ -4031,7 +4065,7 @@ function App() {
         )}
 
         {view === "caixa" && (
-          <CaixaView onBack={() => setView("main")} />
+          <CaixaView onBack={() => setView("main")} onArquivarEdital={arquivarNoEdital} />
         )}
 
         {view === "main" && (<>
