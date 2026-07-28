@@ -886,8 +886,6 @@ const REGISTROS_KEY = "tjsc-registros:v1";
 const DATAPROVA_KEY = "tjsc-dataprova:v1";
 const METAS_KEY = "tjsc-metas:v1";
 const REVSTATUS_KEY = "tjsc-revstatus:v1";
-const COR_KEY = "tjsc-cor:v1";
-const COR_OPCOES = [["amarelo", "#facc15"], ["azul", "#3b82f6"], ["roxo", "#8b5cf6"], ["rosa", "#ec4899"]];
 // fontes de estudo do "Registrar estudo" (categorias do ESTUDEI, adaptadas)
 const REG_FONTES = [
   { id: "teoria",   label: "Teoria",         color: "#7fa8e6" },
@@ -2291,13 +2289,7 @@ export default function App() {
   const [regOpen, setRegOpen] = useState(false);
   const [regEditing, setRegEditing] = useState(null);
   const [regToast, setRegToast] = useState(false);
-  const [cor, setCor] = useState("amarelo");
   useEffect(() => { setMatAberta(null); }, [view]);
-  useEffect(() => {
-    const d = document.documentElement;
-    if (cor && cor !== "amarelo") d.setAttribute("data-cor", cor); else d.removeAttribute("data-cor");
-  }, [cor]);
-  const escolherCor = (c) => { setCor(c); try { window.storage.set(COR_KEY, JSON.stringify(c)); } catch {} };
   const [prioInput, setPrioInput] = useState("");
   const [simManuais, setSimManuais] = useState([]);
   const [simHidden, setSimHidden] = useState([]);
@@ -2428,8 +2420,6 @@ export default function App() {
       try { const r = await window.storage.get(METAS_KEY); if (r) mt = { ...mt, ...JSON.parse(r.value) }; } catch {}
       let rvs = { feitas: [], guardadas: [] };
       try { const r = await window.storage.get(REVSTATUS_KEY); if (r) rvs = { feitas: [], guardadas: [], ...JSON.parse(r.value) }; } catch {}
-      let corSalva = "amarelo";
-      try { const r = await window.storage.get(COR_KEY); if (r) corSalva = JSON.parse(r.value); } catch {}
       let manuais = [];
       try { const r = await window.storage.get(SIM_MANUAIS_KEY); manuais = r ? JSON.parse(r.value) : []; } catch { manuais = []; }
       let ocultas = [];
@@ -2448,7 +2438,6 @@ export default function App() {
       setDataProva(dp);
       setMetas(mt);
       setRevStatus(rvs);
-      setCor(corSalva);
       setSimManuais(manuais);
       setSimHidden(ocultas);
       setDiario(diaEntries);
@@ -2972,20 +2961,20 @@ export default function App() {
           --bg:#121215; --surface:#18181b; --surface-2:#1f1f23; --surface-3:#27272a;
           --line:#27272a; --line-2:#3f3f46;
           --text:#fafafa; --muted:#a1a1aa; --faint:#71717a;
-          --gold:#facc15; --coral:#f0997b; --green:#4ade80; --green-bg:rgba(74,222,128,.14);
+          --gold:#facc15; --gold2:#facc15; --coral:#f0997b; --green:#4ade80; --green-bg:rgba(74,222,128,.14);
           --sidebar:#161619; --nav-active-bg:#27272a; --hero:#0f1929; --accent-btn:#facc15; --on-accent:#1a1206;
         }
         :root[data-theme="light"] {
           --bg:#fafafa; --surface:#ffffff; --surface-2:#f4f4f5; --surface-3:#e4e4e7;
           --line:#e4e4e7; --line-2:#d4d4d8;
           --text:#18181b; --muted:#71717a; --faint:#a1a1aa;
-          --gold:#ca8a04; --coral:#c2410c; --green:#15803d; --green-bg:#e9f6ee;
+          --gold:#ca8a04; --gold2:#ca8a04; --coral:#c2410c; --green:#15803d; --green-bg:#e9f6ee;
           --sidebar:#f4f4f5; --nav-active-bg:#ffffff; --hero:#1e293b; --accent-btn:#ca8a04; --on-accent:#ffffff;
         }
         /* cor do app por humor (sobrepõe o dourado, em qualquer tema) */
-        :root[data-cor="azul"] { --gold:#3b82f6; --accent-btn:#3b82f6; --on-accent:#ffffff; }
-        :root[data-cor="roxo"] { --gold:#8b5cf6; --accent-btn:#8b5cf6; --on-accent:#ffffff; }
-        :root[data-cor="rosa"] { --gold:#ec4899; --accent-btn:#ec4899; --on-accent:#ffffff; }
+        :root[data-cor="rosa"] { --gold:#E85D9A; --accent-btn:#E85D9A; --gold2:#F2B23A; --coral:#2F6FE4; --on-accent:#ffffff; }
+        :root[data-cor="azul"] { --gold:#2F6FE4; --accent-btn:#2F6FE4; --gold2:#EE3B34; --coral:#F2B23A; --on-accent:#ffffff; }
+        :root[data-cor="roxo"] { --gold:#7C4DE0; --accent-btn:#7C4DE0; --gold2:#F2B23A; --coral:#17B8A6; --on-accent:#ffffff; }
         * { box-sizing: border-box; }
         .root {
           font-family: ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
@@ -3620,7 +3609,7 @@ export default function App() {
         .hist-day { margin-top: 18px; }
         .hist-dayhead { display: flex; justify-content: space-between; align-items: baseline; padding: 0 4px 8px; border-bottom: 1px solid var(--line);
           font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
-        .hist-daytot { color: var(--gold); }
+        .hist-daytot { color: var(--gold2); }
         .hist-row { display: flex; align-items: center; gap: 12px; padding: 12px 4px; border-bottom: 1px solid var(--line); }
         .hist-bar { width: 4px; align-self: stretch; border-radius: 3px; flex: none; }
         .hist-main { flex: 1; min-width: 0; }
@@ -3651,7 +3640,7 @@ export default function App() {
         .es-consta { margin-top: 8px; }
         .consta-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px;
           font-size: 13px; font-weight: 600; color: var(--muted); }
-        .consta-head b { color: var(--gold); font-size: 14px; }
+        .consta-head b { color: var(--gold2); font-size: 14px; }
         .consta-strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(20px, 1fr)); gap: 6px; }
         .consta-day { aspect-ratio: 1; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--line-2); }
         .consta-day.on { background: var(--gold); border-color: transparent; }
@@ -3696,7 +3685,7 @@ export default function App() {
         .mat-card:hover { border-color: var(--gold); }
         .mat-nome { font-size: 14.5px; font-weight: 700; color: var(--coral); }
         .mat-stats { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; font-size: 12.5px; color: var(--muted); }
-        .mat-perc { color: var(--gold); font-weight: 700; }
+        .mat-perc { color: var(--gold2); font-weight: 700; }
         .mat-topcards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 4px; }
         .mat-topcards .panel { margin-top: 0; }
         .mat-big { font-size: 26px; }
@@ -4246,11 +4235,6 @@ export default function App() {
         {view === "es-painel" && (
           <section className="editais-page es-page">
             <header className="hero es-hero">
-              <div className="es-hero-cor">
-                {COR_OPCOES.map(([c, hex]) => (
-                  <button key={c} className={`cor-dot${cor === c ? " on" : ""}`} style={{ background: hex }} onClick={() => escolherCor(c)} title={c} aria-label={`Cor ${c}`} />
-                ))}
-              </div>
               <p className="eyebrow">Painel de estudos</p>
               <h1>Bom estudo, <em>Nádia</em></h1>
               <p className="hero-sub">Seu ritmo, seus ciclos e o que estudar agora — tudo numa tela só.</p>
