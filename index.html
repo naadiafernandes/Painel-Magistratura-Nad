@@ -1004,6 +1004,8 @@ const REGISTROS_KEY = "tjsc-registros:v1";
 const DATAPROVA_KEY = "tjsc-dataprova:v1";
 const METAS_KEY = "tjsc-metas:v1";
 const REVSTATUS_KEY = "tjsc-revstatus:v1";
+const COR_KEY = "tjsc-cor:v1";
+const COR_OPCOES = [["amarelo", "#facc15"], ["azul", "#3b82f6"], ["roxo", "#8b5cf6"], ["rosa", "#ec4899"]];
 // fontes de estudo do "Registrar estudo" (categorias do ESTUDEI, adaptadas)
 const REG_FONTES = [
   { id: "teoria",   label: "Teoria",         color: "#7fa8e6" },
@@ -2369,7 +2371,13 @@ function App() {
   const [regOpen, setRegOpen] = useState(false);
   const [regEditing, setRegEditing] = useState(null);
   const [regToast, setRegToast] = useState(false);
+  const [cor, setCor] = useState("amarelo");
   useEffect(() => { setMatAberta(null); }, [view]);
+  useEffect(() => {
+    const d = document.documentElement;
+    if (cor && cor !== "amarelo") d.setAttribute("data-cor", cor); else d.removeAttribute("data-cor");
+  }, [cor]);
+  const escolherCor = (c) => { setCor(c); try { window.storage.set(COR_KEY, JSON.stringify(c)); } catch {} };
   const [prioInput, setPrioInput] = useState("");
   const [simManuais, setSimManuais] = useState([]);
   const [simHidden, setSimHidden] = useState([]);
@@ -2500,6 +2508,8 @@ function App() {
       try { const r = await window.storage.get(METAS_KEY); if (r) mt = { ...mt, ...JSON.parse(r.value) }; } catch {}
       let rvs = { feitas: [], guardadas: [] };
       try { const r = await window.storage.get(REVSTATUS_KEY); if (r) rvs = { feitas: [], guardadas: [], ...JSON.parse(r.value) }; } catch {}
+      let corSalva = "amarelo";
+      try { const r = await window.storage.get(COR_KEY); if (r) corSalva = JSON.parse(r.value); } catch {}
       let manuais = [];
       try { const r = await window.storage.get(SIM_MANUAIS_KEY); manuais = r ? JSON.parse(r.value) : []; } catch { manuais = []; }
       let ocultas = [];
@@ -2518,6 +2528,7 @@ function App() {
       setDataProva(dp);
       setMetas(mt);
       setRevStatus(rvs);
+      setCor(corSalva);
       setSimManuais(manuais);
       setSimHidden(ocultas);
       setDiario(diaEntries);
@@ -3051,6 +3062,10 @@ function App() {
           --gold:#ca8a04; --coral:#c2410c; --green:#15803d; --green-bg:#e9f6ee;
           --sidebar:#f4f4f5; --nav-active-bg:#ffffff; --hero:#1e293b; --accent-btn:#ca8a04; --on-accent:#ffffff;
         }
+        /* cor do app por humor (sobrepõe o dourado, em qualquer tema) */
+        :root[data-cor="azul"] { --gold:#3b82f6; --accent-btn:#3b82f6; --on-accent:#ffffff; }
+        :root[data-cor="roxo"] { --gold:#8b5cf6; --accent-btn:#8b5cf6; --on-accent:#ffffff; }
+        :root[data-cor="rosa"] { --gold:#ec4899; --accent-btn:#ec4899; --on-accent:#ffffff; }
         * { box-sizing: border-box; }
         .root {
           font-family: ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
@@ -3484,7 +3499,7 @@ function App() {
           background: var(--surface); color: var(--faint); font-size: 13px; line-height: 1; cursor: pointer;
           display: flex; align-items: center; justify-content: center; transition: all .13s; }
         .ed-note-btn:hover { border-color: var(--gold); color: var(--gold); }
-        .ed-note-btn.has { background: var(--gold); border-color: var(--gold); color: #2a2410; }
+        .ed-note-btn.has { background: var(--gold); border-color: var(--gold); color: var(--on-accent); }
         .ed-note-btn.open { border-color: var(--gold); color: var(--gold); }
         .ed-obs-flag { color: var(--gold); font-size: 11px; flex-shrink: 0; }
         .ed-nota-badge { display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700;
@@ -3499,7 +3514,7 @@ function App() {
         .ed-note-area:focus { outline: none; border-color: var(--gold); }
         .ed-note-actions { display: flex; gap: 8px; margin-top: 8px; }
         .ed-note-save { cursor: pointer; border: none; border-radius: 8px; padding: 6px 16px; font: inherit; font-size: 12.5px;
-          font-weight: 700; background: var(--gold); color: #2a2410; }
+          font-weight: 700; background: var(--gold); color: var(--on-accent); }
         .ed-note-save:hover { filter: brightness(1.06); }
         .ed-note-cancel, .ed-note-clear { cursor: pointer; border: 1px solid var(--line-2); border-radius: 8px; padding: 6px 14px;
           font: inherit; font-size: 12.5px; font-weight: 600; background: transparent; color: var(--muted); }
@@ -3613,12 +3628,12 @@ function App() {
         .root { overflow-x: clip; }
         .pop { width: 300px; left: 50%; margin-left: -150px; max-width: calc(100vw - 28px); }
         @media (max-width: 640px){ .pop { width: calc(100vw - 28px); margin-left: calc(-50vw + 14px); } }
-        .postit { background: var(--surface); color: var(--text); border: 1px solid var(--line-2); border-left: 3px solid #e5c55c;
+        .postit { background: var(--surface); color: var(--text); border: 1px solid var(--line-2); border-left: 3px solid var(--gold);
           border-radius: 14px; box-shadow: 0 8px 22px rgba(0,0,0,.18); transform: none; padding: 16px 16px 18px; }
-        .postit-head { color: #e5c55c; border-bottom: 1px solid var(--line); font-weight: 700; letter-spacing: .6px; }
+        .postit-head { color: var(--gold); border-bottom: 1px solid var(--line); font-weight: 700; letter-spacing: .6px; }
         .postit-add input { background: var(--surface-2); border: 1px solid var(--line-2); color: var(--text); border-radius: 8px; }
         .postit-add input::placeholder { color: var(--faint); }
-        .postit-add button { background: #e5c55c; color: #2a2410; border-radius: 8px; }
+        .postit-add button { background: var(--gold); color: var(--on-accent); border-radius: 8px; }
         .postit-empty { color: var(--faint); }
         .postit-item { border-bottom: 1px solid var(--line); }
         .postit-item.done span { color: var(--faint); }
@@ -3639,7 +3654,7 @@ function App() {
 
         /* ===== Registrar estudo (botão flutuante + janelinha) ===== */
         .reg-fab { position: fixed; right: 20px; bottom: 20px; z-index: 400; display: inline-flex; align-items: center; gap: 8px;
-          background: var(--gold); color: #2a2410; border: none; border-radius: 999px; padding: 12px 18px; cursor: pointer;
+          background: var(--gold); color: var(--on-accent); border: none; border-radius: 999px; padding: 12px 18px; cursor: pointer;
           font: inherit; font-size: 14px; font-weight: 700; box-shadow: 0 8px 24px rgba(0,0,0,.28); }
         .reg-fab:hover { filter: brightness(1.05); }
         .reg-fab-ic { font-size: 18px; line-height: 1; margin-top: -1px; }
@@ -3659,7 +3674,7 @@ function App() {
         .reg-when { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
         .reg-pill, .reg-chip { background: var(--surface-2); border: 1px solid var(--line-2); color: var(--muted); border-radius: 999px;
           padding: 7px 14px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
-        .reg-pill.on { background: var(--gold); color: #2a2410; border-color: var(--gold); }
+        .reg-pill.on { background: var(--gold); color: var(--on-accent); border-color: var(--gold); }
         .reg-fontes { display: flex; gap: 8px; flex-wrap: wrap; }
         .reg-date { background: var(--surface-2); border: 1px solid var(--line-2); color: var(--text); border-radius: 8px; padding: 7px 10px; font: inherit; font-size: 13px; }
         .reg-in { width: 100%; background: var(--surface-2); border: 1px solid var(--line-2); color: var(--text); border-radius: 10px;
@@ -3676,7 +3691,7 @@ function App() {
         .reg-check small { color: var(--faint); }
         .reg-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 20px; border-top: 1px solid var(--line); }
         .reg-cancel { background: transparent; border: 1px solid var(--line-2); color: var(--muted); border-radius: 10px; padding: 9px 18px; font: inherit; font-weight: 600; cursor: pointer; }
-        .reg-save { background: var(--gold); color: #2a2410; border: none; border-radius: 10px; padding: 9px 22px; font: inherit; font-weight: 700; cursor: pointer; }
+        .reg-save { background: var(--gold); color: var(--on-accent); border: none; border-radius: 10px; padding: 9px 22px; font: inherit; font-weight: 700; cursor: pointer; }
         .reg-save:disabled { opacity: .45; cursor: not-allowed; }
         .reg-toast { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 700; background: var(--green);
           color: #06210f; font-weight: 700; font-size: 13.5px; padding: 10px 18px; border-radius: 999px; box-shadow: 0 8px 24px rgba(0,0,0,.3); }
@@ -3723,6 +3738,14 @@ function App() {
         .consta-day.today { outline: 2px solid var(--gold); outline-offset: 2px; }
         .sechead-es { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin: 26px 4px 12px; }
 
+        /* ===== banner de entrada do ESTUDEI + bolinhas de cor ===== */
+        .es-hero { position: relative; margin-top: 4px; }
+        .es-hero-cor { position: absolute; top: 16px; right: 18px; display: flex; gap: 8px; }
+        .cor-dot { width: 21px; height: 21px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; padding: 0; transition: transform .12s, border-color .15s; }
+        .cor-dot:hover { transform: scale(1.15); }
+        .cor-dot.on { border-color: #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.3); }
+        @media (max-width: 560px){ .es-hero-cor { position: static; justify-content: flex-end; margin-bottom: 14px; } }
+
         /* ===== Painel: frase, data da prova, meta ===== */
         .frase-card { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
         .frase-mk { font-family: Georgia, "Times New Roman", serif; font-size: 40px; line-height: .5; color: var(--gold); opacity: .55; }
@@ -3763,7 +3786,7 @@ function App() {
         /* ===== Revisões ===== */
         .rev-tabs { display: flex; gap: 8px; margin: 6px 0 16px; flex-wrap: wrap; }
         .rev-tab { background: var(--surface-2); border: 1px solid var(--line-2); color: var(--muted); border-radius: 999px; padding: 7px 14px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
-        .rev-tab.on { background: var(--gold); color: #2a2410; border-color: var(--gold); }
+        .rev-tab.on { background: var(--gold); color: var(--on-accent); border-color: var(--gold); }
         .rev-n { opacity: .7; font-size: 11.5px; }
         .rev-item { display: flex; align-items: center; gap: 12px; padding: 12px 4px; border-bottom: 1px solid var(--line); }
         .rev-when { font-size: 12px; color: var(--faint); margin-top: 2px; }
@@ -4301,8 +4324,16 @@ function App() {
         )}
         {view === "es-painel" && (
           <section className="editais-page es-page">
-            <p className="eyebrow">Painel de estudos</p>
-            <h1 className="serif" style={{ marginBottom: 10 }}>Bom estudo, Nádia</h1>
+            <header className="hero es-hero">
+              <div className="es-hero-cor">
+                {COR_OPCOES.map(([c, hex]) => (
+                  <button key={c} className={`cor-dot${cor === c ? " on" : ""}`} style={{ background: hex }} onClick={() => escolherCor(c)} title={c} aria-label={`Cor ${c}`} />
+                ))}
+              </div>
+              <p className="eyebrow">Painel de estudos</p>
+              <h1>Bom estudo, <em>Nádia</em></h1>
+              <p className="hero-sub">Seu ritmo, seus ciclos e o que estudar agora — tudo numa tela só.</p>
+            </header>
             <FraseDoDia />
             <div className="painel-2col">
               <DataProva data={dataProva && dataProva.data} nome={dataProva && dataProva.nome} onSave={saveDataProva} />
