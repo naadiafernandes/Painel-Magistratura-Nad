@@ -4474,14 +4474,13 @@ function App() {
 
             {/* ---------- CHECKLIST RÁPIDO (ESTUDEI) ---------- */}
             <aside className="checkes">
-              <div className="checkes-head">✅ NÃO ESQUECER — tópicos pra cumprir</div>
+              <div className="checkes-head">📌 NÃO ESQUECER</div>
               <div className="checkes-add">
                 <input value={esCheckInput} onChange={(e) => setEsCheckInput(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") addEsCheck(); }} placeholder="anota um tópico rápido..." />
+                  onKeyDown={(e) => { if (e.key === "Enter") addEsCheck(); }} placeholder="TAREFA RÁPIDA" />
                 <button onClick={addEsCheck} title="Adicionar">+</button>
               </div>
               <div className="checkes-list">
-                {esCheck.length === 0 && <div className="checkes-empty">nada anotado ainda — escreve aí em cima ✨</div>}
                 {esCheck.map((p) => (
                   <div key={p.id} className={`checkes-item${p.done ? " done" : ""}`}>
                     <input type="checkbox" checked={p.done} onChange={() => toggleEsCheck(p.id)} />
