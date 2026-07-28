@@ -1097,6 +1097,160 @@ function beautifyFrase(texto) {
   return s;
 }
 
+// ---------- Página de notas de um tópico do edital (caixinhas arrastáveis, rich text) ----------
+const TN_UID = () => "b" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+const TN_FORE = ["#ececee", "#e68a8a", "#7fa8e6", "#7bd39a", "#e6c060", "#c79bff"];
+const TN_BACK = ["none", "#5a3d3d", "#3d4a5a", "#3d5a45", "#5a5030", "#4a3d5a"];
+const TN_TAGS = [["#a9c4ef", "127,168,230"], ["#e6c060", "230,192,96"], ["#7bd39a", "123,211,154"], ["#e68a8a", "230,138,138"], ["#c79bff", "199,155,255"], ["#5fbfc0", "95,191,192"]];
+
+function TopicNotes({ label, materia, initial, onBack, onSave }) {
+  const [boxes, setBoxes] = useState(() => {
+    const arr = initial && initial.length ? initial : [{ id: TN_UID(), html: "", tags: [] }];
+    return arr.map((b) => ({ id: b.id || TN_UID(), html: b.html || "", tags: (b.tags || []).map((t) => ({ label: t.label, ci: t.ci || 0 })) }));
+  });
+  const refs = useRef({});
+  const savedRange = useRef(null);
+  const dragId = useRef(null);
+  const pending = useRef(null);
+  const [overId, setOverId] = useState(null);
+  const tagCounter = useRef(boxes.reduce((n, b) => n + b.tags.length, 0));
+
+  useEffect(() => { try { document.execCommand("styleWithCSS", false, true); } catch (e) {} }, []);
+  useEffect(() => {
+    const onSel = () => {
+      const s = document.getSelection();
+      if (!s || !s.rangeCount) return;
+      const r = s.getRangeAt(0);
+      for (const id in refs.current) {
+        if (refs.current[id] && refs.current[id].contains(r.commonAncestorContainer)) { savedRange.current = r.cloneRange(); break; }
+      }
+    };
+    document.addEventListener("selectionchange", onSel);
+    return () => document.removeEventListener("selectionchange", onSel);
+  }, []);
+
+  const collect = () => boxes.map((b) => ({ id: b.id, html: refs.current[b.id] ? refs.current[b.id].innerHTML : b.html, tags: b.tags }));
+  const persist = (arr) => onSave(arr.map((b) => ({ id: b.id, html: b.html, tags: b.tags })));
+  const commit = (arr) => { setBoxes(arr); persist(arr); };
+
+  const restore = () => { const r = savedRange.current; if (!r) return; const s = document.getSelection(); s.removeAllRanges(); s.addRange(r); };
+  const exec = (cmd) => { restore(); try { document.execCommand(cmd, false, null); } catch (e) {} };
+  const applyColor = (kind, color) => { restore(); try { document.execCommand(kind === "fore" ? "foreColor" : "hiliteColor", false, color); } catch (e) {} };
+
+  const addBox = () => {
+    const nb = { id: TN_UID(), html: "", tags: [] };
+    const next = [...collect(), nb];
+    commit(next);
+    setTimeout(() => { const el = refs.current[nb.id]; if (el) el.focus(); }, 0);
+  };
+  const delBox = (id) => {
+    let arr = collect().filter((b) => b.id !== id);
+    if (!arr.length) arr = [{ id: TN_UID(), html: "", tags: [] }];
+    delete refs.current[id];
+    commit(arr);
+  };
+  const blurBox = () => { const arr = collect(); setBoxes(arr); persist(arr); };
+
+  const addTag = (id) => {
+    const label = window.prompt("Nome da tag (ex.: STF, Decorar, Pegadinha):");
+    if (!label || !label.trim()) return;
+    const ci = tagCounter.current++ % TN_TAGS.length;
+    commit(collect().map((b) => (b.id === id ? { ...b, tags: [...b.tags, { label: label.trim(), ci }] } : b)));
+  };
+  const removeTag = (id, idx) => commit(collect().map((b) => (b.id === id ? { ...b, tags: b.tags.filter((_, i) => i !== idx) } : b)));
+
+  const onDragStart = (id) => { dragId.current = id; pending.current = collect(); };
+  const onDragEnd = () => { dragId.current = null; pending.current = null; setOverId(null); };
+  const onDragOver = (e, id) => { e.preventDefault(); if (dragId.current && dragId.current !== id) setOverId(id); };
+  const onDrop = (e, id) => {
+    e.preventDefault();
+    const src = dragId.current;
+    const arr = pending.current || collect();
+    if (!src || src === id) { onDragEnd(); return; }
+    const from = arr.findIndex((b) => b.id === src);
+    if (from < 0) { onDragEnd(); return; }
+    const r = e.currentTarget.getBoundingClientRect();
+    const after = e.clientY - r.top > r.height / 2;
+    const moved = arr.splice(from, 1)[0];
+    const to = arr.findIndex((b) => b.id === id);
+    arr.splice(after ? to + 1 : to, 0, moved);
+    commit(arr);
+    onDragEnd();
+  };
+
+  const back = () => { persist(collect()); onBack(); };
+
+  const swatchRow = (kind, colors) => (
+    <span className="tn-sw-row">
+      {colors.map((c, i) =>
+        c === "none" ? (
+          <span key={i} className="tn-sw none" title="sem fundo" onMouseDown={(e) => e.preventDefault()} onClick={() => applyColor("back", "transparent")} />
+        ) : (
+          <span key={i} className="tn-sw" style={{ background: c }} onMouseDown={(e) => e.preventDefault()} onClick={() => applyColor(kind, c)} />
+        )
+      )}
+      <span className="tn-sw pick" title="qualquer cor">
+        <input type="color" onMouseDown={(e) => e.stopPropagation()} onInput={(e) => applyColor(kind, e.target.value)} />
+      </span>
+    </span>
+  );
+
+  return (
+    <section className="tn-page">
+      <button className="edital-back" onClick={back}>← Voltar ao edital</button>
+      {materia && <p className="eyebrow">{materia}</p>}
+      <h1 className="serif tn-title">{label}</h1>
+      <p className="tn-hint">Suas notas sobre este tópico. Selecione um trecho para colorir; arraste pelo ⠿ para reordenar.</p>
+
+      <div className="tn-list">
+        {boxes.map((b) => (
+          <div key={b.id} className={`tn-box${overId === b.id ? " over" : ""}`} onDragOver={(e) => onDragOver(e, b.id)} onDrop={(e) => onDrop(e, b.id)}>
+            <div className="tn-handle" draggable title="Arrastar" onDragStart={() => onDragStart(b.id)} onDragEnd={onDragEnd}>⠿</div>
+            <button className="tn-del" title="Excluir caixinha" onClick={() => delBox(b.id)}>✕</button>
+            {b.tags.length > 0 && (
+              <div className="tn-tags">
+                {b.tags.map((t, i) => {
+                  const pair = TN_TAGS[t.ci % TN_TAGS.length];
+                  return (
+                    <span key={i} className="tn-tag" style={{ background: `rgba(${pair[1]},.16)`, color: pair[0] }}>
+                      {t.label}
+                      <span className="tn-tag-x" onClick={() => removeTag(b.id, i)}>✕</span>
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+            <div
+              className="tn-content"
+              contentEditable
+              suppressContentEditableWarning
+              ref={(el) => { if (el) refs.current[b.id] = el; }}
+              data-ph="Escreva aqui…"
+              onBlur={blurBox}
+              dangerouslySetInnerHTML={{ __html: b.html }}
+            />
+            <div className="tn-toolbar">
+              <button className="tn-tb b" title="Negrito" onMouseDown={(e) => e.preventDefault()} onClick={() => exec("bold")}>B</button>
+              <button className="tn-tb i" title="Itálico" onMouseDown={(e) => e.preventDefault()} onClick={() => exec("italic")}>I</button>
+              <button className="tn-tb u" title="Sublinhado" onMouseDown={(e) => e.preventDefault()} onClick={() => exec("underline")}>U</button>
+              <span className="tn-sep" />
+              <span className="tn-lbl">letra</span>
+              {swatchRow("fore", TN_FORE)}
+              <span className="tn-sep" />
+              <span className="tn-lbl">fundo</span>
+              {swatchRow("back", TN_BACK)}
+              <span className="tn-sep" />
+              <button className="tn-tb" title="Adicionar tag" onMouseDown={(e) => e.preventDefault()} onClick={() => addTag(b.id)}>+ tag</button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <button className="tn-add" onClick={addBox}>+ Nova caixinha de texto</button>
+    </section>
+  );
+}
+
 export default function App() {
   const [data, setData] = useState({});
   const [simData, setSimData] = useState({});
@@ -1128,6 +1282,7 @@ export default function App() {
   const [openMat, setOpenMat] = useState({});
   const [openNote, setOpenNote] = useState(null); // chave do tópico com a caixinha de Observações aberta
   const [noteDraft, setNoteDraft] = useState("");
+  const [openTopic, setOpenTopic] = useState(null); // { editalId, key, label, materia } — página de notas do tópico
   const [prioridades, setPrioridades] = useState([]);
   const [prioInput, setPrioInput] = useState("");
   const [simManuais, setSimManuais] = useState([]);
@@ -1610,6 +1765,27 @@ export default function App() {
       await window.storage.set(EDITAIS_KEY_PREFIX + editalId, JSON.stringify(next));
     } catch {}
     setOpenNote(null);
+  };
+
+  // salva as caixinhas de notas (rich text) de um tópico do edital
+  const saveEditalNotes = async (editalId, pathKey, notas) => {
+    const cur = editaisData[editalId] || {};
+    const cell = editalCell(cur[pathKey]);
+    const nextCell = { ...cell };
+    const clean = (notas || []).filter((b) => ((b.html || "").replace(/<[^>]*>/g, "").replace(/ /g, " ").trim()) || (b.tags && b.tags.length));
+    if (clean.length) nextCell.notas = clean; else delete nextCell.notas;
+    const next = { ...cur, [pathKey]: nextCell };
+    setEditaisData((p) => ({ ...p, [editalId]: next }));
+    try { await window.storage.set(EDITAIS_KEY_PREFIX + editalId, JSON.stringify(next)); } catch {}
+  };
+
+  // abre a página de notas de um tópico (só no edital TJSC Juiz 2025)
+  const openTopicPage = (ed, key, node) => {
+    const mi = parseInt(String(key).split(".")[0], 10);
+    const materia = (ed.materias[mi] && ed.materias[mi].nome) || "";
+    const label = `${node.n ? node.n + " " : ""}${node.txt}`;
+    setOpenTopic({ editalId: ed.id, key, label, materia });
+    window.scrollTo(0, 0);
   };
 
   const toggleCurso = async (cursoId, subKey, idx) => {
@@ -2186,6 +2362,52 @@ export default function App() {
         .ed-note-cancel:hover { border-color: var(--muted); color: var(--text); }
         .ed-note-clear { color: var(--coral); border-color: transparent; }
         .ed-note-clear:hover { border-color: var(--coral); }
+        /* nome do tópico clicável (edital TJSC) */
+        .edital-txt-btn { border: none; background: transparent; padding: 0; margin: 0; text-align: left; cursor: pointer; color: inherit; font: inherit; }
+        .edital-txt-btn:hover .edital-txt { color: var(--gold); text-decoration: underline; text-underline-offset: 2px; }
+        /* página de notas de um tópico (caixinhas arrastáveis) */
+        .tn-page { max-width: 860px; }
+        .tn-title { margin: 2px 0 4px; }
+        .tn-hint { color: var(--muted); font-size: 13px; margin: 0 0 22px; }
+        .tn-list { display: flex; flex-direction: column; }
+        .tn-box { position: relative; background: var(--surface); border: 1px solid var(--line); border-radius: 16px;
+          padding: 14px 16px 14px 42px; margin: 10px 0; transition: border-color .15s, box-shadow .15s; }
+        .tn-box:focus-within { border-color: var(--gold); box-shadow: 0 0 0 4px rgba(250,204,21,.10); }
+        .tn-box.over { box-shadow: 0 -3px 0 -1px var(--gold); }
+        .tn-handle { position: absolute; left: 8px; top: 12px; width: 24px; height: 30px; display: flex; align-items: center;
+          justify-content: center; color: var(--faint); cursor: grab; border-radius: 7px; user-select: none; font-size: 16px; }
+        .tn-handle:hover { background: var(--surface-3); color: var(--text); }
+        .tn-handle:active { cursor: grabbing; }
+        .tn-del { position: absolute; right: 10px; top: 10px; border: none; background: transparent; color: var(--faint);
+          cursor: pointer; font-size: 14px; border-radius: 7px; width: 26px; height: 26px; opacity: 0; transition: .15s; }
+        .tn-box:hover .tn-del, .tn-box:focus-within .tn-del { opacity: 1; }
+        .tn-del:hover { background: var(--surface-3); color: var(--coral); }
+        .tn-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+        .tn-tag { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 99px; }
+        .tn-tag-x { cursor: pointer; opacity: .55; font-weight: 700; }
+        .tn-tag-x:hover { opacity: 1; }
+        .tn-content { outline: none; font-size: 15px; line-height: 1.62; min-height: 24px; color: var(--text); }
+        .tn-content:empty::before { content: attr(data-ph); color: var(--faint); }
+        .tn-content b, .tn-content strong { font-weight: 700; }
+        .tn-content u { text-decoration: underline; }
+        .tn-toolbar { display: none; gap: 4px; align-items: center; flex-wrap: wrap; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line-2); }
+        .tn-box:focus-within .tn-toolbar { display: flex; }
+        .tn-tb { border: 1px solid var(--line-2); background: var(--surface-2); color: var(--text); border-radius: 8px; height: 30px;
+          min-width: 30px; padding: 0 8px; cursor: pointer; font-size: 13px; display: inline-flex; align-items: center; justify-content: center; font-family: inherit; }
+        .tn-tb:hover { background: var(--surface-3); }
+        .tn-tb.b { font-weight: 800; } .tn-tb.i { font-style: italic; font-family: Georgia, serif; } .tn-tb.u { text-decoration: underline; }
+        .tn-sep { width: 1px; height: 20px; background: var(--line-2); margin: 0 3px; }
+        .tn-lbl { font-size: 11px; color: var(--muted); margin: 0 2px 0 4px; }
+        .tn-sw-row { display: inline-flex; gap: 4px; align-items: center; }
+        .tn-sw { width: 20px; height: 20px; border-radius: 6px; cursor: pointer; border: 1px solid rgba(128,128,128,.35); position: relative; }
+        .tn-sw:hover { transform: scale(1.12); }
+        .tn-sw.none { background: transparent; border-style: dashed; }
+        .tn-sw.none::after { content: ""; position: absolute; left: 2px; right: 2px; top: 9px; height: 1.5px; background: var(--coral); transform: rotate(-45deg); }
+        .tn-sw.pick { background: conic-gradient(red, orange, yellow, lime, cyan, blue, magenta, red); border-radius: 50%; overflow: hidden; }
+        .tn-sw.pick input { position: absolute; inset: 0; opacity: 0; cursor: pointer; padding: 0; border: 0; width: 100%; height: 100%; }
+        .tn-add { margin-top: 14px; border: 1.5px dashed var(--line-2); background: transparent; color: var(--muted);
+          border-radius: 14px; padding: 14px; width: 100%; cursor: pointer; font-size: 14px; font-weight: 500; font-family: inherit; }
+        .tn-add:hover { border-color: var(--gold); color: var(--gold); }
         @media (max-width: 720px) {
           .ed-col.est { width: 40px; }
           .ed-col.rev { width: 27px; }
@@ -2316,7 +2538,25 @@ export default function App() {
       </aside>
 
       <div className="wrap">
-        {view === "editais" && (
+        {openTopic && (() => {
+          const tcell = editalCell((editaisData[openTopic.editalId] || {})[openTopic.key]);
+          const initial = tcell.notas && tcell.notas.length
+            ? tcell.notas
+            : (tcell.obs && tcell.obs.trim()
+                ? [{ id: "seed", html: tcell.obs.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/\n/g, "<br>"), tags: [] }]
+                : []);
+          return (
+            <TopicNotes
+              key={openTopic.editalId + "|" + openTopic.key}
+              label={openTopic.label}
+              materia={openTopic.materia}
+              initial={initial}
+              onBack={() => setOpenTopic(null)}
+              onSave={(notas) => saveEditalNotes(openTopic.editalId, openTopic.key, notas)}
+            />
+          );
+        })()}
+        {view === "editais" && !openTopic && (
           <section className="editais-page">
             <button className="edital-back" onClick={() => setView("main")}>← Voltar ao painel</button>
             <p className="eyebrow">Painel de Estudos</p>
@@ -2335,12 +2575,15 @@ export default function App() {
                 {(() => {
                   const ed = EDITAIS[openEdital] || EDITAIS[0];
                   const v = editaisData[ed.id] || {};
+                  const RICH = ed.id === "tjsc-juiz-2025"; // este edital usa página de notas por tópico
                   const renderNode = (node, key, depth) => {
                     const kids = node.subs || [];
                     const hasKids = kids.length > 0;
                     const bold = depth === 0 || hasKids;
                     const cell = editalCell(v[key]);
+                    const hasNotas = !!(cell.notas && cell.notas.length);
                     const hasObs = !!(cell.obs && cell.obs.trim());
+                    const flag = RICH ? (hasNotas || hasObs) : hasObs;
                     const noteKey = `${ed.id}|${key}`;
                     const noteOpen = openNote === noteKey;
                     const check = (c) => (
@@ -2351,11 +2594,17 @@ export default function App() {
                     );
                     return (
                       <React.Fragment key={key}>
-                        <div className={`ed-row d${depth}${editalDone(cell) ? " done" : ""}${hasObs ? " has-obs" : ""}`}>
+                        <div className={`ed-row d${depth}${editalDone(cell) ? " done" : ""}${flag ? " has-obs" : ""}`}>
                           <div className="ed-topic">
                             {node.n && <span className="edital-n">{node.n}</span>}
-                            <span className={`edital-txt${bold ? " b" : ""}`}>{node.txt}</span>
-                            {hasObs && <span className="ed-obs-flag" title="Este tópico tem observação">✎</span>}
+                            {RICH ? (
+                              <button type="button" className="edital-txt-btn" title="Abrir minhas notas deste tópico" onClick={() => openTopicPage(ed, key, node)}>
+                                <span className={`edital-txt${bold ? " b" : ""}`}>{node.txt}</span>
+                              </button>
+                            ) : (
+                              <span className={`edital-txt${bold ? " b" : ""}`}>{node.txt}</span>
+                            )}
+                            {flag && <span className="ed-obs-flag" title={RICH ? "Este tópico tem notas" : "Este tópico tem observação"}>✎</span>}
                           </div>
                           <div className="ed-checks">
                             <div className="ed-grp">{ED_ESTUDO.map((c) => check(c))}</div>
@@ -2365,10 +2614,11 @@ export default function App() {
                             <span className="ed-col note">
                               <button
                                 type="button"
-                                className={`ed-note-btn${hasObs ? " has" : ""}${noteOpen ? " open" : ""}`}
-                                title={hasObs ? "Ver/editar observação" : "Adicionar observação"}
+                                className={`ed-note-btn${flag ? " has" : ""}${noteOpen ? " open" : ""}`}
+                                title={RICH ? "Abrir minhas notas deste tópico" : hasObs ? "Ver/editar observação" : "Adicionar observação"}
                                 aria-label="Observações"
                                 onClick={() => {
+                                  if (RICH) { openTopicPage(ed, key, node); return; }
                                   if (noteOpen) { setOpenNote(null); }
                                   else { setNoteDraft(cell.obs || ""); setOpenNote(noteKey); }
                                 }}
@@ -2376,7 +2626,7 @@ export default function App() {
                             </span>
                           </div>
                         </div>
-                        {noteOpen && (
+                        {!RICH && noteOpen && (
                           <div className="ed-note-edit">
                             <textarea
                               className="ed-note-area"
