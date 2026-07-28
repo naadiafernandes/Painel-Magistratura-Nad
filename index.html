@@ -1398,7 +1398,9 @@ function CaixaView({ onBack, onArquivarEdital }) {
   const [aberto, setAberto] = useState({});
   const [matPicker, setMatPicker] = useState(null);
   const [aviso, setAviso] = useState({});
+  const [impMsg, setImpMsg] = useState("");
   const [carregou, setCarregou] = useState(false);
+  const fileRef = useRef(null);
 
   useEffect(() => { try { document.execCommand("styleWithCSS", false, true); } catch (e) {} }, []);
   useEffect(() => {
@@ -1423,6 +1425,21 @@ function CaixaView({ onBack, onArquivarEdital }) {
 
   const persist = (arr) => { setNotas(arr); try { window.storage.set(CAIXA_KEY, JSON.stringify(arr)); } catch {} };
   const guardar = () => { const novas = caixaParse(texto); if (!novas.length) return; persist([...novas, ...notas]); setTexto(""); };
+  const importarArquivo = (ev) => {
+    const f = ev.target.files && ev.target.files[0];
+    if (!f) return;
+    const rd = new FileReader();
+    rd.onload = () => {
+      let arr = null;
+      try { arr = JSON.parse(rd.result); } catch { arr = null; }
+      if (!Array.isArray(arr)) { setImpMsg("Arquivo inválido — precisa ser a lista de notas que eu preparei."); return; }
+      const novas = arr.map(caixaNormalize).filter(Boolean);
+      persist([...novas, ...notas]);
+      setImpMsg(novas.length + " nota(s) trazidas do arquivo, no topo da caixa.");
+    };
+    rd.readAsText(f);
+    ev.target.value = "";
+  };
   const remover = (id) => persist(notas.filter((n) => n.id !== id));
   const update = (id, patch) => persist(notas.map((n) => n.id === id ? { ...n, ...patch } : n));
   const setDestino = (id, d) => persist(notas.map((n) => n.id === id ? { ...n, destino: n.destino === d ? null : d } : n));
@@ -1464,6 +1481,10 @@ function CaixaView({ onBack, onArquivarEdital }) {
         .caixa-go{ font:inherit; font-size:13px; font-weight:800; cursor:pointer; background:var(--gold); color:var(--on-accent,#10141a);
           border:none; border-radius:10px; padding:10px 18px; white-space:nowrap; }
         .caixa-go:disabled{ opacity:.45; cursor:default; }
+        .caixa-import{ font:inherit; font-size:12.5px; font-weight:700; cursor:pointer; color:var(--muted); background:var(--surface-2);
+          border:1px solid var(--line-2); border-radius:10px; padding:10px 14px; white-space:nowrap; }
+        .caixa-import:hover{ color:var(--text); }
+        .caixa-impmsg{ font-size:12px; color:var(--green); margin-top:9px; }
         .caixa-card{ background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:15px 17px; margin-bottom:13px; }
         .caixa-lbl{ font-size:10px; letter-spacing:1.2px; text-transform:uppercase; color:var(--faint); font-weight:700; margin-bottom:5px; }
         .caixa-destaque{ font-size:15px; font-weight:700; color:var(--text); line-height:1.42; outline:none; border-radius:6px; }
@@ -1516,8 +1537,11 @@ function CaixaView({ onBack, onArquivarEdital }) {
           placeholder="Cole aqui um julgado do Buscador, um trecho de lei, uma questão ou uma frase sua… (pode colar vários de uma vez)" />
         <div className="caixa-compose-bar">
           <span className="caixa-hint">A fonte (ex.: Info 1204) e um palpite de matéria vêm sozinhos. Você ajusta.</span>
+          <input ref={fileRef} type="file" accept="application/json,.json" style={{ display: "none" }} onChange={importarArquivo} />
+          <button className="caixa-import" onClick={() => fileRef.current && fileRef.current.click()}>Importar notas (arquivo)</button>
           <button className="caixa-go" onClick={guardar} disabled={!texto.trim()}>Guardar na caixa</button>
         </div>
+        {impMsg && <div className="caixa-impmsg">{impMsg}</div>}
       </div>
 
       {carregou && (notas.length === 0 ? (
