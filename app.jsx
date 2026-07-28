@@ -1257,30 +1257,48 @@ function CaixaView({ onBack }) {
   const [notas, setNotas] = useState([]);
   const [texto, setTexto] = useState("");
   const [aberto, setAberto] = useState({});
+  const [matPicker, setMatPicker] = useState(null);
   const [carregou, setCarregou] = useState(false);
 
+  useEffect(() => { try { document.execCommand("styleWithCSS", false, true); } catch (e) {} }, []);
   useEffect(() => {
     (async () => {
       let arr = null;
       try { const r = await window.storage.get(CAIXA_KEY); arr = r ? JSON.parse(r.value) : null; } catch { arr = null; }
-      if (!arr) {
-        let semeado = null;
-        try { const f = await window.storage.get(CAIXA_SEED_FLAG); semeado = f ? f.value : null; } catch {}
-        if (!semeado && typeof window.CAIXA_SEED === "string") {
-          arr = caixaParse(window.CAIXA_SEED);
-          try { window.storage.set(CAIXA_KEY, JSON.stringify(arr)); window.storage.set(CAIXA_SEED_FLAG, "1"); } catch {}
-        } else { arr = []; }
+      if (arr) { arr = arr.map(caixaNormalize).filter(Boolean); }
+      else {
+        let v1 = null;
+        try { const r1 = await window.storage.get(CAIXA_KEY_OLD); v1 = r1 ? JSON.parse(r1.value) : null; } catch {}
+        if (v1 && v1.length) { arr = v1.map(caixaNormalize).filter(Boolean); }
+        else {
+          let semeado = null;
+          try { const f = await window.storage.get(CAIXA_SEED_FLAG); semeado = f ? f.value : null; } catch {}
+          arr = (!semeado && typeof window.CAIXA_SEED === "string") ? caixaParse(window.CAIXA_SEED) : [];
+        }
+        try { window.storage.set(CAIXA_KEY, JSON.stringify(arr)); window.storage.set(CAIXA_SEED_FLAG, "1"); } catch {}
       }
-      setNotas(arr || []); setCarregou(true);
+      setNotas(arr); setCarregou(true);
     })();
   }, []);
 
   const persist = (arr) => { setNotas(arr); try { window.storage.set(CAIXA_KEY, JSON.stringify(arr)); } catch {} };
   const guardar = () => { const novas = caixaParse(texto); if (!novas.length) return; persist([...novas, ...notas]); setTexto(""); };
   const remover = (id) => persist(notas.filter((n) => n.id !== id));
+  const update = (id, patch) => persist(notas.map((n) => n.id === id ? { ...n, ...patch } : n));
   const setDestino = (id, d) => persist(notas.map((n) => n.id === id ? { ...n, destino: n.destino === d ? null : d } : n));
   const toggleFav = (id) => persist(notas.map((n) => n.id === id ? { ...n, favorito: !n.favorito } : n));
   const toggleAberto = (id) => setAberto((o) => ({ ...o, [id]: !o[id] }));
+  const toggleMat = (id, mid) => persist(notas.map((n) => {
+    if (n.id !== id) return n;
+    const has = n.mats.includes(mid);
+    const mats = has ? n.mats.filter((x) => x !== mid) : [...n.mats, mid];
+    let topico = n.topico;
+    if (!topico && mats.length) { const sug = caixaMelhorTopico(n.destaque, caixaTopicosEdital(mats[0])); if (sug) topico = sug; }
+    return { ...n, mats, topico };
+  }));
+  const fmt = (cmd) => (ev) => { ev.preventDefault(); document.execCommand(cmd, false, null); };
+  const cor = (c) => (ev) => { ev.preventDefault(); document.execCommand("foreColor", false, c === "reset" ? getComputedStyle(document.body).color : c); };
+  const topicoOpts = (n) => { const base = n.mats.length ? caixaTopicosEdital(n.mats[0]) : []; return (n.topico && !base.includes(n.topico)) ? [n.topico, ...base] : base; };
 
   return (
     <section className="caixa-page">
@@ -1296,16 +1314,35 @@ function CaixaView({ onBack }) {
           border:none; border-radius:10px; padding:10px 18px; white-space:nowrap; }
         .caixa-go:disabled{ opacity:.45; cursor:default; }
         .caixa-card{ background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:15px 17px; margin-bottom:13px; }
-        .caixa-chips{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:9px; align-items:center; }
-        .caixa-chip{ font-size:11.5px; font-weight:700; padding:3px 10px; border-radius:999px; border:1px solid; }
-        .caixa-chip.neutral{ color:var(--muted); border-color:var(--line-2); background:var(--surface-2); }
+        .caixa-lbl{ font-size:10px; letter-spacing:1.2px; text-transform:uppercase; color:var(--faint); font-weight:700; margin-bottom:5px; }
+        .caixa-destaque{ font-size:15px; font-weight:700; color:var(--text); line-height:1.42; outline:none; border-radius:6px; }
+        .caixa-destaque:focus{ box-shadow:0 0 0 2px color-mix(in srgb,var(--gold) 45%,transparent); }
+        .caixa-destaque:empty:before,.caixa-veditor:empty:before{ content:attr(data-ph); color:var(--faint); }
+        .caixa-metarow{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:11px; }
+        .caixa-metalbl{ font-size:11px; color:var(--faint); }
+        .caixa-chip{ font-size:11.5px; font-weight:700; padding:3px 9px; border-radius:999px; border:1px solid; display:inline-flex; align-items:center; gap:5px; }
         .caixa-chip.fonte{ color:var(--gold); border-color:color-mix(in srgb,var(--gold) 40%,transparent); background:color-mix(in srgb,var(--gold) 14%,transparent); }
+        .caixa-chip-x{ cursor:pointer; background:none; border:none; color:inherit; font-size:13px; line-height:1; padding:0; opacity:.7; }
+        .caixa-chip-x:hover{ opacity:1; }
+        .caixa-addmat{ font:inherit; font-size:11.5px; font-weight:700; cursor:pointer; color:var(--faint); background:var(--surface-2);
+          border:1px dashed var(--line-2); border-radius:999px; padding:3px 10px; }
+        .caixa-addmat:hover{ color:var(--text); }
+        .caixa-matpick{ display:flex; flex-wrap:wrap; gap:5px; margin-top:8px; padding:9px; background:var(--surface-2); border:1px solid var(--line); border-radius:10px; }
+        .caixa-matpick-b{ font:inherit; font-size:11.5px; font-weight:700; cursor:pointer; color:var(--muted); background:var(--surface);
+          border:1px solid var(--line-2); border-radius:999px; padding:3px 10px; }
+        .caixa-topsel{ font:inherit; font-size:12.5px; color:var(--text); background:var(--surface-2); border:1px solid var(--line-2);
+          border-radius:8px; padding:5px 8px; max-width:300px; }
         .caixa-fav{ margin-left:auto; cursor:pointer; background:none; border:none; font-size:15px; line-height:1; color:var(--faint); }
         .caixa-fav.on{ color:var(--gold); }
-        .caixa-titulo{ font-size:14.5px; font-weight:700; color:var(--text); line-height:1.4; }
-        .caixa-raw{ font-size:13px; color:var(--muted); line-height:1.55; white-space:pre-wrap; margin-top:8px;
-          border-left:2px solid var(--line-2); padding-left:11px; }
-        .caixa-toggle{ font:inherit; font-size:12px; font-weight:700; color:var(--gold); background:none; border:none; cursor:pointer; padding:6px 0 0; }
+        .caixa-toggle{ font:inherit; font-size:12px; font-weight:700; color:var(--gold); background:none; border:none; cursor:pointer; padding:10px 0 0; }
+        .caixa-vermais{ margin-top:9px; border:1px solid var(--line); border-radius:11px; overflow:hidden; }
+        .caixa-vtoolbar{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; padding:7px 9px; background:var(--surface-2); border-bottom:1px solid var(--line); }
+        .caixa-vtoolbar button{ font:inherit; min-width:28px; height:26px; cursor:pointer; color:var(--text); background:var(--surface);
+          border:1px solid var(--line-2); border-radius:6px; font-size:13px; padding:0 7px; }
+        .caixa-vtoolbar button:hover{ background:var(--surface-3); }
+        .caixa-vsep{ width:1px; height:18px; background:var(--line-2); margin:0 2px; }
+        .caixa-sw{ width:20px !important; min-width:20px !important; height:20px !important; padding:0 !important; border-radius:50% !important; border:1px solid var(--line-2) !important; }
+        .caixa-veditor{ padding:11px 12px; font-size:13.5px; line-height:1.6; color:var(--muted); min-height:64px; outline:none; }
         .caixa-actions{ display:flex; flex-wrap:wrap; gap:7px; margin-top:12px; padding-top:12px; border-top:1px solid var(--line); }
         .caixa-act{ font:inherit; font-size:12.5px; font-weight:700; cursor:pointer; color:var(--muted); background:var(--surface-2);
           border:1px solid var(--line-2); border-radius:9px; padding:7px 11px; display:inline-flex; align-items:center; gap:6px; }
@@ -1320,13 +1357,13 @@ function CaixaView({ onBack }) {
       <button className="edital-back" onClick={onBack}>← Voltar ao painel</button>
       <p className="eyebrow">Painel de Estudos</p>
       <h1 className="serif" style={{ marginBottom: 6 }}>Caixa de entrada</h1>
-      <p className="desc" style={{ marginBottom: 18 }}>Cole qualquer coisa aqui. Vira uma nota que já se carimba com a matéria e o assunto — depois você decide o que ela vira.</p>
+      <p className="desc" style={{ marginBottom: 18 }}>Cole qualquer coisa. Vira uma nota: você escolhe a matéria, o tópico vem do seu edital verticalizado, e depois decide o que ela vira.</p>
 
       <div className="caixa-compose">
         <textarea className="caixa-ta" value={texto} onChange={(e) => setTexto(e.target.value)}
           placeholder="Cole aqui um julgado do Buscador, um trecho de lei, uma questão ou uma frase sua… (pode colar vários de uma vez)" />
         <div className="caixa-compose-bar">
-          <span className="caixa-hint">A matéria e a fonte (ex.: Info 1204) são reconhecidas sozinhas. Nada se perde.</span>
+          <span className="caixa-hint">A fonte (ex.: Info 1204) e um palpite de matéria vêm sozinhos. Você ajusta.</span>
           <button className="caixa-go" onClick={guardar} disabled={!texto.trim()}>Guardar na caixa</button>
         </div>
       </div>
@@ -1338,20 +1375,59 @@ function CaixaView({ onBack }) {
           <p className="caixa-count">{notas.length} {notas.length === 1 ? "nota guardada" : "notas guardadas"}</p>
           {notas.map((n) => {
             const open = !!aberto[n.id];
-            const longo = n.raw.length > 260;
             return (
               <div key={n.id} className="caixa-card">
-                <div className="caixa-chips">
-                  {n.mats.length > 0 ? n.mats.map((mid) => (
-                    <span key={mid} className="caixa-chip" style={chipStyle(materiaColor(mid))}>{caixaMatLabel(mid)}</span>
-                  )) : n.categoria ? <span className="caixa-chip neutral">{n.categoria}</span> : null}
-                  {n.assunto && n.assunto !== n.categoria && <span className="caixa-chip neutral">{n.assunto}</span>}
+                <div className="caixa-lbl">Destaque</div>
+                <CaixaEdit className="caixa-destaque" plain html={caixaEsc(n.destaque)} placeholder="Título em destaque…" onSave={(t) => update(n.id, { destaque: t })} />
+
+                <div className="caixa-metarow">
+                  <span className="caixa-metalbl">Matéria:</span>
+                  {n.mats.map((mid) => (
+                    <span key={mid} className="caixa-chip" style={chipStyle(materiaColor(mid))}>
+                      {caixaMatLabel(mid)}
+                      <button className="caixa-chip-x" title="Tirar" onClick={() => toggleMat(n.id, mid)}>×</button>
+                    </span>
+                  ))}
+                  <button className="caixa-addmat" onClick={() => setMatPicker((p) => p === n.id ? null : n.id)}>＋ matéria</button>
+                </div>
+                {matPicker === n.id && (
+                  <div className="caixa-matpick">
+                    {CAIXA_MATS.map((mid) => {
+                      const on = n.mats.includes(mid);
+                      return (
+                        <button key={mid} className="caixa-matpick-b" style={on ? chipStyle(materiaColor(mid)) : null} onClick={() => toggleMat(n.id, mid)}>
+                          {on ? "✓ " : ""}{caixaMatLabel(mid)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div className="caixa-metarow">
+                  <span className="caixa-metalbl">Tópico do edital:</span>
+                  <select className="caixa-topsel" value={n.topico} onChange={(e) => update(n.id, { topico: e.target.value })}>
+                    <option value="">— escolher —</option>
+                    {topicoOpts(n).map((t) => <option key={t} value={t}>{t}</option>)}
+                  </select>
                   {n.fonte && <span className="caixa-chip fonte">{n.fonte}</span>}
                   <button className={"caixa-fav" + (n.favorito ? " on" : "")} title="Favorito" onClick={() => toggleFav(n.id)}>{n.favorito ? "★" : "☆"}</button>
                 </div>
-                <div className="caixa-titulo">{n.titulo}</div>
-                {(open || !longo) && n.raw !== n.titulo && <div className="caixa-raw">{n.raw}</div>}
-                {longo && <button className="caixa-toggle" onClick={() => toggleAberto(n.id)}>{open ? "esconder" : "ver conteúdo completo"}</button>}
+
+                <button className="caixa-toggle" onClick={() => toggleAberto(n.id)}>{open ? "▾ Ver mais" : "▸ Ver mais"}</button>
+                {open && (
+                  <div className="caixa-vermais">
+                    <div className="caixa-vtoolbar">
+                      <button title="Negrito" style={{ fontWeight: 800 }} onMouseDown={fmt("bold")}>N</button>
+                      <button title="Itálico" style={{ fontStyle: "italic" }} onMouseDown={fmt("italic")}>I</button>
+                      <button title="Sublinhado" style={{ textDecoration: "underline" }} onMouseDown={fmt("underline")}>S</button>
+                      <span className="caixa-vsep" />
+                      {CAIXA_CORES.map((c) => <button key={c} className="caixa-sw" style={{ background: c }} title="Cor" onMouseDown={cor(c)} />)}
+                      <button title="Tirar a cor" style={{ fontSize: 11 }} onMouseDown={cor("reset")}>limpar cor</button>
+                    </div>
+                    <CaixaEdit className="caixa-veditor" html={n.verMais} placeholder="Escreva ou cole aqui o resto do conteúdo…" onSave={(h) => update(n.id, { verMais: h })} />
+                  </div>
+                )}
+
                 <div className="caixa-actions">
                   {CAIXA_DESTINOS.map((d) => (
                     <button key={d.id} className={"caixa-act" + (n.destino === d.id ? " on" : "")} onClick={() => setDestino(n.id, d.id)}>
