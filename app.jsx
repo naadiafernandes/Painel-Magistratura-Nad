@@ -2180,11 +2180,18 @@ function MateriaDetail({ materia, registros, onBack, onEdit, onDelete }) {
   const ac = regs.reduce((s, r) => s + (r.acertos || 0), 0);
   const er = regs.reduce((s, r) => s + (r.erros || 0), 0);
   const q = ac + er;
+  const bl = TJSC_BLOCOS[(materia || "").toUpperCase()];
   return (
     <section className="editais-page es-page">
       <button className="edital-back" onClick={onBack}>← Voltar às matérias</button>
       <p className="eyebrow">ESTUDEI · Matéria</p>
-      <h1 className="serif" style={{ marginBottom: 14 }}>{materia}</h1>
+      <h1 className="serif" style={{ marginBottom: bl ? 8 : 14 }}>{materia}</h1>
+      {bl && (
+        <div className="mat-peso">
+          <span className={`ed-bloco-tag b${bl.b}`}>{BLOCO_LBL[bl.b]}</span>
+          <span className="mat-peso-txt">peso <b>{bl.imp}%</b> dentro do bloco</span>
+        </div>
+      )}
       <div className="mat-topcards">
         <div className="panel"><div className="dp-lbl">Tempo</div><div className="dp-big mat-big">{fmtTempo(tempo)}</div></div>
         <div className="panel"><div className="dp-lbl">Questões</div><div className="dp-big mat-big">{q}<small>{q ? ` · ${Math.round((ac / q) * 100)}%` : ""}</small></div></div>
@@ -3775,6 +3782,9 @@ export default function App() {
         .mat-col-head.b1 { color: #6c9be6; } .mat-col-head.b2 { color: #b58ae6; } .mat-col-head.b3 { color: #d3a63f; }
         .mat-col-head.outras { color: var(--muted); margin-top: 22px; }
         @media (max-width: 720px) { .mat-cols { grid-template-columns: 1fr; } }
+        .mat-peso { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+        .mat-peso-txt { font-size: 12.5px; color: var(--muted); }
+        .mat-peso-txt b { color: var(--gold2); font-weight: 700; }
         .mat-card { text-align: left; background: var(--surface); border: 1px solid var(--line-2); border-radius: 16px; padding: 16px 18px; cursor: pointer; font: inherit; color: var(--text); transition: border-color .15s; }
         .mat-card:hover { border-color: var(--gold); }
         .mat-nome { font-size: 14.5px; font-weight: 700; color: var(--coral); }
@@ -4334,14 +4344,13 @@ export default function App() {
 
             {/* ---------- CHECKLIST RÁPIDO (ESTUDEI) ---------- */}
             <aside className="checkes">
-              <div className="checkes-head">✅ NÃO ESQUECER — tópicos pra cumprir</div>
+              <div className="checkes-head">📌 NÃO ESQUECER</div>
               <div className="checkes-add">
                 <input value={esCheckInput} onChange={(e) => setEsCheckInput(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") addEsCheck(); }} placeholder="anota um tópico rápido..." />
+                  onKeyDown={(e) => { if (e.key === "Enter") addEsCheck(); }} placeholder="TAREFA RÁPIDA" />
                 <button onClick={addEsCheck} title="Adicionar">+</button>
               </div>
               <div className="checkes-list">
-                {esCheck.length === 0 && <div className="checkes-empty">nada anotado ainda — escreve aí em cima ✨</div>}
                 {esCheck.map((p) => (
                   <div key={p.id} className={`checkes-item${p.done ? " done" : ""}`}>
                     <input type="checkbox" checked={p.done} onChange={() => toggleEsCheck(p.id)} />
