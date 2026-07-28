@@ -2562,6 +2562,15 @@ function SimuladosView({ feitos, sugestoes, onNovo, onEditFeito, onDeleteFeito, 
   const media = feitos.length ? Math.round(feitos.reduce((s, x) => s + simPct(x), 0) / feitos.length) : 0;
   const barCor = (p) => (p >= 70 ? "var(--green)" : p >= 50 ? "var(--gold)" : "var(--coral)");
   const todasMats = [...new Set(feitos.flatMap((s) => (s.mats || []).map((m) => m.nome)))];
+  // desempenho somado por matéria (todas as provas juntas) — pro gráfico "todas de uma vez"
+  const agg = {};
+  for (const s of feitos) for (const m of (s.mats || [])) {
+    const a = parseInt(m.a || 0, 10) || 0, q = parseInt(m.q || 0, 10) || 0;
+    if (!agg[m.nome]) agg[m.nome] = { a: 0, q: 0 };
+    agg[m.nome].a += a; agg[m.nome].q += q;
+  }
+  const matBars = Object.keys(agg).map((nome) => ({ nome, a: agg[nome].a, q: agg[nome].q, pct: agg[nome].q ? Math.round((agg[nome].a / agg[nome].q) * 100) : 0 }))
+    .filter((x) => x.q > 0).sort((a, b) => a.pct - b.pct);
 
   const chart = (() => {
     const pts = asc.map((s) => {
@@ -2631,6 +2640,18 @@ function SimuladosView({ feitos, sugestoes, onNovo, onEditFeito, onDeleteFeito, 
         )}
       </div>
       {chart}
+
+      {matBars.length > 0 && (<>
+        <div className="sechead-es">Desempenho por matéria <span className="sim-allmat-sub">— tudo somado, da pior pra melhor</span></div>
+        <div className="panel sim-allmat">
+          {matBars.map((m) => (
+            <div className="sim-bar-row" key={m.nome}>
+              <div className="sim-bar-top"><span className="sim-bar-nome">{m.nome}</span><span className="sim-bar-val mono">{m.a}/{m.q} · {m.pct}%</span></div>
+              <div className="sim-bar-track"><i style={{ width: m.pct + "%", background: barCor(m.pct) }} /></div>
+            </div>
+          ))}
+        </div>
+      </>)}
 
       <div className="sechead-es">Meus simulados e provas</div>
       {feitosOrd.length === 0 ? <div className="es-hint">Nenhum simulado ainda. Toque em “+ Novo simulado” pra registrar o primeiro.</div>
@@ -3832,6 +3853,14 @@ export default function App() {
         .sim-tools button:hover { color: var(--text); background: var(--surface-2); }
         .sim-modal-pct { margin-top: 14px; font-size: 13.5px; color: var(--muted); }
         .sim-modal-pct b { color: var(--gold); font-size: 16px; }
+        .sim-allmat { padding: 16px 18px 8px; }
+        .sim-allmat-sub { font-weight: 600; color: var(--faint); text-transform: none; letter-spacing: 0; font-size: 11px; }
+        .sim-bar-row { margin-bottom: 12px; }
+        .sim-bar-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 5px; }
+        .sim-bar-nome { font-size: 13px; }
+        .sim-bar-val { font-size: 12px; color: var(--muted); flex-shrink: 0; }
+        .sim-bar-track { height: 8px; border-radius: 99px; background: var(--surface-3); overflow: hidden; }
+        .sim-bar-track i { display: block; height: 100%; border-radius: 99px; transition: width .3s ease; }
         .sim-caret { color: var(--faint); font-size: 11px; width: 12px; flex-shrink: 0; }
         .sim-row.open { border-bottom-left-radius: 0; border-bottom-right-radius: 0; margin-bottom: 0; }
         .sim-desemp-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; padding-top: 6px; }
