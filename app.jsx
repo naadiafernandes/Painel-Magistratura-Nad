@@ -997,12 +997,12 @@ const NAV_GROUPS = [
   { label: "ESTUDEI", items: [
     { key: "es-painel", icon: "home", label: "Painel", kind: "view", view: "es-painel" },
     { key: "es-materias", icon: "layers", label: "Matérias", kind: "view", view: "es-materias" },
-    { key: "es-editais", icon: "file", label: "Editais", kind: "view", view: "es-editais" },
+    { key: "es-editais", icon: "file", label: "Editais", kind: "view", view: "editais" },
     { key: "es-ciclos", icon: "pie", label: "Ciclos", kind: "view", view: "es-ciclos" },
     { key: "es-revisoes", icon: "refresh", label: "Revisões", kind: "view", view: "es-revisoes" },
     { key: "es-historico", icon: "clock", label: "Histórico", kind: "view", view: "es-historico" },
     { key: "es-estatisticas", icon: "chart", label: "Estatísticas", kind: "view", view: "es-estatisticas" },
-    { key: "es-simulados", icon: "clipboard", label: "Simulados", kind: "view", view: "es-simulados" },
+    { key: "sec-simulados", icon: "clipboard", label: "Simulados", kind: "anchor" },
   ] },
   { label: "Navegação", items: [
     { key: "painel", icon: "home", label: "Painel", kind: "home" },
@@ -1137,7 +1137,6 @@ const CAIXA_UID = () => "n" + Date.now().toString(36) + Math.random().toString(3
 const CAIXA_DESTINOS = [
   { id: "edital",  label: "Nota no edital verticalizado", ic: "M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z M14 3v5h5" },
   { id: "anki",    label: "Card do Anki",                 ic: "M4 7a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z M8 5h9a2 2 0 0 1 2 2v9" },
-  { id: "julgado", label: "Julgado na matéria",           ic: "M12 3v18 M6 8h12 M8 8l-2.5 5a2.5 2.5 0 0 0 5 0z M16 8l-2.5 5a2.5 2.5 0 0 0 5 0z" },
   { id: "guardar", label: "Só guardar",                   ic: "M6 3h12a1 1 0 0 1 1 1v16l-7-4-7 4V4a1 1 0 0 1 1-1z" },
 ];
 const CAIXA_CORES = ["#378ADD", "#4CA65E", "#E24B4A", "#D9A017", "#8B7FE0"];
@@ -2008,6 +2007,182 @@ function MetaSemana({ registros, metas, onSave }) {
   );
 }
 
+// ===== ESTUDEI: linha de um registro (reusada no Histórico e na Matéria) =====
+function RegRow({ r, onEdit, onDelete }) {
+  const f = regFonte(r.fonte);
+  return (
+    <div className="hist-row">
+      <span className="hist-bar" style={{ background: f.color }} />
+      <div className="hist-main">
+        <div className="hist-mat">{r.materia}{r.topico ? <span className="hist-top"> · {r.topico}</span> : null}</div>
+        {r.coment ? <div className="hist-com">{r.coment}</div> : null}
+      </div>
+      <div className="hist-meta">
+        {(r.acertos || r.erros) ? <span className="hist-qa">{r.acertos}✓ {r.erros}✗</span> : null}
+        {r.tempo ? <span className="hist-tempo">{fmtTempo(r.tempo)}</span> : null}
+        <span className="hist-fonte" style={{ color: f.color, background: `color-mix(in srgb, ${f.color} 15%, transparent)` }}>{f.label}</span>
+        {r.concluido ? <span className="hist-done" title="Concluído → revisão">✓ tópico</span> : null}
+      </div>
+      {onEdit ? <button className="hist-edit" onClick={() => onEdit(r)} title="Editar">✎</button> : null}
+      {onDelete ? <button className="hist-del" onClick={() => onDelete(r.id)} title="Apagar">×</button> : null}
+    </div>
+  );
+}
+
+// ===== ESTUDEI: Matérias =====
+function MateriasGrid({ registros, onOpen, onBack }) {
+  const todas = [...new Set(SECTIONS.flatMap((s) => s.subjects.map((x) => x.name)))].sort();
+  const agg = {};
+  for (const r of registros) {
+    const k = r.materia; if (!k) continue;
+    if (!agg[k]) agg[k] = { tempo: 0, acertos: 0, erros: 0, n: 0 };
+    agg[k].tempo += r.tempo || 0; agg[k].acertos += r.acertos || 0; agg[k].erros += r.erros || 0; agg[k].n += 1;
+  }
+  const extras = Object.keys(agg).filter((m) => !todas.includes(m)).sort();
+  const lista = [...todas, ...extras];
+  return (
+    <section className="editais-page es-page">
+      <button className="edital-back" onClick={onBack}>← Voltar ao painel</button>
+      <p className="eyebrow">ESTUDEI</p>
+      <h1 className="serif" style={{ marginBottom: 10 }}>Matérias</h1>
+      <p className="es-sub">Toque numa matéria pra ver tudo que você registrou nela.</p>
+      <div className="mat-grid">
+        {lista.map((m) => {
+          const a = agg[m]; const q = a ? a.acertos + a.erros : 0;
+          const perc = q ? Math.round((a.acertos / q) * 100) : null;
+          return (
+            <button className="mat-card" key={m} onClick={() => onOpen(m)}>
+              <div className="mat-nome">{m}</div>
+              <div className="mat-stats">
+                <span>{a ? fmtTempo(a.tempo) : "sem estudo"}</span>
+                {a ? <span>{a.n} registro{a.n > 1 ? "s" : ""}</span> : null}
+                {perc != null ? <span className="mat-perc">{perc}%</span> : null}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+function MateriaDetail({ materia, registros, onBack, onEdit, onDelete }) {
+  const regs = registros.filter((r) => r.materia === materia).sort((a, b) => b.ts - a.ts);
+  const tempo = regs.reduce((s, r) => s + (r.tempo || 0), 0);
+  const ac = regs.reduce((s, r) => s + (r.acertos || 0), 0);
+  const er = regs.reduce((s, r) => s + (r.erros || 0), 0);
+  const q = ac + er;
+  return (
+    <section className="editais-page es-page">
+      <button className="edital-back" onClick={onBack}>← Voltar às matérias</button>
+      <p className="eyebrow">ESTUDEI · Matéria</p>
+      <h1 className="serif" style={{ marginBottom: 14 }}>{materia}</h1>
+      <div className="mat-topcards">
+        <div className="panel"><div className="dp-lbl">Tempo</div><div className="dp-big mat-big">{fmtTempo(tempo)}</div></div>
+        <div className="panel"><div className="dp-lbl">Questões</div><div className="dp-big mat-big">{q}<small>{q ? ` · ${Math.round((ac / q) * 100)}%` : ""}</small></div></div>
+        <div className="panel"><div className="dp-lbl">Registros</div><div className="dp-big mat-big">{regs.length}</div></div>
+      </div>
+      {regs.length ? (<><div className="sechead-es">Por fonte</div><CiclosPizzas registros={regs} /></>) : null}
+      <div className="sechead-es">Registros</div>
+      {regs.length === 0 ? <div className="es-hint">Nada registrado nesta matéria ainda.</div>
+        : regs.map((r) => <RegRow key={r.id} r={r} onEdit={onEdit} onDelete={onDelete} />)}
+    </section>
+  );
+}
+
+// ===== ESTUDEI: Revisões (só o que você concluiu; sem prazo) =====
+function RevisoesView({ registros, revStatus, onMark, onBack }) {
+  const [aba, setAba] = useState("fazer");
+  const feitas = revStatus.feitas || [], guardadas = revStatus.guardadas || [];
+  const concl = registros.filter((r) => r.concluido);
+  const buckets = {
+    fazer: concl.filter((r) => !feitas.includes(r.id) && !guardadas.includes(r.id)),
+    feitas: concl.filter((r) => feitas.includes(r.id)),
+    guardadas: concl.filter((r) => guardadas.includes(r.id)),
+  };
+  const abas = [["fazer", "A fazer"], ["feitas", "Feitas"], ["guardadas", "Guardadas"]];
+  const lista = buckets[aba].sort((a, b) => b.ts - a.ts);
+  return (
+    <section className="editais-page es-page">
+      <button className="edital-back" onClick={onBack}>← Voltar ao painel</button>
+      <p className="eyebrow">ESTUDEI</p>
+      <h1 className="serif" style={{ marginBottom: 10 }}>Revisões</h1>
+      <p className="es-sub">Sem prazos. Um tópico só entra aqui quando você o conclui num registro.</p>
+      <div className="rev-tabs">
+        {abas.map(([k, l]) => (
+          <button key={k} className={`rev-tab${aba === k ? " on" : ""}`} onClick={() => setAba(k)}>{l} <span className="rev-n">{buckets[k].length}</span></button>
+        ))}
+      </div>
+      {lista.length === 0 ? (
+        <div className="es-hint">{aba === "fazer" ? "Nada pra revisar. Marque \"concluí este tópico\" num registro pra ele aparecer aqui." : "Vazio por aqui."}</div>
+      ) : lista.map((r) => {
+        const f = regFonte(r.fonte);
+        return (
+          <div className="rev-item" key={r.id}>
+            <span className="hist-bar" style={{ background: f.color }} />
+            <div className="hist-main">
+              <div className="hist-mat">{r.materia}{r.topico ? <span className="hist-top"> · {r.topico}</span> : null}</div>
+              <div className="rev-when">concluído em {new Date(r.ts).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}</div>
+            </div>
+            <span className="hist-fonte" style={{ color: f.color, background: `color-mix(in srgb, ${f.color} 15%, transparent)` }}>{f.label}</span>
+            <div className="rev-actions">
+              {aba === "fazer" && <><button className="rev-btn ok" onClick={() => onMark(r.id, "feitas")}>revisei</button><button className="rev-btn" onClick={() => onMark(r.id, "guardadas")}>guardar</button></>}
+              {aba !== "fazer" && <button className="rev-btn" onClick={() => onMark(r.id, "fazer")}>voltar</button>}
+            </div>
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
+// ===== ESTUDEI: Estatísticas =====
+function EstatisticasView({ registros, onBack }) {
+  const tempo = registros.reduce((s, r) => s + (r.tempo || 0), 0);
+  const ac = registros.reduce((s, r) => s + (r.acertos || 0), 0);
+  const er = registros.reduce((s, r) => s + (r.erros || 0), 0);
+  const q = ac + er; const perc = q ? Math.round((ac / q) * 100) : 0;
+  const dias = new Set(registros.map((r) => new Date(r.ts).toDateString())).size;
+  const media = dias ? Math.round(tempo / dias) : 0;
+  const matAgg = {};
+  for (const r of registros) {
+    const k = r.materia; if (!k) continue;
+    if (!matAgg[k]) matAgg[k] = { ac: 0, er: 0 };
+    matAgg[k].ac += r.acertos || 0; matAgg[k].er += r.erros || 0;
+  }
+  const matPerf = Object.keys(matAgg).map((m) => ({ m, ...matAgg[m], q: matAgg[m].ac + matAgg[m].er }))
+    .filter((x) => x.q > 0).map((x) => ({ ...x, p: Math.round((x.ac / x.q) * 100) })).sort((a, b) => b.q - a.q);
+  return (
+    <section className="editais-page es-page">
+      <button className="edital-back" onClick={onBack}>← Voltar ao painel</button>
+      <p className="eyebrow">ESTUDEI</p>
+      <h1 className="serif" style={{ marginBottom: 14 }}>Estatísticas</h1>
+      {registros.length === 0 ? <div className="es-hint">Registre estudos pra ver suas estatísticas.</div> : (<>
+        <div className="stat-grid">
+          <div className="panel stat-desemp">
+            <div className="dp-lbl">Desempenho</div>
+            <div className="desemp-donut" style={{ "--p": perc }}><div className="ciclo-hole"><b>{perc}%</b></div></div>
+            <div className="stat-sub">{ac} acertos · {er} erros</div>
+          </div>
+          <div className="panel"><div className="dp-lbl">Tempo total</div><div className="dp-big mat-big">{fmtTempo(tempo)}</div></div>
+          <div className="panel"><div className="dp-lbl">Dias estudados</div><div className="dp-big mat-big">{dias}</div></div>
+          <div className="panel"><div className="dp-lbl">Média por dia</div><div className="dp-big mat-big">{fmtTempo(media)}</div></div>
+        </div>
+        <div className="sechead-es">Tempo por fonte</div>
+        <CiclosPizzas registros={registros} />
+        {matPerf.length ? (<><div className="sechead-es">Desempenho por matéria</div>
+          <div className="panel">
+            {matPerf.map((x) => (
+              <div className="meta-row" key={x.m}>
+                <div className="meta-lab"><b>{x.m}</b><span>{x.ac}/{x.q} · {x.p}%</span></div>
+                <div className="meta-track"><i style={{ width: x.p + "%" }} /></div>
+              </div>
+            ))}
+          </div></>) : null}
+      </>)}
+    </section>
+  );
+}
+
 export default function App() {
   const [data, setData] = useState({});
   const [simData, setSimData] = useState({});
@@ -2044,9 +2219,12 @@ export default function App() {
   const [registros, setRegistros] = useState([]);
   const [dataProva, setDataProva] = useState(null);
   const [metas, setMetas] = useState({ horas: 20, questoes: 300, revisoes: 8 });
+  const [revStatus, setRevStatus] = useState({ feitas: [], guardadas: [] });
+  const [matAberta, setMatAberta] = useState(null);
   const [regOpen, setRegOpen] = useState(false);
   const [regEditing, setRegEditing] = useState(null);
   const [regToast, setRegToast] = useState(false);
+  useEffect(() => { setMatAberta(null); }, [view]);
   const [prioInput, setPrioInput] = useState("");
   const [simManuais, setSimManuais] = useState([]);
   const [simHidden, setSimHidden] = useState([]);
@@ -2175,6 +2353,8 @@ export default function App() {
       try { const r = await window.storage.get(DATAPROVA_KEY); dp = r ? JSON.parse(r.value) : null; } catch { dp = null; }
       let mt = { horas: 20, questoes: 300, revisoes: 8 };
       try { const r = await window.storage.get(METAS_KEY); if (r) mt = { ...mt, ...JSON.parse(r.value) }; } catch {}
+      let rvs = { feitas: [], guardadas: [] };
+      try { const r = await window.storage.get(REVSTATUS_KEY); if (r) rvs = { feitas: [], guardadas: [], ...JSON.parse(r.value) }; } catch {}
       let manuais = [];
       try { const r = await window.storage.get(SIM_MANUAIS_KEY); manuais = r ? JSON.parse(r.value) : []; } catch { manuais = []; }
       let ocultas = [];
@@ -2192,6 +2372,7 @@ export default function App() {
       setRegistros(regs);
       setDataProva(dp);
       setMetas(mt);
+      setRevStatus(rvs);
       setSimManuais(manuais);
       setSimHidden(ocultas);
       setDiario(diaEntries);
@@ -2226,6 +2407,12 @@ export default function App() {
   const fecharRegistro = () => { setRegOpen(false); setRegEditing(null); };
   const saveDataProva = (v) => { setDataProva(v); try { window.storage.set(DATAPROVA_KEY, JSON.stringify(v)); } catch {} };
   const saveMetas = (v) => { setMetas(v); try { window.storage.set(METAS_KEY, JSON.stringify(v)); } catch {} };
+  const marcarRevisao = (id, destino) => {
+    const next = { feitas: (revStatus.feitas || []).filter((x) => x !== id), guardadas: (revStatus.guardadas || []).filter((x) => x !== id) };
+    if (destino === "feitas") next.feitas.push(id);
+    else if (destino === "guardadas") next.guardadas.push(id);
+    setRevStatus(next); try { window.storage.set(REVSTATUS_KEY, JSON.stringify(next)); } catch {}
+  };
 
   // ---------- Diário de estudos ----------
   const saveDiario = (arr) => {
@@ -3414,6 +3601,40 @@ export default function App() {
         .meta-editrow { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
         .meta-editrow label { font-size: 13px; color: var(--muted); }
         .meta-editrow input { width: 100px; }
+
+        /* ===== Matérias ===== */
+        .mat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; margin-top: 6px; }
+        .mat-card { text-align: left; background: var(--surface); border: 1px solid var(--line-2); border-radius: 16px; padding: 16px 18px; cursor: pointer; font: inherit; color: var(--text); transition: border-color .15s; }
+        .mat-card:hover { border-color: var(--gold); }
+        .mat-nome { font-size: 14.5px; font-weight: 700; color: var(--coral); }
+        .mat-stats { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; font-size: 12.5px; color: var(--muted); }
+        .mat-perc { color: var(--gold); font-weight: 700; }
+        .mat-topcards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 4px; }
+        .mat-topcards .panel { margin-top: 0; }
+        .mat-big { font-size: 26px; }
+        .mat-big small { font-size: 14px; color: var(--muted); font-weight: 600; }
+        @media (max-width: 560px){ .mat-topcards { grid-template-columns: 1fr; } }
+
+        /* ===== Revisões ===== */
+        .rev-tabs { display: flex; gap: 8px; margin: 6px 0 16px; flex-wrap: wrap; }
+        .rev-tab { background: var(--surface-2); border: 1px solid var(--line-2); color: var(--muted); border-radius: 999px; padding: 7px 14px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+        .rev-tab.on { background: var(--gold); color: #2a2410; border-color: var(--gold); }
+        .rev-n { opacity: .7; font-size: 11.5px; }
+        .rev-item { display: flex; align-items: center; gap: 12px; padding: 12px 4px; border-bottom: 1px solid var(--line); }
+        .rev-when { font-size: 12px; color: var(--faint); margin-top: 2px; }
+        .rev-actions { display: flex; gap: 8px; flex: none; }
+        .rev-btn { background: var(--surface-2); border: 1px solid var(--line-2); color: var(--muted); border-radius: 8px; padding: 6px 12px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+        .rev-btn:hover { color: var(--text); }
+        .rev-btn.ok { background: var(--green-bg); border-color: transparent; color: var(--green); }
+        @media (max-width: 560px){ .rev-item { flex-wrap: wrap; } .rev-actions { width: 100%; } }
+
+        /* ===== Estatísticas ===== */
+        .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; margin-top: 6px; }
+        .stat-grid .panel { margin-top: 0; }
+        .stat-desemp { text-align: center; }
+        .desemp-donut { width: 110px; height: 110px; margin: 12px auto 6px; border-radius: 50%;
+          background: conic-gradient(var(--green) calc(var(--p) * 1%), color-mix(in srgb, var(--coral) 55%, transparent) 0); display: grid; place-items: center; }
+        .stat-sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
       `}</style>
 
       <button
@@ -3911,13 +4132,15 @@ export default function App() {
           </section>
         )}
 
-        {ES_PAGES[view] && !["es-historico", "es-ciclos", "es-painel"].includes(view) && (
-          <EsStub
-            title={ES_PAGES[view].title}
-            sub={ES_PAGES[view].sub}
-            blocks={ES_PAGES[view].blocks}
-            onBack={() => setView("main")}
-          />
+        {view === "es-materias" && (matAberta
+          ? <MateriaDetail materia={matAberta} registros={registros} onBack={() => setMatAberta(null)} onEdit={abrirRegistro} onDelete={removeRegistro} />
+          : <MateriasGrid registros={registros} onOpen={setMatAberta} onBack={() => setView("main")} />
+        )}
+        {view === "es-revisoes" && (
+          <RevisoesView registros={registros} revStatus={revStatus} onMark={marcarRevisao} onBack={() => setView("main")} />
+        )}
+        {view === "es-estatisticas" && (
+          <EstatisticasView registros={registros} onBack={() => setView("main")} />
         )}
         {view === "es-historico" && (
           <RegHistorico registros={registros} onBack={() => setView("main")} onDelete={removeRegistro} onEdit={abrirRegistro} />
