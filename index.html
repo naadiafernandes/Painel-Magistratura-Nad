@@ -1347,6 +1347,34 @@ function beautifyFrase(texto) {
   return s;
 }
 
+// ---------- Migração: Diário de estudos -> Histórico (registros) ----------
+// Cada anotação do diário vira um registro no histórico do ESTUDEI (1 para 1).
+// Diário não tem tempo/acertos, então esses campos entram zerados.
+const DIARIO_FONTE_TO_REG = { lei: "leiseca", juris: "juris", questoes: "questoes", doutrina: "teoria", anki: "anki" };
+function htmlParaTexto(html) {
+  if (!html) return "";
+  try {
+    const d = document.createElement("div");
+    d.innerHTML = String(html).replace(/<\/(p|div|br|li)>/gi, "\n").replace(/<br\s*\/?>/gi, "\n");
+    return (d.textContent || d.innerText || "").replace(/\n{3,}/g, "\n\n").trim();
+  } catch {
+    return String(html).replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  }
+}
+function diarioParaRegistro(e) {
+  const fonteTag = (e.fontes || [])[0];
+  const fonte = DIARIO_FONTE_TO_REG[fonteTag] || "teoria";
+  const matId = (e.mats || [])[0];
+  const materia = (matId && SUBJ_BY_ID[matId]) ? SUBJ_BY_ID[matId].name : "";
+  return {
+    id: "d" + e.id, ts: e.ts || Date.now(), fonte,
+    materia, topico: (e.titulo || "").trim(),
+    tempo: 0, acertos: 0, erros: 0,
+    coment: htmlParaTexto(e.html || e.texto || ""),
+    concluido: false, origem: "diario", dref: e.id,
+  };
+}
+
 // ---------- Caixa de entrada: cole qualquer material e vira nota (você escolhe a matéria; o tópico vem do edital) ----------
 const CAIXA_KEY = "tjsc-caixa:v2";
 const CAIXA_KEY_OLD = "tjsc-caixa:v1";
@@ -3144,6 +3172,13 @@ function App() {
       try { const r = await window.storage.get(DIARIO_KEY); diaEntries = r ? JSON.parse(r.value) : []; } catch { diaEntries = []; }
       let diaTags = null;
       try { const r = await window.storage.get(DIARIO_TAGS_KEY); diaTags = r ? JSON.parse(r.value) : null; } catch { diaTags = null; }
+      // migra as anotações do diário para o histórico (1x por anotação; não duplica se rodar de novo)
+      const jaMigrados = new Set(regs.filter((r) => r.origem === "diario").map((r) => r.dref));
+      const novosDoDiario = diaEntries.filter((e) => e && !jaMigrados.has(e.id)).map(diarioParaRegistro);
+      if (novosDoDiario.length) {
+        regs = [...novosDoDiario, ...regs];
+        try { window.storage.set(REGISTROS_KEY, JSON.stringify(regs)); } catch {}
+      }
       setData(next);
       setSimData(sim);
       setInfoData(info);
