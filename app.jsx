@@ -903,6 +903,20 @@ const SIM_MANUAIS_KEY = "tjsc-simulados-manuais:list";
 const SIM_HIDDEN_KEY = "tjsc-simulados-ocultas:list";
 const SIM_FEITOS_KEY = "tjsc-simulados-feitos:v1";     // simulados que ela registrou (nota)
 const SIM_SUG_KEY = "tjsc-simulados-sugestoes:v1";      // lista ordenável de próximos simulados
+const SIM_TEC_SEED_KEY = "tjsc-simulados-tec-seed:v1";  // marca que o HISTÓRICO DO TEC já foi semeado (roda 1x)
+// base do histórico do TEC (só matérias com 30+ questões resolvidas, mapeadas pras matérias dela)
+const TEC_HIST_MATS = [
+  { nome: "Direito Constitucional", a: "406", q: "543" },
+  { nome: "Direito Administrativo", a: "383", q: "494" },
+  { nome: "Direito Civil", a: "326", q: "441" },
+  { nome: "Direito Processual Civil", a: "275", q: "380" },
+  { nome: "Direito Penal", a: "302", q: "434" },
+  { nome: "Direito Empresarial", a: "57", q: "105" },
+  { nome: "Direitos Humanos", a: "171", q: "211" },
+  { nome: "Leis Civis e Processuais Civis Especiais", a: "118", q: "152" },
+  { nome: "Leis Penais e Processuais Penais Especiais", a: "57", q: "76" },
+  { nome: "Noções Gerais de Direito e Formação Humanística", a: "62", q: "88" },
+];
 
 // nota de um simulado — se tem detalhe por matéria, soma dele; senão usa os totais
 const simTot = (s) => {
@@ -2888,6 +2902,16 @@ export default function App() {
           if (info && info.mats.length) { f.mats = info.mats; mudou = true; }
         }
         if (mudou) { try { window.storage.set(SIM_FEITOS_KEY, JSON.stringify(feitos)); } catch {} }
+      }
+      // HISTÓRICO DO TEC — base única (roda 1x; não volta se ela apagar)
+      let tecSeed = false;
+      try { const r = await window.storage.get(SIM_TEC_SEED_KEY); tecSeed = !!r; } catch {}
+      if (!tecSeed) {
+        if (!feitos.some((f) => f.nome === "HISTÓRICO DO TEC")) {
+          feitos = [{ id: SIM_UID(), ts: Date.now() - 30 * 86400000, nome: "HISTÓRICO DO TEC", mats: TEC_HIST_MATS }, ...feitos];
+          try { window.storage.set(SIM_FEITOS_KEY, JSON.stringify(feitos)); } catch {}
+        }
+        try { window.storage.set(SIM_TEC_SEED_KEY, "1"); } catch {}
       }
       const feitosNomes = new Set(feitos.map((f) => f.nome));
       let sug = null;
