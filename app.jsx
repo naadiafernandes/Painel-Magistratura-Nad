@@ -933,6 +933,25 @@ const simTotalQ = (s) => simTot(s).q;
 // acertos/brancos/erros pro cartão "último"
 const simBreak = (s) => { const { a, q } = simTot(s); const br = (s.mats && s.mats.length) ? 0 : (s.brancos || 0); return { a, br, er: Math.max(0, q - a - br) }; };
 const simMatPct = (m) => { const a = parseInt(m.a || 0, 10) || 0, q = parseInt(m.q || 0, 10) || 0; return q ? Math.round((a / q) * 100) : null; };
+// nos gráficos: junta/exclui matérias de provas que não são do edital dela
+const HUMAN_NOME = "Noções Gerais de Direito e Formação Humanística";
+const MAT_EXCLUI = new Set(["Informática", "Leis Institucionais", "Português", "Língua Portuguesa", "Língua Portuguesa (Português)", "Raciocínio Lógico"]);
+const MAT_JUNTA = {
+  "Ética": HUMAN_NOME, "Ética no Serviço Público": HUMAN_NOME,
+  "Direitos Humanos e Tutela Coletiva": "Direitos Humanos",
+  "Direitos Humanos e Acesso à Justiça": "Direitos Humanos",
+};
+const matNorm = (n) => (MAT_EXCLUI.has(n) ? null : (MAT_JUNTA[n] || n));
+// apelido curto pra caber embaixo das colunas
+const MAT_CURTO = {
+  "Direito Constitucional": "Const.", "Direito Administrativo": "Adm.", "Direito Civil": "Civil",
+  "Direito Processual Civil": "Proc. Civil", "Direito Penal": "Penal", "Direito Processual Penal": "Proc. Penal",
+  "Direito Empresarial": "Empres.", "Direito Financeiro e Tributário": "Tribut.", "Direito do Consumidor": "Consum.",
+  "Direito da Criança e do Adolescente": "ECA", "Direito Ambiental": "Amb.", "Direito Eleitoral": "Eleit.",
+  "Leis Civis e Processuais Civis Especiais": "Leis Civis", "Leis Penais e Processuais Penais Especiais": "Leis Penais",
+  "Direitos Humanos": "Dir. Hum.", [HUMAN_NOME]: "Humanís.",
+};
+const matCurto = (n) => MAT_CURTO[n] || n.replace(/^Direito d[eoa]s? /, "").replace(/^Direito /, "");
 const SIM_UID = () => Date.now() + Math.floor(Math.random() * 1000);
 const simFmtData = (ts) => new Date(ts).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
 
@@ -2561,45 +2580,77 @@ function SimuladosView({ feitos, sugestoes, onNovo, onEditFeito, onDeleteFeito, 
   const ultimo = feitosOrd[0];
   const media = feitos.length ? Math.round(feitos.reduce((s, x) => s + simPct(x), 0) / feitos.length) : 0;
   const barCor = (p) => (p >= 70 ? "var(--green)" : p >= 50 ? "var(--gold)" : "var(--coral)");
-  const todasMats = [...new Set(feitos.flatMap((s) => (s.mats || []).map((m) => m.nome)))];
-  // desempenho somado por matéria (todas as provas juntas) — pro gráfico "todas de uma vez"
+  const todasMats = [...new Set(feitos.flatMap((s) => (s.mats || []).map((m) => matNorm(m.nome)).filter(Boolean)))];
+  // desempenho somado por matéria (todas as provas juntas) — pro gráfico de colunas
   const agg = {};
   for (const s of feitos) for (const m of (s.mats || [])) {
+    const nome = matNorm(m.nome);
+    if (!nome) continue;
     const a = parseInt(m.a || 0, 10) || 0, q = parseInt(m.q || 0, 10) || 0;
-    if (!agg[m.nome]) agg[m.nome] = { a: 0, q: 0 };
-    agg[m.nome].a += a; agg[m.nome].q += q;
+    if (!agg[nome]) agg[nome] = { a: 0, q: 0 };
+    agg[nome].a += a; agg[nome].q += q;
   }
   const matBars = Object.keys(agg).map((nome) => ({ nome, a: agg[nome].a, q: agg[nome].q, pct: agg[nome].q ? Math.round((agg[nome].a / agg[nome].q) * 100) : 0 }))
     .filter((x) => x.q > 0).sort((a, b) => a.pct - b.pct);
 
-  const chart = (() => {
+  const lineChart = (() => {
     const pts = asc.map((s) => {
-      if (matFiltro) { const m = (s.mats || []).find((x) => x.nome === matFiltro); if (!m || !(parseInt(m.q || 0, 10) > 0)) return null; return { s, p: simMatPct(m) }; }
+      if (matFiltro) {
+        let a = 0, q = 0, tem = false;
+        for (const m of (s.mats || [])) { if (matNorm(m.nome) === matFiltro) { a += parseInt(m.a || 0, 10) || 0; q += parseInt(m.q || 0, 10) || 0; tem = true; } }
+        if (!tem || q <= 0) return null;
+        return { s, p: Math.round((a / q) * 100) };
+      }
       return { s, p: simPct(s) };
     }).filter(Boolean);
-    if (pts.length < 2) return <div className="es-hint">{matFiltro ? "Poucos registros dessa matéria pra ver a evolução." : "Registre pelo menos dois simulados pra ver a evolução."}</div>;
+    if (pts.length < 2) return <div className="sim-chart-empty">{matFiltro ? "Poucos registros dessa matéria pra ver a evolução." : "Registre pelo menos dois pra ver a evolução."}</div>;
     const vals = pts.map((x) => x.p);
     const lo = Math.max(0, Math.min(...vals) - 8), hi = Math.min(100, Math.max(...vals) + 8);
     const span = Math.max(1, hi - lo);
-    const W = 560, H = 150, padL = 38, padR = 18, padT = 22, padB = 30;
+    const W = 520, H = 178, padL = 34, padR = 16, padT = 24, padB = 34;
     const X = (i) => padL + (i / (pts.length - 1)) * (W - padL - padR);
     const Y = (v) => padT + (1 - (v - lo) / span) * (H - padT - padB);
     const poly = pts.map((x, i) => `${X(i)},${Y(x.p)}`).join(" ");
     const showData = pts.length <= 6;
     return (
-      <div className="sim-chart">
-        <svg viewBox={`0 0 ${W} ${H}`} width="100%" height="150" role="img" aria-label="Evolução do desempenho">
-          <line x1={padL} y1={H - padB} x2={W - padR} y2={H - padB} stroke="var(--line)" strokeWidth="1" />
-          <polyline points={poly} fill="none" stroke="var(--gold)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-          {pts.map((x, i) => (
-            <g key={x.s.id}>
-              <circle cx={X(i)} cy={Y(x.p)} r="4.5" fill="var(--gold)" />
-              <text x={X(i)} y={Y(x.p) - 9} fill="var(--muted)" fontSize="11" textAnchor="middle">{x.p}%</text>
-              {showData && <text x={X(i)} y={H - 10} fill="var(--faint)" fontSize="10.5" textAnchor="middle">{simFmtData(x.s.ts)}</text>}
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height="178" role="img" aria-label="Evolução do desempenho">
+        <line x1={padL} y1={H - padB} x2={W - padR} y2={H - padB} stroke="var(--line)" strokeWidth="1" />
+        <polyline points={poly} fill="none" stroke="var(--gold)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+        {pts.map((x, i) => (
+          <g key={x.s.id}>
+            <circle cx={X(i)} cy={Y(x.p)} r="4.5" fill="var(--gold)" />
+            <text x={X(i)} y={Y(x.p) - 9} fill="var(--muted)" fontSize="11" textAnchor="middle">{x.p}%</text>
+            {showData && <text x={X(i)} y={H - 12} fill="var(--faint)" fontSize="10" textAnchor="middle">{simFmtData(x.s.ts)}</text>}
+          </g>
+        ))}
+      </svg>
+    );
+  })();
+
+  const colChart = (() => {
+    if (matBars.length === 0) return <div className="sim-chart-empty">Sem nota por matéria ainda.</div>;
+    const n = matBars.length;
+    const W = 520, H = 178, padT = 16, padB = 62, padX = 8;
+    const plotH = H - padT - padB;
+    const colW = (W - padX * 2) / n;
+    const barW = Math.min(24, colW * 0.6);
+    return (
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height="178" role="img" aria-label="Desempenho por matéria">
+        <line x1={padX} y1={padT + plotH} x2={W - padX} y2={padT + plotH} stroke="var(--line)" strokeWidth="1" />
+        {matBars.map((m, i) => {
+          const cx = padX + colW * i + colW / 2;
+          const h = Math.max(2, plotH * (m.pct / 100));
+          const y = padT + plotH - h;
+          const ly = padT + plotH + 10;
+          return (
+            <g key={m.nome}>
+              <rect x={cx - barW / 2} y={y} width={barW} height={h} rx="3" fill={barCor(m.pct)} />
+              <text x={cx} y={y - 4} fill="var(--muted)" fontSize="9" textAnchor="middle">{m.pct}</text>
+              <text x={cx} y={ly} fill="var(--faint)" fontSize="9" textAnchor="end" transform={`rotate(-45 ${cx} ${ly})`}>{matCurto(m.nome)}</text>
             </g>
-          ))}
-        </svg>
-      </div>
+          );
+        })}
+      </svg>
     );
   })();
 
@@ -2630,28 +2681,24 @@ function SimuladosView({ feitos, sugestoes, onNovo, onEditFeito, onDeleteFeito, 
 
       <button className="sim-newbtn" onClick={() => onNovo()}>+ Novo simulado</button>
 
-      <div className="sim-desemp-head">
-        <div className="sechead-es" style={{ margin: 0 }}>Seu desempenho</div>
-        {todasMats.length > 0 && (
-          <select className="sim-matsel" value={matFiltro} onChange={(e) => setMatFiltro(e.target.value)}>
-            <option value="">Todas as matérias</option>
-            {todasMats.map((m) => <option key={m} value={m}>{m}</option>)}
-          </select>
-        )}
-      </div>
-      {chart}
-
-      {matBars.length > 0 && (<>
-        <div className="sechead-es">Desempenho por matéria <span className="sim-allmat-sub">— tudo somado, da pior pra melhor</span></div>
-        <div className="panel sim-allmat">
-          {matBars.map((m) => (
-            <div className="sim-bar-row" key={m.nome}>
-              <div className="sim-bar-top"><span className="sim-bar-nome">{m.nome}</span><span className="sim-bar-val mono">{m.a}/{m.q} · {m.pct}%</span></div>
-              <div className="sim-bar-track"><i style={{ width: m.pct + "%", background: barCor(m.pct) }} /></div>
-            </div>
-          ))}
+      <div className="sim-charts">
+        <div className="sim-cardbox">
+          <div className="sim-cardhead2">
+            <span>Meu desempenho</span>
+            {todasMats.length > 0 && (
+              <select className="sim-matsel" value={matFiltro} onChange={(e) => setMatFiltro(e.target.value)}>
+                <option value="">Todas as matérias</option>
+                {todasMats.map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+            )}
+          </div>
+          {lineChart}
         </div>
-      </>)}
+        <div className="sim-cardbox">
+          <div className="sim-cardhead2"><span>Desempenho por matéria</span><span className="sim-cardhead-sub">pior → melhor</span></div>
+          {colChart}
+        </div>
+      </div>
 
       <div className="sechead-es">Meus simulados e provas</div>
       {feitosOrd.length === 0 ? <div className="es-hint">Nenhum simulado ainda. Toque em “+ Novo simulado” pra registrar o primeiro.</div>
@@ -3840,6 +3887,14 @@ export default function App() {
         .sim-newbtn { display: inline-flex; align-items: center; gap: 8px; background: var(--gold); color: var(--on-accent,#2a1f04);
           font: inherit; font-weight: 800; font-size: 14px; border: none; border-radius: 12px; padding: 12px 18px; cursor: pointer; margin: 18px 0 6px; }
         .sim-chart { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 18px 14px 8px; }
+        .sim-charts { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; margin-bottom: 8px; }
+        @media (max-width: 760px) { .sim-charts { grid-template-columns: 1fr; } }
+        .sim-cardbox { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px 14px 10px; display: flex; flex-direction: column; }
+        .sim-cardhead2 { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; min-height: 30px; }
+        .sim-cardhead2 > span:first-child { font-size: 12px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); font-weight: 800; }
+        .sim-cardhead-sub { font-size: 10px; color: var(--faint); font-weight: 700; text-transform: uppercase; letter-spacing: .5px; white-space: nowrap; }
+        .sim-cardbox .sim-matsel { max-width: 62%; }
+        .sim-chart-empty { flex: 1; display: flex; align-items: center; justify-content: center; text-align: center; color: var(--faint); font-size: 12.5px; min-height: 150px; padding: 8px; }
         .sim-row { display: flex; align-items: center; gap: 12px; background: var(--surface); border: 1px solid var(--line);
           border-radius: 13px; padding: 12px 14px; margin-bottom: 9px; }
         .sim-bar { width: 4px; align-self: stretch; border-radius: 99px; flex-shrink: 0; }
