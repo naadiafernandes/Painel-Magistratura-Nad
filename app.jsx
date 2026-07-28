@@ -2574,7 +2574,14 @@ function SimuladosView({ feitos, sugestoes, onNovo, onEditFeito, onDeleteFeito, 
   const [over, setOver] = useState(null);
   const [openSim, setOpenSim] = useState(null);
   const [matFiltro, setMatFiltro] = useState("");
+  const [tip, setTip] = useState(null); // {card, lines, x, y}
   const dragI = useRef(null);
+  const showTip = (e, card, lines) => {
+    const box = e.currentTarget.closest(".sim-cardbox");
+    if (!box) return;
+    const r = box.getBoundingClientRect();
+    setTip({ card, lines, x: e.clientX - r.left, y: e.clientY - r.top });
+  };
   const feitosOrd = [...feitos].sort((a, b) => b.ts - a.ts);
   const asc = [...feitos].sort((a, b) => a.ts - b.ts);
   const ultimo = feitosOrd[0];
@@ -2599,9 +2606,10 @@ function SimuladosView({ feitos, sugestoes, onNovo, onEditFeito, onDeleteFeito, 
         let a = 0, q = 0, tem = false;
         for (const m of (s.mats || [])) { if (matNorm(m.nome) === matFiltro) { a += parseInt(m.a || 0, 10) || 0; q += parseInt(m.q || 0, 10) || 0; tem = true; } }
         if (!tem || q <= 0) return null;
-        return { s, p: Math.round((a / q) * 100) };
+        return { s, p: Math.round((a / q) * 100), a, q };
       }
-      return { s, p: simPct(s) };
+      const t = simTot(s);
+      return { s, p: simPct(s), a: t.a, q: t.q };
     }).filter(Boolean);
     if (pts.length < 2) return <div className="sim-chart-empty">{matFiltro ? "Poucos registros dessa matéria pra ver a evolução." : "Registre pelo menos dois pra ver a evolução."}</div>;
     const vals = pts.map((x) => x.p);
@@ -2621,6 +2629,8 @@ function SimuladosView({ feitos, sugestoes, onNovo, onEditFeito, onDeleteFeito, 
             <circle cx={X(i)} cy={Y(x.p)} r="4.5" fill="var(--gold)" />
             <text x={X(i)} y={Y(x.p) - 9} fill="var(--muted)" fontSize="11" textAnchor="middle">{x.p}%</text>
             {showData && <text x={X(i)} y={H - 12} fill="var(--faint)" fontSize="10" textAnchor="middle">{simFmtData(x.s.ts)}</text>}
+            <circle cx={X(i)} cy={Y(x.p)} r="16" fill="transparent" style={{ cursor: "pointer" }}
+              onMouseMove={(e) => showTip(e, "line", [x.s.nome, `${matFiltro ? matCurto(matFiltro) + " · " : ""}${x.a}/${x.q} · ${x.p}%`, simFmtData(x.s.ts)])} />
           </g>
         ))}
       </svg>
@@ -2647,6 +2657,8 @@ function SimuladosView({ feitos, sugestoes, onNovo, onEditFeito, onDeleteFeito, 
               <rect x={cx - barW / 2} y={y} width={barW} height={h} rx="3" fill={barCor(m.pct)} />
               <text x={cx} y={y - 4} fill="var(--muted)" fontSize="9" textAnchor="middle">{m.pct}</text>
               <text x={cx} y={ly} fill="var(--faint)" fontSize="9" textAnchor="end" transform={`rotate(-45 ${cx} ${ly})`}>{matCurto(m.nome)}</text>
+              <rect x={padX + colW * i} y={padT} width={colW} height={plotH} fill="transparent" style={{ cursor: "pointer" }}
+                onMouseMove={(e) => showTip(e, "col", [m.nome, `${m.a}/${m.q} questões · ${m.pct}%`])} />
             </g>
           );
         })}
@@ -2682,7 +2694,7 @@ function SimuladosView({ feitos, sugestoes, onNovo, onEditFeito, onDeleteFeito, 
       <button className="sim-newbtn" onClick={() => onNovo()}>+ Novo simulado</button>
 
       <div className="sim-charts">
-        <div className="sim-cardbox">
+        <div className="sim-cardbox" onMouseLeave={() => setTip(null)}>
           <div className="sim-cardhead2">
             <span>Meu desempenho</span>
             {todasMats.length > 0 && (
@@ -2693,10 +2705,20 @@ function SimuladosView({ feitos, sugestoes, onNovo, onEditFeito, onDeleteFeito, 
             )}
           </div>
           {lineChart}
+          {tip && tip.card === "line" && (
+            <div className="sim-tip" style={{ left: tip.x, top: tip.y }}>
+              <b>{tip.lines[0]}</b>{tip.lines.slice(1).map((l, i) => <span key={i}>{l}</span>)}
+            </div>
+          )}
         </div>
-        <div className="sim-cardbox">
+        <div className="sim-cardbox" onMouseLeave={() => setTip(null)}>
           <div className="sim-cardhead2"><span>Desempenho por matéria</span><span className="sim-cardhead-sub">pior → melhor</span></div>
           {colChart}
+          {tip && tip.card === "col" && (
+            <div className="sim-tip" style={{ left: tip.x, top: tip.y }}>
+              <b>{tip.lines[0]}</b>{tip.lines.slice(1).map((l, i) => <span key={i}>{l}</span>)}
+            </div>
+          )}
         </div>
       </div>
 
@@ -3889,7 +3911,12 @@ export default function App() {
         .sim-chart { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 18px 14px 8px; }
         .sim-charts { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; margin-bottom: 8px; }
         @media (max-width: 760px) { .sim-charts { grid-template-columns: 1fr; } }
-        .sim-cardbox { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px 14px 10px; display: flex; flex-direction: column; }
+        .sim-cardbox { position: relative; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px 14px 10px; display: flex; flex-direction: column; }
+        .sim-tip { position: absolute; pointer-events: none; z-index: 6; max-width: 210px; background: var(--surface-3); border: 1px solid var(--line-2);
+          border-radius: 10px; padding: 7px 10px; font-size: 11.5px; line-height: 1.4; color: var(--text); box-shadow: 0 8px 22px rgba(0,0,0,.4);
+          transform: translate(-50%, calc(-100% - 12px)); }
+        .sim-tip b { display: block; margin-bottom: 2px; font-weight: 700; }
+        .sim-tip span { display: block; color: var(--muted); }
         .sim-cardhead2 { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; min-height: 30px; }
         .sim-cardhead2 > span:first-child { font-size: 12px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); font-weight: 800; }
         .sim-cardhead-sub { font-size: 10px; color: var(--faint); font-weight: 700; text-transform: uppercase; letter-spacing: .5px; white-space: nowrap; }
