@@ -1634,7 +1634,7 @@ function CaixaView({ onBack, onArquivarEdital }) {
 
 // ---------- Página de notas de um tópico do edital (caixinhas arrastáveis, rich text) ----------
 const TN_UID = () => "b" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-const TN_FORE = ["#ececee", "#e68a8a", "#7fa8e6", "#7bd39a", "#e6c060", "#c79bff"];
+const TN_FORE = ["#e68a8a", "#7fa8e6", "#7bd39a", "#e6c060", "#c79bff"];
 const TN_BACK = ["none", "#5a3d3d", "#3d4a5a", "#3d5a45", "#5a5030", "#4a3d5a"];
 const TN_TAGS = [["#a9c4ef", "127,168,230"], ["#e6c060", "230,192,96"], ["#7bd39a", "123,211,154"], ["#e68a8a", "230,138,138"], ["#c79bff", "199,155,255"], ["#5fbfc0", "95,191,192"]];
 
@@ -1687,9 +1687,21 @@ function TopicNotes({ label, materia, initial, onBack, onSave }) {
   const persist = (arr) => onSave(arr.map((b) => ({ id: b.id, html: b.html, tags: b.tags })));
   const commit = (arr) => { setBoxes(arr); persist(arr); };
 
-  const restore = () => { const r = savedRange.current; if (!r) return; const s = document.getSelection(); s.removeAllRanges(); s.addRange(r); };
+  const restore = () => {
+    const r = savedRange.current; if (!r) return;
+    // o seletor de cor (roda) tira o foco da caixinha; devolve o foco pra caixinha certa antes de aplicar
+    for (const id in refs.current) {
+      if (refs.current[id] && refs.current[id].contains(r.commonAncestorContainer)) { refs.current[id].focus(); break; }
+    }
+    const s = document.getSelection(); s.removeAllRanges(); s.addRange(r);
+  };
   const exec = (cmd) => { restore(); try { document.execCommand(cmd, false, null); } catch (e) {} };
-  const applyColor = (kind, color) => { restore(); try { document.execCommand(kind === "fore" ? "foreColor" : "hiliteColor", false, color); } catch (e) {} };
+  const applyColor = (kind, color) => {
+    restore();
+    // "reset" volta a letra pra cor padrão do tema (preta no claro, clara no escuro)
+    const c = color === "reset" ? getComputedStyle(document.body).color : color;
+    try { document.execCommand(kind === "fore" ? "foreColor" : "hiliteColor", false, c); } catch (e) {}
+  };
 
   const addBox = () => {
     const nb = { id: TN_UID(), html: "", tags: [] };
@@ -1736,6 +1748,9 @@ function TopicNotes({ label, materia, initial, onBack, onSave }) {
 
   const swatchRow = (kind, colors) => (
     <span className="tn-sw-row">
+      {kind === "fore" && (
+        <span className="tn-sw" style={{ background: "var(--text)" }} title="cor padrão" onMouseDown={(e) => e.preventDefault()} onClick={() => applyColor("fore", "reset")} />
+      )}
       {colors.map((c, i) =>
         c === "none" ? (
           <span key={i} className="tn-sw none" title="sem fundo" onMouseDown={(e) => e.preventDefault()} onClick={() => applyColor("back", "transparent")} />
@@ -1744,7 +1759,7 @@ function TopicNotes({ label, materia, initial, onBack, onSave }) {
         )
       )}
       <span className="tn-sw pick" title="qualquer cor">
-        <input type="color" onMouseDown={(e) => e.stopPropagation()} onInput={(e) => applyColor(kind, e.target.value)} />
+        <input type="color" onMouseDown={(e) => e.stopPropagation()} onChange={(e) => applyColor(kind, e.target.value)} />
       </span>
     </span>
   );
