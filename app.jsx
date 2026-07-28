@@ -2347,8 +2347,10 @@ export default function App() {
         .ed-note-btn.has { background: var(--gold); border-color: var(--gold); color: #2a2410; }
         .ed-note-btn.open { border-color: var(--gold); color: var(--gold); }
         .ed-obs-flag { color: var(--gold); font-size: 11px; flex-shrink: 0; }
-        .ed-nota-badge { display: inline-flex; align-items: center; gap: 3px; font-size: 10px; font-weight: 700;
-          padding: 1px 8px; border-radius: 99px; background: var(--gold); color: #2a2410; flex-shrink: 0; letter-spacing: .2px; }
+        .ed-nota-badge { display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700;
+          min-width: 20px; padding: 1px 7px; border-radius: 99px; background: var(--green-bg); color: var(--green); flex-shrink: 0; }
+        .ed-row.has-notas { background: var(--green-bg); box-shadow: inset 3px 0 0 var(--green); }
+        .ed-row.has-notas:hover { filter: brightness(1.03); }
         .ed-row.has-obs { background: rgba(240,200,90,.10); border-left: 3px solid var(--gold); }
         .ed-row.has-obs:hover { background: rgba(240,200,90,.16); }
         .ed-note-edit { padding: 4px 16px 12px 40px; border-top: 1px solid var(--line); background: rgba(240,200,90,.06); }
@@ -2596,7 +2598,7 @@ export default function App() {
                     );
                     return (
                       <React.Fragment key={key}>
-                        <div className={`ed-row d${depth}${editalDone(cell) ? " done" : ""}${flag ? " has-obs" : ""}`}>
+                        <div className={`ed-row d${depth}${editalDone(cell) ? " done" : ""}${RICH && hasNotas ? " has-notas" : flag ? " has-obs" : ""}`}>
                           <div className="ed-topic">
                             {node.n && <span className="edital-n">{node.n}</span>}
                             {RICH ? (
@@ -2607,7 +2609,7 @@ export default function App() {
                               <span className={`edital-txt${bold ? " b" : ""}`}>{node.txt}</span>
                             )}
                             {RICH && hasNotas ? (
-                              <span className="ed-nota-badge" title={`${cell.notas.length} caixinha(s) de nota`}>✎ nota</span>
+                              <span className="ed-nota-badge" title={`${cell.notas.length} caixinha(s) de nota`}>✎</span>
                             ) : flag ? (
                               <span className="ed-obs-flag" title={RICH ? "Este tópico tem notas" : "Este tópico tem observação"}>✎</span>
                             ) : null}
