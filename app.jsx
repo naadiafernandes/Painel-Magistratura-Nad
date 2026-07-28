@@ -947,6 +947,36 @@ const MATERIAS_SIM = SECTIONS.flatMap((s) => s.subjects.map((x) => ({ id: x.id, 
 // lookup de matéria por id (integração editais <-> painel)
 const SUBJ_BY_ID = {};
 SECTIONS.forEach((sec) => sec.subjects.forEach((s) => { SUBJ_BY_ID[s.id] = s; }));
+
+// duração de uma aula (string tipo "27min" ou "16:05") -> minutos inteiros
+function cursoDurMin(d) {
+  if (!d || typeof d !== "string") return 0;
+  const s = d.trim();
+  let m = s.match(/^(\d+)\s*h\s*(\d+)?/i); if (m) return parseInt(m[1], 10) * 60 + (m[2] ? parseInt(m[2], 10) : 0);
+  m = s.match(/^(\d+)\s*min$/i); if (m) return parseInt(m[1], 10);
+  m = s.match(/^(\d+):(\d{2})$/); if (m) return Math.round(parseInt(m[1], 10) + parseInt(m[2], 10) / 60);
+  return 0;
+}
+// progresso (aulas ticadas / total) de um curso, a partir do mapa cursoData
+function cursoProgress(c, cursoData) {
+  if (!c) return { done: 0, total: 0 };
+  if (c.sublistas) {
+    let done = 0, total = 0;
+    for (const sub of c.sublistas) { const v = cursoData[`${c.id}:${sub.nome}`] || {}; total += sub.itens.length; done += sub.itens.filter((_, i) => v[i]).length; }
+    return { done, total };
+  }
+  const v = cursoData[c.id] || {};
+  let done = 0, total = 0;
+  c.itens.forEach((it, i) => { if (it && it.h) return; total += 1; if (v[i]) done += 1; });
+  return { done, total };
+}
+// nome da matéria (como aparece na grade) -> curso isolado correspondente
+const CURSO_BY_MATNOME = {};
+Object.entries(CURSO_TEORIA).forEach(([subjId, curId]) => {
+  const s = SUBJ_BY_ID[subjId];
+  const c = CURSOS_ISOLADOS.find((x) => x.id === curId);
+  if (s && c) CURSO_BY_MATNOME[s.name] = c;
+});
 const EDITAL_MAT_SUBJ = {
   "direito civil": "civil", "direito processual civil": "pcivil", "direito do consumidor": "cdc",
   "direito da criança e do adolescente": "eca", "direito penal": "penal", "direito processual penal": "ppenal",
@@ -998,6 +1028,7 @@ const NAV_GROUPS = [
   { label: "ESTUDEI", items: [
     { key: "es-painel", icon: "home", label: "Painel", kind: "view", view: "es-painel" },
     { key: "es-materias", icon: "layers", label: "Matérias", kind: "view", view: "es-materias" },
+    { key: "es-cursos", icon: "video", label: "Cursos", kind: "view", view: "es-cursos" },
     { key: "es-editais", icon: "file", label: "Editais Verticalizados", kind: "view", view: "editais" },
     { key: "es-ciclos", icon: "pie", label: "Ciclos", kind: "view", view: "es-ciclos" },
     { key: "es-revisoes", icon: "refresh", label: "Revisões", kind: "view", view: "es-revisoes" },
@@ -2173,8 +2204,9 @@ function MateriasGrid({ registros, onOpen, onBack }) {
     </section>
   );
 }
-function MateriaDetail({ materia, registros, onBack, onEdit, onDelete }) {
+function MateriaDetail({ materia, registros, cursoData, onToggleCurso, onBack, onEdit, onDelete }) {
   const regs = registros.filter((r) => r.materia === materia).sort((a, b) => b.ts - a.ts);
+  const curso = CURSO_BY_MATNOME[materia];
   const tempo = regs.reduce((s, r) => s + (r.tempo || 0), 0);
   const ac = regs.reduce((s, r) => s + (r.acertos || 0), 0);
   const er = regs.reduce((s, r) => s + (r.erros || 0), 0);
@@ -2294,6 +2326,91 @@ function EstatisticasView({ registros, onBack }) {
             ))}
           </div></>) : null}
       </>)}
+    </section>
+  );
+}
+
+// ===== Cursos isolados: lista de aulas reaproveitável (menu Cursos + dentro da matéria) =====
+const CURSO_COR = "#7f96c4";
+function CursoAulas({ curso, cursoData, onToggle }) {
+  if (curso.sublistas) {
+    return (
+      <div className="curso-subs">
+        {curso.sublistas.map((sub) => {
+          const storeKey = `${curso.id}:${sub.nome}`;
+          const v = cursoData[storeKey] || {};
+          const done = sub.itens.filter((_, i) => v[i]).length;
+          return (
+            <div key={sub.nome} className="curso-sub">
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8, gap: 8 }}>
+                <span className="col-label" style={{ marginBottom: 0 }}>{sub.nome}</span>
+                <span className="mono" style={{ fontSize: 11, color: "var(--faint)" }}>{done}/{sub.itens.length}</span>
+              </div>
+              <div style={{ marginBottom: 10 }}><Bar done={done} total={sub.itens.length} color={CURSO_COR} /></div>
+              <div className="curso-box">
+                {sub.itens.map((item, idx) => {
+                  const label = typeof item === "string" ? item : item.t;
+                  const dur = typeof item === "object" ? item.d : null;
+                  return (
+                    <label key={idx} className={`curso-item${v[idx] ? " checked" : ""}`}>
+                      <input type="checkbox" checked={!!v[idx]} onChange={() => onToggle(curso.id, sub.nome, idx)} style={{ marginTop: 2 }} />
+                      <span className="idx mono">{idx + 1}.</span>
+                      <span>{label}</span>
+                      {dur && <span className="dur mono">{dur}</span>}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+  const v = cursoData[curso.id] || {};
+  return (
+    <div className="curso-box">
+      {curso.itens.map((item, idx) => {
+        if (item && item.h) return <div key={idx} className="curso-head">{item.h}</div>;
+        const label = typeof item === "string" ? item : item.t;
+        const dur = typeof item === "object" ? item.d : null;
+        return (
+          <label key={idx} className={`curso-item${v[idx] ? " checked" : ""}`}>
+            <input type="checkbox" checked={!!v[idx]} onChange={() => onToggle(curso.id, null, idx)} style={{ marginTop: 2 }} />
+            <span>{label}</span>
+            {dur && <span className="dur mono">{dur}</span>}
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
+// ===== ESTUDEI: Cursos (lista todos + progresso; ticar aula = estudo de Teoria) =====
+function CursosView({ cursoData, onToggle, onBack }) {
+  const [aberto, setAberto] = useState(null);
+  return (
+    <section className="editais-page es-page">
+      <button className="edital-back" onClick={onBack}>← Voltar ao painel</button>
+      <p className="eyebrow">ESTUDEI</p>
+      <h1 className="serif" style={{ marginBottom: 10 }}>Cursos</h1>
+      <p className="es-sub">Marque a aula assistida — vira um estudo de Teoria automático na matéria do curso (com o tempo da aula, quando ela tem).</p>
+      {CURSOS_ISOLADOS.map((c) => {
+        const { done, total } = cursoProgress(c, cursoData);
+        const pct = total ? Math.round((done / total) * 100) : 0;
+        const isOpen = aberto === c.id;
+        return (
+          <div className="panel curso-card" key={c.id}>
+            <button className="curso-cardhead" onClick={() => setAberto(isOpen ? null : c.id)}>
+              <span className="curso-caret">{isOpen ? "▾" : "▸"}</span>
+              <span className="subj-name" style={{ flex: 1 }}>{c.nome}</span>
+              <span className="mono" style={{ fontSize: 11, color: "var(--faint)" }}>{done}/{total} · {pct}%</span>
+            </button>
+            <div style={{ marginTop: 8 }}><Bar done={done} total={total} color={CURSO_COR} /></div>
+            {isOpen && <div style={{ marginTop: 14 }}><CursoAulas curso={c} cursoData={cursoData} onToggle={onToggle} /></div>}
+          </div>
+        );
+      })}
     </section>
   );
 }
@@ -2911,11 +3028,34 @@ export default function App() {
   const toggleCurso = async (cursoId, subKey, idx) => {
     const storeKey = subKey ? `${cursoId}:${subKey}` : cursoId;
     const cur = cursoData[storeKey] || {};
-    const next = { ...cur, [idx]: !cur[idx] };
+    const nowChecked = !cur[idx];
+    const next = { ...cur, [idx]: nowChecked };
     setCursoData((p) => ({ ...p, [storeKey]: next }));
     try {
       await window.storage.set(CURSO_KEY_PREFIX + storeKey, JSON.stringify(next));
     } catch {}
+    // ticar aula = cria estudo de Teoria automático; desticar remove
+    const c = CURSOS_ISOLADOS.find((x) => x.id === cursoId);
+    if (!c) return;
+    const item = subKey
+      ? ((c.sublistas.find((s) => s.nome === subKey) || {}).itens || [])[idx]
+      : (c.itens || [])[idx];
+    if (!item || (item && item.h)) return; // cabeçalho não vira estudo
+    const cref = `${storeKey}#${idx}`;
+    if (nowChecked) {
+      if (registros.some((r) => r.cref === cref)) return;
+      const label = typeof item === "string" ? item : item.t;
+      const tempo = typeof item === "object" ? cursoDurMin(item.d) : 0;
+      const agora = Date.now();
+      saveRegistros([{
+        id: agora, ts: agora, fonte: "teoria",
+        materia: c.nome, topico: label, tempo,
+        acertos: 0, erros: 0, coment: "", concluido: false,
+        origem: "curso", cref,
+      }, ...registros]);
+    } else {
+      saveRegistros(registros.filter((r) => r.cref !== cref));
+    }
   };
 
   const fraction = (subjId, dim, items) => {
@@ -2925,23 +3065,7 @@ export default function App() {
   };
 
   // progresso de um curso isolado (para as células "Teoria" que apontam para um curso)
-  const cursoFraction = (cursoId) => {
-    const c = CURSOS_ISOLADOS.find((x) => x.id === cursoId);
-    if (!c) return { done: 0, total: 0 };
-    if (c.sublistas) {
-      let done = 0, total = 0;
-      for (const sub of c.sublistas) {
-        const v = cursoData[`${c.id}:${sub.nome}`] || {};
-        total += sub.itens.length;
-        done += sub.itens.filter((_, i) => v[i]).length;
-      }
-      return { done, total };
-    }
-    const v = cursoData[c.id] || {};
-    let done = 0, total = 0;
-    c.itens.forEach((it, i) => { if (it && it.h) return; total += 1; if (v[i]) done += 1; });
-    return { done, total };
-  };
+  const cursoFraction = (cursoId) => cursoProgress(CURSOS_ISOLADOS.find((x) => x.id === cursoId), cursoData);
 
   // fração de uma célula: se a "Teoria" for um curso, usa o progresso do curso
   const getFrac = (s, dim) => {
@@ -4312,8 +4436,11 @@ export default function App() {
         )}
 
         {view === "es-materias" && (matAberta
-          ? <MateriaDetail materia={matAberta} registros={registros} onBack={() => setMatAberta(null)} onEdit={abrirRegistro} onDelete={removeRegistro} />
+          ? <MateriaDetail materia={matAberta} registros={registros} cursoData={cursoData} onToggleCurso={toggleCurso} onBack={() => setMatAberta(null)} onEdit={abrirRegistro} onDelete={removeRegistro} />
           : <MateriasGrid registros={registros} onOpen={setMatAberta} onBack={() => setView("es-painel")} />
+        )}
+        {view === "es-cursos" && (
+          <CursosView cursoData={cursoData} onToggle={toggleCurso} onBack={() => setView("es-painel")} />
         )}
         {view === "es-revisoes" && (
           <RevisoesView registros={registros} revStatus={revStatus} onMark={marcarRevisao} onBack={() => setView("es-painel")} />
@@ -4337,7 +4464,7 @@ export default function App() {
           <section className="editais-page es-page">
             <header className="hero es-hero">
               <p className="eyebrow">Painel de estudos</p>
-              <h1>Bons estudos, <em>Nádia</em>!</h1>
+              <h1>Bons estudos, <em>Nádia</em> ✨</h1>
               <p className="hero-sub">Seu ritmo, seus ciclos e seu próprio Estudei — tudo no MagisNAD</p>
             </header>
 
