@@ -1287,12 +1287,12 @@ function caixaNormalize(n) {
   return { id: n.id || CAIXA_UID(), destaque, verMais, mats: n.mats || [], topico: n.topico || n.assunto || "", fonte: n.fonte || "", favorito: !!n.favorito, destino: n.destino || null, ts: n.ts || Date.now() };
 }
 // caixinha editável (título ou "Ver mais"): recebe html inicial uma vez e salva ao sair
-function CaixaEdit({ html, plain, onSave, className, placeholder }) {
+function CaixaEdit({ html, plain, onSave, onFocus, className, placeholder }) {
   const ref = useRef(null);
   useEffect(() => { if (ref.current) ref.current.innerHTML = html || ""; }, []);
   return (
     <div ref={ref} className={className} contentEditable suppressContentEditableWarning
-      data-ph={placeholder}
+      data-ph={placeholder} onFocus={onFocus}
       onBlur={() => onSave(plain ? ref.current.innerText : ref.current.innerHTML)} />
   );
 }
@@ -1304,6 +1304,7 @@ function CaixaView({ onBack, onArquivarEdital }) {
   const [matPicker, setMatPicker] = useState(null);
   const [aviso, setAviso] = useState({});
   const [impMsg, setImpMsg] = useState("");
+  const [destFoco, setDestFoco] = useState(null);
   const [carregou, setCarregou] = useState(false);
   const fileRef = useRef(null);
 
@@ -1460,8 +1461,19 @@ function CaixaView({ onBack, onArquivarEdital }) {
             const open = !!aberto[n.id];
             return (
               <div key={n.id} className="caixa-card">
-                <div className="caixa-lbl">Destaque</div>
-                <CaixaEdit className="caixa-destaque" plain html={caixaEsc(n.destaque)} placeholder="Título em destaque…" onSave={(t) => update(n.id, { destaque: t })} />
+                <div className="caixa-lbl-row">
+                  <span className="caixa-lbl">Destaque</span>
+                  {destFoco === n.id && (
+                    <span className="caixa-dtb">
+                      <button title="Negrito" style={{ fontWeight: 800 }} onMouseDown={fmt("bold")}>N</button>
+                      <button title="Itálico" style={{ fontStyle: "italic" }} onMouseDown={fmt("italic")}>I</button>
+                      <button title="Sublinhado" style={{ textDecoration: "underline" }} onMouseDown={fmt("underline")}>S</button>
+                      <button className="caixa-sw" style={{ background: "var(--text)" }} title="Cor padrão" onMouseDown={cor("reset")} />
+                      {CAIXA_CORES.map((c) => <button key={c} className="caixa-sw" style={{ background: c }} title="Cor" onMouseDown={cor(c)} />)}
+                    </span>
+                  )}
+                </div>
+                <CaixaEdit className="caixa-destaque" html={n.destaque || ""} placeholder="Título em destaque…" onFocus={() => setDestFoco(n.id)} onSave={(t) => { update(n.id, { destaque: t }); setDestFoco(null); }} />
 
                 <div className="caixa-metarow">
                   <span className="caixa-metalbl">Matéria:</span>
@@ -2971,6 +2983,7 @@ export default function App() {
           --sidebar:#f4f4f5; --nav-active-bg:#ffffff; --hero:#1e293b; --accent-btn:#ca8a04; --on-accent:#ffffff;
         }
         /* cor do app por humor (sobrepõe o dourado, em qualquer tema) */
+        :root[data-cor="amarelo"] { --gold:#EAA92E; --accent-btn:#EAA92E; --gold2:#E07A54; --coral:#2B5A82; --on-accent:#3a2c08; }
         :root[data-cor="rosa"] { --gold:#E85D9A; --accent-btn:#E85D9A; --gold2:#F2B23A; --coral:#2F6FE4; --on-accent:#ffffff; }
         :root[data-cor="azul"] { --gold:#2F6FE4; --accent-btn:#2F6FE4; --gold2:#EE3B34; --coral:#F2B23A; --on-accent:#ffffff; }
         :root[data-cor="roxo"] { --gold:#7C4DE0; --accent-btn:#7C4DE0; --gold2:#F2B23A; --coral:#17B8A6; --on-accent:#ffffff; }
@@ -3256,7 +3269,7 @@ export default function App() {
           padding: 4px 11px; background: transparent; border: 1px dashed var(--line-2); color: var(--muted); }
         .diario-tag-new:hover { color: var(--gold); border-color: var(--gold); }
         .diario-compose-hint { font-size: 11px; color: var(--faint); font-style: italic; }
-        .diario-add { cursor: pointer; align-self: flex-start; white-space: nowrap; background: var(--gold); color: #10141a;
+        .diario-add { cursor: pointer; align-self: flex-start; white-space: nowrap; background: var(--gold); color: var(--on-accent);
           border: none; border-radius: 12px; padding: 11px 22px; font: inherit; font-size: 14px; font-weight: 700; }
         .diario-add:hover { filter: brightness(1.05); }
         .diario-add:disabled { cursor: default; background: var(--surface-3); color: var(--faint); }
@@ -3357,7 +3370,7 @@ export default function App() {
         .edital-tab { cursor: pointer; background: var(--surface); border: 1px solid var(--line-2); border-radius: 999px;
           padding: 9px 16px; font: inherit; font-size: 13px; font-weight: 600; color: var(--muted); transition: all .15s; }
         .edital-tab:hover { color: var(--text); border-color: var(--muted); }
-        .edital-tab.active { background: var(--gold); color: #10141a; border-color: var(--gold); }
+        .edital-tab.active { background: var(--gold); color: var(--on-accent); border-color: var(--gold); }
         /* ===== Editais: tabela de acompanhamento (estilo Normio) ===== */
         .edital-table { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
         .ed-head { display: flex; align-items: flex-end; gap: 12px; padding: 12px 16px 10px; background: var(--surface); border-bottom: 1px solid var(--line-2); }
@@ -3490,7 +3503,7 @@ export default function App() {
           cursor: pointer; box-shadow: 0 6px 18px rgba(0,0,0,.28); opacity: 0; transform: translateY(12px); pointer-events: none;
           transition: opacity .2s, transform .2s, background .15s; z-index: 200; }
         .to-top.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
-        .to-top:hover { background: var(--gold); color: #10141a; }
+        .to-top:hover { background: var(--gold); color: var(--on-accent); }
 
         /* post-it de PRIORIDADES */
         .postit { width: 300px; margin: 22px 0 4px auto; background: #f7e7a3; color: #3a3320;
