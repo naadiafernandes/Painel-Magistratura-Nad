@@ -1292,6 +1292,20 @@ function caixaMelhorTopico(texto, topicos) {
   });
   return score > 0 ? best : "";
 }
+// último recurso: varre TODAS as matérias do edital e devolve a matéria+tópico que mais combinam com o texto
+// (assim a nota sempre chega com um palpite, mesmo sem palavra óbvia da matéria; a Nadia confere depois)
+function caixaPalpiteGlobal(texto) {
+  const t = diaNorm(texto);
+  let bestMat = "", bestTop = "", bestScore = 0;
+  for (const matId of Object.keys(CAIXA_MAT_EDITAL)) {
+    caixaTopicosEdital(matId).forEach((top) => {
+      let s = 0;
+      diaNorm(top).split(/[^a-z0-9]+/).forEach((w) => { if (w.length > 4 && t.includes(w)) s++; });
+      if (s > bestScore) { bestScore = s; bestMat = matId; bestTop = top; }
+    });
+  }
+  return bestScore > 0 ? { matId: bestMat, topico: bestTop } : null;
+}
 function caixaEsc(s) { return (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
 function caixaTxtToHtml(s) { return caixaEsc(s).replace(/\n/g, "<br>"); }
 // acha, no edital verticalizado, o endereço (matéria + tópico) onde a nota deve ser arquivada
@@ -1367,7 +1381,16 @@ function caixaParseBloco(bloco) {
   if (principal) mats = [principal];
   else mats = detectMaterias(bloco).slice(0, 1);
   const topicos = mats.length ? caixaTopicosEdital(mats[0]) : [];
-  const topico = caixaMelhorTopico(destaque + " " + assunto + " " + resto.slice(0, 240), topicos) || assunto || "";
+  let topico = caixaMelhorTopico(destaque + " " + assunto + " " + resto.slice(0, 240), topicos);
+  // se não deu pra cravar a matéria (ou o tópico), chuta pelo edital inteiro pra nunca vir vazio
+  if (!mats.length || !topico) {
+    const g = caixaPalpiteGlobal(destaque + " " + assunto + " " + resto.slice(0, 400));
+    if (g) {
+      if (!mats.length) mats = [g.matId];
+      if (!topico && mats[0] === g.matId) topico = g.topico;
+    }
+  }
+  topico = topico || assunto || "";
   return { id: CAIXA_UID(), destaque, verMais: caixaTxtToHtml(resto), mats, topico, fonte, favorito, destino: null, ts: Date.now() };
 }
 function caixaParse(text) { return caixaSplit(text).map(caixaParseBloco); }
