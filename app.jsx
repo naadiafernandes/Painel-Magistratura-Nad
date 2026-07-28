@@ -2079,6 +2079,205 @@ function aggFontes(registros) {
   }
   return m;
 }
+// ===== CICLOS por fonte (filas do TEC + roscas) =====
+// dados em ciclos.js: window.CICLOS = { juris:[], teoria:[], leiseca:[], questoes:[] }
+// cada item {m:cod, lab:rótulo curto, nome:tópico, n:qtde questões, ciclo:1|2}
+const CICLOS = (typeof window !== "undefined" && window.CICLOS) || {};
+const CICLO_FIN_KEY = (fonte) => "tjsc-ciclo-fin:" + fonte;              // tópicos "finalizados" por fonte
+const cicloNorm = (s) => (s || "").toString().trim().toLowerCase().replace(/\.$/, "").replace(/\s+/g, " ");
+const cicloItemKey = (it) => it.m + "|" + it.nome;
+function cicloFinRead(fonte) { try { return JSON.parse(localStorage.getItem(CICLO_FIN_KEY(fonte)) || "[]"); } catch { return []; } }
+function cicloFinWrite(fonte, arr) { try { window.storage.set(CICLO_FIN_KEY(fonte), JSON.stringify(arr)); } catch {} }
+// na fila daquela fonte, acha o item cujo tópico casa com o texto (p/ finalizar/ticar edital)
+function cicloMatchItem(fonte, topico) {
+  const q = CICLOS[fonte] || [];
+  const nt = cicloNorm(topico);
+  if (!nt) return null;
+  return q.find((it) => cicloNorm(it.nome) === nt) || null;
+}
+// fonte -> coluna do edital verticalizado (Teoria/Lei/Questões/Juris/Anki)
+const FONTE_ED_FIELD = { teoria: "t", leiseca: "l", questoes: "q", juris: "j", anki: "a" };
+// nome cheio da matéria a partir do código m (cai no rótulo curto quando não é matéria da grade)
+const cicloMatNome = (m, lab) => (SUBJ_BY_ID[m] && SUBJ_BY_ID[m].name) || lab || m;
+// matérias de um ciclo, na ordem de incidência (derivadas da "geralzona" de questões)
+function cicloMatsDoCiclo(ciclo) {
+  const q = CICLOS.questoes || [];
+  const seen = [], out = [];
+  for (const it of q) { if (it.ciclo === ciclo && !seen.includes(it.m)) { seen.push(it.m); out.push({ m: it.m, lab: it.lab, nome: cicloMatNome(it.m, it.lab) }); } }
+  return out;
+}
+// endereço do tópico no edital verticalizado, comparando SEM caixa/acento
+// (os nomes dos ciclos vêm em Title Case; os do edital variam — por isso não uso caixaResolveEdital)
+function cicloEditalAddr(matId, topico) {
+  if (!matId || !topico || typeof window === "undefined" || !window.EDITAIS || !window.EDITAIS[0]) return null;
+  const ed = window.EDITAIS[0];
+  const nome = CAIXA_MAT_EDITAL[matId];
+  if (!nome) return null;
+  const mi = (ed.materias || []).findIndex((m) => m.nome === nome);
+  if (mi < 0) return null;
+  const itens = ed.materias[mi].itens || [];
+  const ii = itens.findIndex((it) => cicloNorm(it.txt) === cicloNorm(topico));
+  if (ii < 0) return null;
+  return { editalId: ed.id, pathKey: mi + "." + ii };
+}
+// as 6 roscas — cores sempre em tokens do tema (--gold/--gold2/--coral), nunca cor fixa
+const CICLO_ROSCAS = [
+  { id: "anki",     label: "Anki",     tok: "--gold2", kind: "rot"  },
+  { id: "juris",    label: "Juris",    tok: "--gold",  kind: "fila" },
+  { id: "questoes", label: "Questões", tok: "--coral", kind: "fila" },
+  { id: "teoria",   label: "Teoria",   tok: "--gold",  kind: "fila" },
+  { id: "leiseca",  label: "Lei seca", tok: "--gold2", kind: "fila" },
+  { id: "revisao",  label: "Revisão",  tok: "--coral", kind: "rot"  },
+];
+
+function CiclosRoscas({ registros, onRegistrar }) {
+  const [ciclo, setCiclo] = useState(1);
+  const [aberta, setAberta] = useState(null); // id da fonte aberta (fila/rotação)
+  const [, setTick] = useState(0);            // força releitura dos finalizados
+  const eq = (a, b) => cicloNorm(a) === cicloNorm(b);
+
+  // dados de uma fila (juris/teoria/leiseca/questoes): progresso + tópico do topo
+  const filaData = (fonte) => {
+    const items = (CICLOS[fonte] || []).filter((it) => it.ciclo === ciclo);
+    const fin = new Set(cicloFinRead(fonte));
+    const done = items.filter((it) => fin.has(cicloItemKey(it))).length;
+    const topo = items.find((it) => !fin.has(cicloItemKey(it))) || null;
+    return { items, fin, done, total: items.length, topo, pct: items.length ? Math.round((done / items.length) * 100) : 0 };
+  };
+  // dados de uma rotação (anki/revisao): volta atual + próxima matéria
+  const rotData = (fonte) => {
+    const mats = cicloMatsDoCiclo(ciclo);
+    const counts = mats.map((mt) => registros.filter((r) => r.fonte === fonte && r.materia && (eq(r.materia, mt.nome) || eq(r.materia, mt.lab))).length);
+    const minC = counts.length ? Math.min(...counts) : 0;
+    const done = counts.filter((c) => c > minC).length;
+    const idx = counts.findIndex((c) => c === minC);
+    return { mats, counts, total: mats.length, done, lap: minC + 1, next: mats[idx] || null, pct: mats.length ? Math.round((done / mats.length) * 100) : 0 };
+  };
+
+  // "desfazer" um finalizado (volta pra fila)
+  const desfazer = (fonte, it) => {
+    const arr = cicloFinRead(fonte).filter((k) => k !== cicloItemKey(it));
+    cicloFinWrite(fonte, arr); setTick((t) => t + 1);
+  };
+  // abre a caixinha de registro já preenchida
+  const finalizar = (fonte, it) => onRegistrar({ fonte, materia: cicloMatNome(it.m, it.lab), topico: it.nome, concluido: true });
+  const soTempo   = (fonte, it) => onRegistrar({ fonte, materia: cicloMatNome(it.m, it.lab), topico: it.nome, concluido: false });
+  const registrar = (fonte, mt) => onRegistrar({ fonte, materia: mt.nome, concluido: false });
+
+  const rosca = CICLO_ROSCAS.find((r) => r.id === aberta);
+
+  return (
+    <div className="roscas-wrap">
+      <div className="roscas-toggle">
+        <button className={`roscas-tg${ciclo === 1 ? " on" : ""}`} onClick={() => { setCiclo(1); setAberta(null); }}>Ciclo 1 <small>· o que mais cai</small></button>
+        <button className={`roscas-tg${ciclo === 2 ? " on" : ""}`} onClick={() => { setCiclo(2); setAberta(null); }}>Ciclo 2 <small>· o resto</small></button>
+      </div>
+
+      <div className="ciclo-grid">
+        {CICLO_ROSCAS.map((r) => {
+          const d = r.kind === "fila" ? filaData(r.id) : rotData(r.id);
+          const isRot = r.kind === "rot";
+          const topLabel = isRot
+            ? (d.next ? d.next.nome : "—")
+            : (d.topo ? `${cicloMatNome(d.topo.m, d.topo.lab)} · ${d.topo.nome}` : "tudo dominado 🎉");
+          const center = isRot ? `${d.pct}%` : (d.total ? `${d.done}/${d.total}` : "—");
+          const on = aberta === r.id;
+          return (
+            <button className={`ciclo-card roscas-card${on ? " on" : ""}`} key={r.id}
+              onClick={() => setAberta(on ? null : r.id)} title="Abrir a fila inteira">
+              <div className="ciclo-donut" style={{ "--p": d.pct, "--c": `var(${r.tok})` }}>
+                <div className="ciclo-hole"><b>{center}</b></div>
+              </div>
+              <div className="ciclo-nm" style={{ color: `var(${r.tok})` }}>{r.label}</div>
+              <div className="roscas-badge">{isRot ? `Volta ${d.lap}` : `${d.pct}% da fila`}</div>
+              <div className="roscas-topo">{isRot ? "próxima:" : "topo:"} <b>{topLabel}</b></div>
+            </button>
+          );
+        })}
+      </div>
+
+      {rosca && rosca.kind === "fila" && (() => {
+        const d = filaData(rosca.id);
+        const pend = d.items.filter((it) => !d.fin.has(cicloItemKey(it)));
+        const dominados = d.items.filter((it) => d.fin.has(cicloItemKey(it)));
+        return (
+          <div className="fila-panel">
+            <div className="fila-head">
+              <div><b style={{ color: `var(${rosca.tok})` }}>{rosca.label}</b> · Ciclo {ciclo} <span className="fila-sub">{d.done} de {d.total} dominados</span></div>
+              <button className="fila-x" onClick={() => setAberta(null)} title="Fechar">×</button>
+            </div>
+            {d.topo ? (
+              <div className="fila-topo" style={{ "--c": `var(${rosca.tok})` }}>
+                <div className="fila-topo-tag" style={{ "--c": `var(${rosca.tok})` }}>{cicloMatNome(d.topo.m, d.topo.lab)}</div>
+                <div className="fila-topo-nm">{d.topo.nome}</div>
+                <div className="fila-topo-n">{d.topo.n} questões no TEC</div>
+                <div className="fila-topo-acts">
+                  <button className="fila-fin" onClick={() => finalizar(rosca.id, d.topo)}>Finalizei ✓</button>
+                  <button className="fila-so" onClick={() => soTempo(rosca.id, d.topo)}>só registrar tempo</button>
+                </div>
+              </div>
+            ) : <div className="es-hint">Fila inteira dominada nesse ciclo 🎉</div>}
+
+            {pend.length > 1 && <div className="fila-next-h">Depois</div>}
+            <ol className="fila-list">
+              {pend.slice(1).map((it) => (
+                <li key={cicloItemKey(it)} className="fila-row">
+                  <span className="fila-tag">{cicloMatNome(it.m, it.lab)}</span>
+                  <span className="fila-nm">{it.nome}</span>
+                  <span className="fila-n">{it.n}q</span>
+                </li>
+              ))}
+            </ol>
+
+            {dominados.length > 0 && (
+              <details className="fila-dom">
+                <summary>Já dominados ({dominados.length})</summary>
+                <ol className="fila-list">
+                  {dominados.map((it) => (
+                    <li key={cicloItemKey(it)} className="fila-row done">
+                      <span className="fila-tag">{cicloMatNome(it.m, it.lab)}</span>
+                      <span className="fila-nm">✓ {it.nome}</span>
+                      <button className="fila-undo" onClick={() => desfazer(rosca.id, it)}>desfazer</button>
+                    </li>
+                  ))}
+                </ol>
+              </details>
+            )}
+          </div>
+        );
+      })()}
+
+      {rosca && rosca.kind === "rot" && (() => {
+        const d = rotData(rosca.id);
+        return (
+          <div className="fila-panel">
+            <div className="fila-head">
+              <div><b style={{ color: `var(${rosca.tok})` }}>{rosca.label}</b> · Ciclo {ciclo} <span className="fila-sub">Volta {d.lap} · {d.done} de {d.total} na volta</span></div>
+              <button className="fila-x" onClick={() => setAberta(null)} title="Fechar">×</button>
+            </div>
+            <div className="fila-rotdesc">Rotação por matéria — registrar {rosca.label.toLowerCase()} manda a matéria pro fim da volta.</div>
+            <ol className="fila-list">
+              {d.mats.map((mt, i) => {
+                const c = d.counts[i];
+                const prox = d.next && d.next.m === mt.m && c === d.lap - 1;
+                return (
+                  <li key={mt.m} className={`fila-row${prox ? " prox" : ""}`}>
+                    <span className="fila-tag" style={prox ? { "--c": `var(${rosca.tok})` } : undefined}>{mt.nome}</span>
+                    <span className="fila-nm">{prox ? "próxima" : `${c} ${c === 1 ? "volta" : "voltas"}`}</span>
+                    {prox
+                      ? <button className="fila-fin" onClick={() => registrar(rosca.id, mt)}>Registrei ✓</button>
+                      : <span className="fila-n">{c}×</span>}
+                  </li>
+                );
+              })}
+            </ol>
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
+
 function CiclosPizzas({ registros }) {
   const agg = aggFontes(registros);
   const fontes = REG_FONTES.filter((f) => agg[f.id]);
@@ -3103,6 +3302,16 @@ export default function App() {
     saveRegistros(existe ? registros.map((x) => (x.id === r.id ? r : x)) : [r, ...registros]);
     setRegOpen(false); setRegEditing(null);
     setRegToast(true); setTimeout(() => setRegToast(false), 2200);
+    // Ciclos: "concluí este tópico" tira o tópico do topo da fila + tica no edital verticalizado
+    if (r.concluido && r.fonte) {
+      const it = cicloMatchItem(r.fonte, r.topico);
+      if (it) {
+        const arr = cicloFinRead(r.fonte);
+        const key = cicloItemKey(it);
+        if (!arr.includes(key)) { arr.push(key); cicloFinWrite(r.fonte, arr); }
+      }
+      tickEditalCiclo(r.materia, r.topico, FONTE_ED_FIELD[r.fonte]);
+    }
   };
   const removeRegistro = (id) => saveRegistros(registros.filter((r) => r.id !== id));
   const abrirRegistro = (r) => { setRegEditing(r || null); setRegOpen(true); };
@@ -3479,6 +3688,21 @@ export default function App() {
     setEditaisData((p) => ({ ...p, [r.editalId]: next }));
     try { window.storage.set(EDITAIS_KEY_PREFIX + r.editalId, JSON.stringify(next)); } catch {}
     return { ok: true, label: r.label };
+  };
+
+  // Ciclos: ao finalizar um tópico da fila, tica a coluna certa no edital verticalizado
+  const tickEditalCiclo = (materiaNome, topico, field) => {
+    if (!field) return;
+    const matId = editalSubjId(materiaNome);
+    const r = cicloEditalAddr(matId, topico);
+    if (!r) return; // tópico não bate com nenhum item do edital — só não tica
+    const cur = editaisData[r.editalId] || {};
+    const cell = editalCell(cur[r.pathKey]);
+    if (cell[field]) return;
+    const nextCell = { ...cell, [field]: true };
+    const next = { ...cur, [r.pathKey]: nextCell };
+    setEditaisData((p) => ({ ...p, [r.editalId]: next }));
+    try { window.storage.set(EDITAIS_KEY_PREFIX + r.editalId, JSON.stringify(next)); } catch {}
   };
 
   // abre a página de notas de um tópico (só no edital TJSC Juiz 2025)
@@ -4463,6 +4687,52 @@ export default function App() {
         .ciclo-nm { font-size: 14px; font-weight: 700; margin-top: 11px; }
         .ciclo-mt { font-size: 11.5px; color: var(--faint); margin-top: 3px; }
 
+        /* ===== Ciclos: 6 roscas + fila ===== */
+        .roscas-wrap { margin-top: 4px; }
+        .roscas-toggle { display: inline-flex; gap: 4px; background: var(--surface-2); border: 1px solid var(--line-2);
+          border-radius: 12px; padding: 4px; margin-bottom: 16px; }
+        .roscas-tg { font: inherit; font-size: 13px; font-weight: 700; color: var(--muted); background: none; border: none;
+          border-radius: 9px; padding: 7px 14px; cursor: pointer; transition: background .15s, color .15s; }
+        .roscas-tg small { font-weight: 500; opacity: .8; }
+        .roscas-tg.on { background: var(--gold); color: var(--on-accent, #10141a); }
+        .roscas-card { cursor: pointer; font: inherit; border: 1px solid var(--line-2); transition: border-color .15s, transform .1s; }
+        .roscas-card:hover { border-color: var(--gold); }
+        .roscas-card.on { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold); }
+        .roscas-badge { font-size: 11px; font-weight: 700; color: var(--muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
+        .roscas-topo { font-size: 11px; color: var(--faint); margin-top: 5px; line-height: 1.4; }
+        .roscas-topo b { color: var(--text); font-weight: 600; }
+
+        .fila-panel { margin-top: 16px; background: var(--surface); border: 1px solid var(--line-2); border-radius: 16px; padding: 16px 18px; }
+        .fila-head { display: flex; align-items: center; justify-content: space-between; font-size: 14px; margin-bottom: 12px; }
+        .fila-sub { color: var(--faint); font-size: 12px; margin-left: 6px; }
+        .fila-x { font: inherit; font-size: 22px; line-height: 1; color: var(--muted); background: none; border: none; cursor: pointer; }
+        .fila-rotdesc { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+        .fila-topo { border: 1px solid var(--c); border-radius: 14px; padding: 14px 16px; margin-bottom: 14px;
+          background: color-mix(in srgb, var(--c) 8%, transparent); }
+        .fila-topo-tag { display: inline-block; font-size: 11px; font-weight: 800; letter-spacing: .3px; color: var(--c);
+          background: color-mix(in srgb, var(--c) 16%, transparent); border-radius: 999px; padding: 3px 10px; margin-bottom: 8px; }
+        .fila-topo-nm { font-size: 16px; font-weight: 700; color: var(--text); line-height: 1.35; }
+        .fila-topo-n { font-size: 12px; color: var(--faint); margin-top: 3px; }
+        .fila-topo-acts { display: flex; gap: 10px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+        .fila-fin { font: inherit; font-size: 13px; font-weight: 800; color: var(--on-accent, #10141a); background: var(--gold);
+          border: none; border-radius: 10px; padding: 8px 16px; cursor: pointer; }
+        .fila-fin:hover { filter: brightness(1.06); }
+        .fila-so { font: inherit; font-size: 12px; font-weight: 600; color: var(--muted); background: none; border: none; cursor: pointer; text-decoration: underline; }
+        .fila-next-h { font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--faint); margin: 4px 0 8px; }
+        .fila-list { list-style: none; margin: 0; padding: 0; counter-reset: fila; }
+        .fila-row { display: flex; align-items: center; gap: 10px; padding: 9px 4px; border-bottom: 1px solid var(--line-2); font-size: 13px; }
+        .fila-row:last-child { border-bottom: none; }
+        .fila-row.prox { background: color-mix(in srgb, var(--gold) 8%, transparent); border-radius: 10px; padding: 9px 10px; }
+        .fila-tag { flex-shrink: 0; font-size: 11px; font-weight: 700; color: var(--muted); background: var(--surface-2);
+          border-radius: 999px; padding: 3px 9px; min-width: 92px; text-align: center; }
+        .fila-row.prox .fila-tag { color: var(--c, var(--gold)); background: color-mix(in srgb, var(--c, var(--gold)) 16%, transparent); }
+        .fila-nm { flex: 1; color: var(--text); }
+        .fila-row.done .fila-nm { color: var(--faint); }
+        .fila-n { flex-shrink: 0; font-size: 11.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+        .fila-undo { font: inherit; font-size: 11px; font-weight: 600; color: var(--coral); background: none; border: none; cursor: pointer; }
+        .fila-dom { margin-top: 12px; }
+        .fila-dom summary { font-size: 12px; font-weight: 700; color: var(--muted); cursor: pointer; padding: 6px 0; }
+
         /* ===== Constância ===== */
         .es-consta { margin-top: 8px; }
         .consta-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px;
@@ -5090,8 +5360,8 @@ export default function App() {
             <button className="edital-back" onClick={() => setView("es-painel")}>← Voltar ao painel</button>
             <p className="eyebrow">ESTUDEI</p>
             <h1 className="serif" style={{ marginBottom: 10 }}>Ciclos</h1>
-            <p className="es-sub">Cada fonte enche conforme você registra — o tempo total manda no tamanho da fatia.</p>
-            <CiclosPizzas registros={registros} />
+            <p className="es-sub">Seis roscas por fonte. Cada uma tem sua fila (o que mais cai primeiro); clique pra abrir a fila inteira e marcar "Finalizei".</p>
+            <CiclosRoscas registros={registros} onRegistrar={abrirRegistro} />
           </section>
         )}
         {view === "es-painel" && (
