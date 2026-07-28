@@ -904,9 +904,21 @@ const SIM_HIDDEN_KEY = "tjsc-simulados-ocultas:list";
 const SIM_FEITOS_KEY = "tjsc-simulados-feitos:v1";     // simulados que ela registrou (nota)
 const SIM_SUG_KEY = "tjsc-simulados-sugestoes:v1";      // lista ordenável de próximos simulados
 
-// nota (%) de um simulado feito
-const simPct = (s) => { const t = (s.acertos || 0) + (s.brancos || 0) + (s.erros || 0); return t ? Math.round(((s.acertos || 0) / t) * 100) : 0; };
-const simTotalQ = (s) => (s.acertos || 0) + (s.brancos || 0) + (s.erros || 0);
+// nota de um simulado — se tem detalhe por matéria, soma dele; senão usa os totais
+const simTot = (s) => {
+  if (s.mats && s.mats.length) {
+    let a = 0, q = 0;
+    for (const m of s.mats) { a += parseInt(m.a || 0, 10) || 0; q += parseInt(m.q || 0, 10) || 0; }
+    return { a, q };
+  }
+  const a = s.acertos || 0;
+  return { a, q: a + (s.brancos || 0) + (s.erros || 0) };
+};
+const simPct = (s) => { const { a, q } = simTot(s); return q ? Math.round((a / q) * 100) : 0; };
+const simTotalQ = (s) => simTot(s).q;
+// acertos/brancos/erros pro cartão "último"
+const simBreak = (s) => { const { a, q } = simTot(s); const br = (s.mats && s.mats.length) ? 0 : (s.brancos || 0); return { a, br, er: Math.max(0, q - a - br) }; };
+const simMatPct = (m) => { const a = parseInt(m.a || 0, 10) || 0, q = parseInt(m.q || 0, 10) || 0; return q ? Math.round((a / q) * 100) : null; };
 const SIM_UID = () => Date.now() + Math.floor(Math.random() * 1000);
 const simFmtData = (ts) => new Date(ts).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
 
@@ -2447,17 +2459,18 @@ function SimNovoModal({ inicial, onClose, onSave }) {
   const [acertos, setAcertos] = useState(init.acertos != null ? String(init.acertos) : "");
   const [brancos, setBrancos] = useState(init.brancos != null ? String(init.brancos) : "");
   const [erros, setErros] = useState(init.erros != null ? String(init.erros) : "");
+  const temMats = !!(init.mats && init.mats.length);
   const a = parseInt(acertos || 0, 10), b = parseInt(brancos || 0, 10), e = parseInt(erros || 0, 10);
   const total = a + b + e;
   const pct = total ? Math.round((a / total) * 100) : 0;
-  const pode = nome.trim() && total > 0;
+  const pode = nome.trim() && (temMats || total > 0);
   const salvar = () => {
     if (!pode) return;
     let ts = editando ? init.ts : Date.now();
     if (quando === "ontem") ts = Date.now() - 86400000;
     else if (quando === "outra" && dataOutra) { const p = Date.parse(dataOutra + "T12:00:00"); if (!isNaN(p)) ts = p; }
     else if (quando === "hoje" && !editando) ts = Date.now();
-    onSave({ id: init.id || SIM_UID(), nome: nome.trim(), ts, acertos: a, brancos: b, erros: e });
+    onSave({ id: init.id || SIM_UID(), nome: nome.trim(), ts, acertos: a, brancos: b, erros: e, mats: init.mats });
   };
   return (
     <div className="reg-overlay" onClick={onClose}>
@@ -2475,12 +2488,16 @@ function SimNovoModal({ inicial, onClose, onSave }) {
             {quando === "outra" && <input type="date" className="reg-date" value={dataOutra} onChange={(ev) => setDataOutra(ev.target.value)} />}
           </div>
 
-          <div className="reg-3col" style={{ marginTop: 14 }}>
-            <div><label className="reg-lbl">Acertos</label><input className="reg-in reg-num" type="number" min="0" value={acertos} onChange={(ev) => setAcertos(ev.target.value)} placeholder="0" /></div>
-            <div><label className="reg-lbl">Brancos</label><input className="reg-in reg-num" type="number" min="0" value={brancos} onChange={(ev) => setBrancos(ev.target.value)} placeholder="0" /></div>
-            <div><label className="reg-lbl">Erros</label><input className="reg-in reg-num" type="number" min="0" value={erros} onChange={(ev) => setErros(ev.target.value)} placeholder="0" /></div>
-          </div>
-          <div className="sim-modal-pct">{total ? <>Nota: <b>{pct}%</b> <span>· {a}/{total} questões</span></> : <span style={{ color: "var(--faint)" }}>Preencha acertos, brancos e erros.</span>}</div>
+          {temMats ? (
+            <div className="sim-modal-pct" style={{ marginTop: 16 }}>Esta prova tem <b>nota por matéria</b> — a pontuação vem de lá. Feche e toque na prova pra editar as matérias.</div>
+          ) : (<>
+            <div className="reg-3col" style={{ marginTop: 14 }}>
+              <div><label className="reg-lbl">Acertos</label><input className="reg-in reg-num" type="number" min="0" value={acertos} onChange={(ev) => setAcertos(ev.target.value)} placeholder="0" /></div>
+              <div><label className="reg-lbl">Brancos</label><input className="reg-in reg-num" type="number" min="0" value={brancos} onChange={(ev) => setBrancos(ev.target.value)} placeholder="0" /></div>
+              <div><label className="reg-lbl">Erros</label><input className="reg-in reg-num" type="number" min="0" value={erros} onChange={(ev) => setErros(ev.target.value)} placeholder="0" /></div>
+            </div>
+            <div className="sim-modal-pct">{total ? <>Nota: <b>{pct}%</b> <span>· {a}/{total} questões</span></> : <span style={{ color: "var(--faint)" }}>Preencha acertos, brancos e erros.</span>}</div>
+          </>)}
         </div>
         <div className="reg-foot">
           <button className="reg-cancel" onClick={onClose}>Cancelar</button>
@@ -2492,41 +2509,72 @@ function SimNovoModal({ inicial, onClose, onSave }) {
 }
 
 // ===== ESTUDEI: Simulados (registro + desempenho + sugestões ordenáveis) =====
-function SimuladosView({ feitos, sugestoes, onNovo, onEditFeito, onDeleteFeito, onRegistrarSug, onReorder, onAddSug, onDeleteSug, onBack }) {
+function SimMats({ mats, onChange }) {
+  const [novo, setNovo] = useState("");
+  const upd = (i, field, val) => onChange(mats.map((m, j) => (j === i ? { ...m, [field]: val } : m)));
+  const del = (i) => onChange(mats.filter((_, j) => j !== i));
+  const add = () => { const t = novo.trim(); if (!t) return; onChange([...mats, { nome: t, a: "", q: "" }]); setNovo(""); };
+  return (
+    <div className="sim-mats" onClick={(e) => e.stopPropagation()}>
+      <div className="sim-mats-cap">Desempenho por matéria</div>
+      {mats.length === 0 && <div className="sim-mats-hint">Sem detalhe por matéria ainda. Adicione abaixo.</div>}
+      {mats.map((m, i) => (
+        <div className="sim-mat" key={i}>
+          <span className="sim-mat-name">{m.nome}</span>
+          <input className="sim-qn mono" inputMode="numeric" value={m.a} onChange={(e) => upd(i, "a", e.target.value)} placeholder="—" />
+          <span className="sim-de">de</span>
+          <input className="sim-qn mono" inputMode="numeric" value={m.q} onChange={(e) => upd(i, "q", e.target.value)} placeholder="—" />
+          <span className="sim-mat-pct mono">{simMatPct(m) == null ? "" : simMatPct(m) + "%"}</span>
+          <button className="sim-mat-del" title="Remover matéria" onClick={() => del(i)}>×</button>
+        </div>
+      ))}
+      <div className="sim-mat-add">
+        <input value={novo} onChange={(e) => setNovo(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") add(); }} placeholder="+ adicionar matéria..." />
+        <button onClick={add}>+</button>
+      </div>
+    </div>
+  );
+}
+
+function SimuladosView({ feitos, sugestoes, onNovo, onEditFeito, onDeleteFeito, onUpdateMats, onRegistrarSug, onReorder, onAddSug, onDeleteSug, onBack }) {
   const [novoSug, setNovoSug] = useState("");
   const [over, setOver] = useState(null);
+  const [openSim, setOpenSim] = useState(null);
+  const [matFiltro, setMatFiltro] = useState("");
   const dragI = useRef(null);
   const feitosOrd = [...feitos].sort((a, b) => b.ts - a.ts);
   const asc = [...feitos].sort((a, b) => a.ts - b.ts);
   const ultimo = feitosOrd[0];
   const media = feitos.length ? Math.round(feitos.reduce((s, x) => s + simPct(x), 0) / feitos.length) : 0;
   const barCor = (p) => (p >= 70 ? "var(--green)" : p >= 50 ? "var(--gold)" : "var(--coral)");
+  const todasMats = [...new Set(feitos.flatMap((s) => (s.mats || []).map((m) => m.nome)))];
 
   const chart = (() => {
-    if (asc.length < 2) return <div className="es-hint">Registre pelo menos dois simulados pra ver a evolução.</div>;
-    const vals = asc.map(simPct);
+    const pts = asc.map((s) => {
+      if (matFiltro) { const m = (s.mats || []).find((x) => x.nome === matFiltro); if (!m || !(parseInt(m.q || 0, 10) > 0)) return null; return { s, p: simMatPct(m) }; }
+      return { s, p: simPct(s) };
+    }).filter(Boolean);
+    if (pts.length < 2) return <div className="es-hint">{matFiltro ? "Poucos registros dessa matéria pra ver a evolução." : "Registre pelo menos dois simulados pra ver a evolução."}</div>;
+    const vals = pts.map((x) => x.p);
     const lo = Math.max(0, Math.min(...vals) - 8), hi = Math.min(100, Math.max(...vals) + 8);
     const span = Math.max(1, hi - lo);
     const W = 560, H = 150, padL = 38, padR = 18, padT = 22, padB = 30;
-    const X = (i) => padL + (i / (asc.length - 1)) * (W - padL - padR);
+    const X = (i) => padL + (i / (pts.length - 1)) * (W - padL - padR);
     const Y = (v) => padT + (1 - (v - lo) / span) * (H - padT - padB);
-    const poly = asc.map((s, i) => `${X(i)},${Y(simPct(s))}`).join(" ");
-    const showData = asc.length <= 6;
+    const poly = pts.map((x, i) => `${X(i)},${Y(x.p)}`).join(" ");
+    const showData = pts.length <= 6;
     return (
       <div className="sim-chart">
         <svg viewBox={`0 0 ${W} ${H}`} width="100%" height="150" role="img" aria-label="Evolução do desempenho">
           <line x1={padL} y1={H - padB} x2={W - padR} y2={H - padB} stroke="var(--line)" strokeWidth="1" />
           <polyline points={poly} fill="none" stroke="var(--gold)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-          {asc.map((s, i) => {
-            const p = simPct(s);
-            return (
-              <g key={s.id}>
-                <circle cx={X(i)} cy={Y(p)} r="4.5" fill="var(--gold)" />
-                <text x={X(i)} y={Y(p) - 9} fill="var(--muted)" fontSize="11" textAnchor="middle">{p}%</text>
-                {showData && <text x={X(i)} y={H - 10} fill="var(--faint)" fontSize="10.5" textAnchor="middle">{simFmtData(s.ts)}</text>}
-              </g>
-            );
-          })}
+          {pts.map((x, i) => (
+            <g key={x.s.id}>
+              <circle cx={X(i)} cy={Y(x.p)} r="4.5" fill="var(--gold)" />
+              <text x={X(i)} y={Y(x.p) - 9} fill="var(--muted)" fontSize="11" textAnchor="middle">{x.p}%</text>
+              {showData && <text x={X(i)} y={H - 10} fill="var(--faint)" fontSize="10.5" textAnchor="middle">{simFmtData(x.s.ts)}</text>}
+            </g>
+          ))}
         </svg>
       </div>
     );
@@ -2546,36 +2594,48 @@ function SimuladosView({ feitos, sugestoes, onNovo, onEditFeito, onDeleteFeito, 
     <section className="editais-page es-page">
       <button className="edital-back" onClick={onBack}>← Voltar ao painel</button>
       <p className="eyebrow">ESTUDEI</p>
-      <h1 className="serif" style={{ marginBottom: 10 }}>Simulados e provas anteriores</h1>
-      <p className="es-sub">Registre cada simulado que você fez e acompanhe sua evolução.</p>
+      <h1 className="serif" style={{ marginBottom: 10 }}>Simulados e Provas anteriores</h1>
+      <p className="es-sub">Registre cada simulado e prova que você fez e acompanhe sua evolução</p>
 
       <div className="mat-topcards">
-        <div className="panel"><div className="dp-lbl">Simulados feitos</div><div className="dp-big mat-big">{feitos.length}</div></div>
-        <div className="panel"><div className="dp-lbl">Último simulado</div>
-          {ultimo ? <><div className="dp-big mat-big">{simPct(ultimo)}%</div><div className="sim-cardnote">{ultimo.acertos || 0} acertos · {ultimo.brancos || 0} brancos · {ultimo.erros || 0} erros</div></> : <div className="dp-big mat-big" style={{ color: "var(--faint)" }}>—</div>}
+        <div className="panel"><div className="dp-lbl">Simulados/Provas feitos</div><div className="dp-big mat-big">{feitos.length}</div></div>
+        <div className="panel"><div className="dp-lbl">Último simulado/Prova</div>
+          {ultimo ? (() => { const b = simBreak(ultimo); return <><div className="dp-big mat-big">{simPct(ultimo)}%</div><div className="sim-cardnote">{b.a} acertos · {b.br} brancos · {b.er} erros</div></>; })() : <div className="dp-big mat-big" style={{ color: "var(--faint)" }}>—</div>}
         </div>
         <div className="panel"><div className="dp-lbl">Média geral</div><div className="dp-big mat-big">{feitos.length ? media + "%" : "—"}</div></div>
       </div>
 
       <button className="sim-newbtn" onClick={() => onNovo()}>+ Novo simulado</button>
 
-      <div className="sechead-es">Seu desempenho</div>
+      <div className="sim-desemp-head">
+        <div className="sechead-es" style={{ margin: 0 }}>Seu desempenho</div>
+        {todasMats.length > 0 && (
+          <select className="sim-matsel" value={matFiltro} onChange={(e) => setMatFiltro(e.target.value)}>
+            <option value="">Todas as matérias</option>
+            {todasMats.map((m) => <option key={m} value={m}>{m}</option>)}
+          </select>
+        )}
+      </div>
       {chart}
 
-      <div className="sechead-es">Meus simulados</div>
+      <div className="sechead-es">Meus simulados e provas</div>
       {feitosOrd.length === 0 ? <div className="es-hint">Nenhum simulado ainda. Toque em “+ Novo simulado” pra registrar o primeiro.</div>
         : feitosOrd.map((s) => {
-          const p = simPct(s);
+          const p = simPct(s); const { a, q } = simTot(s); const isOpen = openSim === s.id;
           return (
-            <div className="sim-row" key={s.id}>
-              <span className="sim-bar" style={{ background: barCor(p) }} />
-              <div className="sim-main"><div className="sim-name">{s.nome}</div><div className="sim-when">{simFmtData(s.ts)}</div></div>
-              <span className="sim-frac mono">{s.acertos || 0}/{simTotalQ(s)}</span>
-              <span className="sim-pct mono">{p}%</span>
-              <div className="sim-tools">
-                <button title="Editar" onClick={() => onEditFeito(s)}>✎</button>
-                <button title="Apagar" onClick={() => onDeleteFeito(s.id)}>🗑</button>
+            <div key={s.id}>
+              <div className={`sim-row${isOpen ? " open" : ""}`} onClick={() => setOpenSim(isOpen ? null : s.id)} style={{ cursor: "pointer" }}>
+                <span className="sim-bar" style={{ background: barCor(p) }} />
+                <span className="sim-caret">{isOpen ? "▾" : "▸"}</span>
+                <div className="sim-main"><div className="sim-name">{s.nome}</div><div className="sim-when">{simFmtData(s.ts)}</div></div>
+                <span className="sim-frac mono">{a}/{q}</span>
+                <span className="sim-pct mono">{p}%</span>
+                <div className="sim-tools" onClick={(e) => e.stopPropagation()}>
+                  <button title="Editar nome e data" onClick={() => onEditFeito(s)}>✎</button>
+                  <button title="Apagar" onClick={() => onDeleteFeito(s.id)}>🗑</button>
+                </div>
               </div>
+              {isOpen && <SimMats mats={s.mats || []} onChange={(m) => onUpdateMats(s.id, m)} />}
             </div>
           );
         })}
@@ -2790,6 +2850,20 @@ export default function App() {
       try { const r = await window.storage.get(SIM_MANUAIS_KEY); manuais = r ? JSON.parse(r.value) : []; } catch { manuais = []; }
       let ocultas = [];
       try { const r = await window.storage.get(SIM_HIDDEN_KEY); ocultas = r ? JSON.parse(r.value) : []; } catch { ocultas = []; }
+      // constrói a nota por matéria de uma prova a partir dos dados antigos (checklist por matéria)
+      const matsDaProva = async (nome) => {
+        let sd = sim[nome];
+        if (!sd) { try { const r = await window.storage.get(SIM_KEY_PREFIX + nome); sd = r ? JSON.parse(r.value) : null; } catch { sd = null; } }
+        if (!sd || !sd.mats) return null;
+        const custom = {}; (sd.custom || []).forEach((c) => { custom[c.id] = c.name; });
+        const mats = [];
+        for (const k in sd.mats) {
+          const aa = parseInt(sd.mats[k].a || 0, 10) || 0, qq = parseInt(sd.mats[k].q || 0, 10) || 0;
+          if (!aa && !qq) continue;
+          mats.push({ nome: custom[k] || (SUBJ_BY_ID[k] && SUBJ_BY_ID[k].name) || k, a: String(aa), q: String(qq) });
+        }
+        return { mats, checked: !!sd.checked };
+      };
       let feitos = [], feitosExiste = false;
       try { const r = await window.storage.get(SIM_FEITOS_KEY); if (r) { feitos = JSON.parse(r.value); feitosExiste = true; } } catch { feitos = []; }
       if (!feitosExiste) {
@@ -2799,15 +2873,21 @@ export default function App() {
         const seed = [];
         for (const nome of nomes) {
           if (vistos.has(nome)) continue; vistos.add(nome);
-          let sd = sim[nome];
-          if (!sd) { try { const r = await window.storage.get(SIM_KEY_PREFIX + nome); sd = r ? JSON.parse(r.value) : null; } catch { sd = null; } }
-          if (!sd || !sd.checked || !sd.mats) continue;
-          let a = 0, q = 0;
-          for (const k in sd.mats) { a += parseInt(sd.mats[k].a || 0, 10) || 0; q += parseInt(sd.mats[k].q || 0, 10) || 0; }
-          if (q > 0) seed.push({ nome, acertos: a, brancos: 0, erros: Math.max(0, q - a) });
+          const info = await matsDaProva(nome);
+          if (!info || !info.checked || !info.mats.length) continue;
+          seed.push({ nome, mats: info.mats });
         }
         feitos = seed.map((s, i) => ({ id: SIM_UID() + i, ts: Date.now() - i * 86400000, ...s }));
         try { window.storage.set(SIM_FEITOS_KEY, JSON.stringify(feitos)); } catch {}
+      } else {
+        // já existe: completa com a nota por matéria quem ainda não tem (provas migradas antes desse recurso)
+        let mudou = false;
+        for (const f of feitos) {
+          if (f.mats && f.mats.length) continue;
+          const info = await matsDaProva(f.nome);
+          if (info && info.mats.length) { f.mats = info.mats; mudou = true; }
+        }
+        if (mudou) { try { window.storage.set(SIM_FEITOS_KEY, JSON.stringify(feitos)); } catch {} }
       }
       const feitosNomes = new Set(feitos.map((f) => f.nome));
       let sug = null;
@@ -2888,6 +2968,7 @@ export default function App() {
     setSimModal(null);
   };
   const removeSimFeito = (id) => saveSimFeitos(simFeitos.filter((s) => s.id !== id));
+  const updateSimMats = (id, mats) => saveSimFeitos(simFeitos.map((s) => (s.id === id ? { ...s, mats } : s)));
   const addSimSug = (nome) => saveSimSug([...simSug, { id: SIM_UID(), nome }]);
   const removeSimSug = (id) => saveSimSug(simSug.filter((s) => s.id !== id));
   const saveDataProva = (v) => { setDataProva(v); try { window.storage.set(DATAPROVA_KEY, JSON.stringify(v)); } catch {} };
@@ -3727,6 +3808,29 @@ export default function App() {
         .sim-tools button:hover { color: var(--text); background: var(--surface-2); }
         .sim-modal-pct { margin-top: 14px; font-size: 13.5px; color: var(--muted); }
         .sim-modal-pct b { color: var(--gold); font-size: 16px; }
+        .sim-caret { color: var(--faint); font-size: 11px; width: 12px; flex-shrink: 0; }
+        .sim-row.open { border-bottom-left-radius: 0; border-bottom-right-radius: 0; margin-bottom: 0; }
+        .sim-desemp-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; padding-top: 6px; }
+        .sim-matsel { font: inherit; font-size: 12.5px; color: var(--text); background: var(--surface-2); border: 1px solid var(--line-2);
+          border-radius: 9px; padding: 6px 10px; cursor: pointer; max-width: 55%; }
+        .sim-mats { background: var(--surface-2); border: 1px solid var(--line); border-top: none;
+          border-radius: 0 0 13px 13px; padding: 12px 14px 14px; margin: 0 0 9px; }
+        .sim-mats-cap { font-size: 11px; letter-spacing: .6px; text-transform: uppercase; color: var(--faint); font-weight: 800; margin-bottom: 10px; }
+        .sim-mats-hint { font-size: 12.5px; color: var(--faint); margin-bottom: 10px; }
+        .sim-mat { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
+        .sim-mat-name { flex: 1; min-width: 0; font-size: 13px; }
+        .sim-qn { width: 46px; text-align: center; background: var(--surface); border: 1px solid var(--line-2);
+          border-radius: 8px; color: var(--text); font: inherit; font-size: 13px; padding: 5px 4px; }
+        .sim-de { font-size: 11.5px; color: var(--faint); }
+        .sim-mat-pct { min-width: 38px; text-align: right; font-size: 12.5px; color: var(--gold); }
+        .sim-mat-del { font: inherit; font-size: 16px; line-height: 1; color: var(--faint); background: none; border: none; cursor: pointer; padding: 0 4px; }
+        .sim-mat-del:hover { color: var(--coral); }
+        .sim-mat-add { display: flex; align-items: center; gap: 8px; margin-top: 8px; border-top: 1px solid var(--line); padding-top: 10px; }
+        .sim-mat-add input { flex: 1; background: var(--surface); border: 1px solid var(--line-2); border-radius: 8px;
+          color: var(--text); font: inherit; font-size: 12.5px; padding: 7px 10px; outline: none; }
+        .sim-mat-add input::placeholder { color: var(--faint); }
+        .sim-mat-add button { font: inherit; font-size: 15px; font-weight: 800; color: var(--gold); background: var(--surface); border: 1px solid var(--line-2);
+          border-radius: 8px; width: 32px; height: 32px; cursor: pointer; flex-shrink: 0; }
         .sug { display: flex; align-items: center; gap: 11px; background: var(--surface); border: 1px solid var(--line);
           border-radius: 13px; padding: 12px 14px; margin-bottom: 9px; }
         .sug.over { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold); }
@@ -4869,6 +4973,7 @@ export default function App() {
             onNovo={(nome) => setSimModal(nome ? { nome } : {})}
             onEditFeito={(s) => setSimModal(s)}
             onDeleteFeito={removeSimFeito}
+            onUpdateMats={updateSimMats}
             onRegistrarSug={(nome) => setSimModal({ nome })}
             onReorder={saveSimSug}
             onAddSug={addSimSug}
