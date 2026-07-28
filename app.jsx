@@ -882,6 +882,7 @@ function editalCell(raw) {
 // um tópico conta como "estudado" quando Teoria + Lei Seca + Questões estão marcados
 function editalDone(cell) { return !!(cell.t && cell.l && cell.q); }
 const PRIORIDADES_KEY = "tjsc-prioridades:list";
+const ES_CHECK_KEY = "tjsc-es-checklist:list";
 const REGISTROS_KEY = "tjsc-registros:v1";
 const DATAPROVA_KEY = "tjsc-dataprova:v1";
 const METAS_KEY = "tjsc-metas:v1";
@@ -1393,6 +1394,13 @@ function CaixaView({ onBack, onArquivarEdital }) {
         .caixa-impmsg{ font-size:12px; color:var(--green); margin-top:9px; }
         .caixa-card{ background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:15px 17px; margin-bottom:13px; }
         .caixa-lbl{ font-size:10px; letter-spacing:1.2px; text-transform:uppercase; color:var(--faint); font-weight:700; margin-bottom:5px; }
+        .caixa-lbl-row{ display:flex; align-items:center; gap:10px; margin-bottom:5px; min-height:24px; flex-wrap:wrap; }
+        .caixa-lbl-row .caixa-lbl{ margin-bottom:0; }
+        .caixa-dtb{ display:inline-flex; align-items:center; gap:5px; flex-wrap:wrap; }
+        .caixa-dtb button{ font:inherit; min-width:24px; height:22px; cursor:pointer; color:var(--text); background:var(--surface-2);
+          border:1px solid var(--line-2); border-radius:5px; font-size:12px; padding:0 6px; }
+        .caixa-dtb button:hover{ background:var(--surface-3); }
+        .caixa-dtb .caixa-sw{ height:16px !important; width:16px !important; min-width:16px !important; }
         .caixa-destaque{ font-size:15px; font-weight:700; color:var(--text); line-height:1.42; outline:none; border-radius:6px; }
         .caixa-destaque:focus{ box-shadow:0 0 0 2px color-mix(in srgb,var(--gold) 45%,transparent); }
         .caixa-destaque:empty:before,.caixa-veditor:empty:before{ content:attr(data-ph); color:var(--faint); }
@@ -2116,28 +2124,54 @@ function MateriasGrid({ registros, onOpen, onBack }) {
   }
   const extras = Object.keys(agg).filter((m) => !todas.includes(m)).sort();
   const lista = [...todas, ...extras];
+  // cada matéria: em qual bloco fica (da grade) e qual o peso dela (do edital, pra ordenar)
+  const BLOCO_NUM = { "Bloco I": 1, "Bloco II": 2, "Bloco III": 3 };
+  const info = {};
+  for (const s of SECTIONS) for (const x of s.subjects) {
+    if (info[x.name]) continue;
+    const imp = (TJSC_BLOCOS[x.name.toUpperCase()] || {}).imp;
+    info[x.name] = { b: BLOCO_NUM[x.bloco] || 9, imp: imp == null ? -1 : imp };
+  }
+  const card = (m) => {
+    const a = agg[m]; const q = a ? a.acertos + a.erros : 0;
+    const perc = q ? Math.round((a.acertos / q) * 100) : null;
+    return (
+      <button className="mat-card" key={m} onClick={() => onOpen(m)}>
+        <div className="mat-nome">{m}</div>
+        <div className="mat-stats">
+          <span>{a ? fmtTempo(a.tempo) : "sem estudo"}</span>
+          {a ? <span>{a.n} registro{a.n > 1 ? "s" : ""}</span> : null}
+          {perc != null ? <span className="mat-perc">{perc}%</span> : null}
+        </div>
+      </button>
+    );
+  };
+  const cols = [1, 2, 3].map((bn) => ({
+    b: bn,
+    mats: lista.filter((m) => info[m] && info[m].b === bn)
+      .sort((x, y) => info[y].imp - info[x].imp || x.localeCompare(y, "pt")),
+  }));
+  const outras = lista.filter((m) => !info[m] || info[m].b === 9);
   return (
     <section className="editais-page es-page">
       <button className="edital-back" onClick={onBack}>← Voltar ao painel</button>
       <p className="eyebrow">ESTUDEI</p>
       <h1 className="serif" style={{ marginBottom: 10 }}>Matérias</h1>
-      <p className="es-sub">Toque numa matéria pra ver tudo que você registrou nela.</p>
-      <div className="mat-grid">
-        {lista.map((m) => {
-          const a = agg[m]; const q = a ? a.acertos + a.erros : 0;
-          const perc = q ? Math.round((a.acertos / q) * 100) : null;
-          return (
-            <button className="mat-card" key={m} onClick={() => onOpen(m)}>
-              <div className="mat-nome">{m}</div>
-              <div className="mat-stats">
-                <span>{a ? fmtTempo(a.tempo) : "sem estudo"}</span>
-                {a ? <span>{a.n} registro{a.n > 1 ? "s" : ""}</span> : null}
-                {perc != null ? <span className="mat-perc">{perc}%</span> : null}
-              </div>
-            </button>
-          );
-        })}
+      <p className="es-sub">Cada coluna é um bloco do edital, da matéria que mais pesa pra que menos pesa. Toque numa pra ver tudo que você registrou nela.</p>
+      <div className="mat-cols">
+        {cols.map((c) => (
+          <div className="mat-col" key={c.b}>
+            <div className={`mat-col-head b${c.b}`}>{BLOCO_LBL[c.b]}</div>
+            {c.mats.map((m) => card(m))}
+          </div>
+        ))}
       </div>
+      {outras.length > 0 && (
+        <>
+          <div className="mat-col-head outras">Outras</div>
+          <div className="mat-grid">{outras.map((m) => card(m))}</div>
+        </>
+      )}
     </section>
   );
 }
@@ -2292,6 +2326,8 @@ export default function App() {
   const [noteDraft, setNoteDraft] = useState("");
   const [openTopic, setOpenTopic] = useState(null); // { editalId, key, label, materia } — página de notas do tópico
   const [prioridades, setPrioridades] = useState([]);
+  const [esCheck, setEsCheck] = useState([]);
+  const [esCheckInput, setEsCheckInput] = useState("");
   const [registros, setRegistros] = useState([]);
   const [dataProva, setDataProva] = useState(null);
   const [metas, setMetas] = useState({ horas: 20, questoes: 300, revisoes: 8 });
@@ -2423,6 +2459,8 @@ export default function App() {
       }
       let prio = [];
       try { const r = await window.storage.get(PRIORIDADES_KEY); prio = r ? JSON.parse(r.value) : []; } catch { prio = []; }
+      let esck = [];
+      try { const r = await window.storage.get(ES_CHECK_KEY); esck = r ? JSON.parse(r.value) : []; } catch { esck = []; }
       let regs = [];
       try { const r = await window.storage.get(REGISTROS_KEY); regs = r ? JSON.parse(r.value) : []; } catch { regs = []; }
       let dp = null;
@@ -2445,6 +2483,7 @@ export default function App() {
       setCursoData(cursos);
       setEditaisData(eds);
       setPrioridades(prio);
+      setEsCheck(esck);
       setRegistros(regs);
       setDataProva(dp);
       setMetas(mt);
@@ -2469,6 +2508,19 @@ export default function App() {
   };
   const togglePrioridade = (id) => savePrioridades(prioridades.map((p) => (p.id === id ? { ...p, done: !p.done } : p)));
   const removePrioridade = (id) => savePrioridades(prioridades.filter((p) => p.id !== id));
+
+  const saveEsCheck = (arr) => {
+    setEsCheck(arr);
+    try { window.storage.set(ES_CHECK_KEY, JSON.stringify(arr)); } catch {}
+  };
+  const addEsCheck = () => {
+    const t = esCheckInput.trim();
+    if (!t) return;
+    saveEsCheck([...esCheck, { id: Date.now(), txt: t, done: false }]);
+    setEsCheckInput("");
+  };
+  const toggleEsCheck = (id) => saveEsCheck(esCheck.map((p) => (p.id === id ? { ...p, done: !p.done } : p)));
+  const removeEsCheck = (id) => saveEsCheck(esCheck.filter((p) => p.id !== id));
 
   // ---------- Registrar estudo ----------
   const saveRegistros = (arr) => { setRegistros(arr); try { window.storage.set(REGISTROS_KEY, JSON.stringify(arr)); } catch {} };
@@ -3673,6 +3725,31 @@ export default function App() {
         .frase-tx { font-size: 15px; font-style: italic; color: var(--text); }
         .painel-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
         @media (max-width: 720px){ .painel-2col { grid-template-columns: 1fr; } }
+
+        /* checklist rápido do ESTUDEI — bem destacado */
+        .checkes { margin: 20px 0 4px; background: color-mix(in srgb, var(--gold) 12%, var(--surface));
+          border: 1px solid color-mix(in srgb, var(--gold) 45%, var(--line)); border-left: 5px solid var(--gold);
+          border-radius: 16px; padding: 16px 18px; box-shadow: 0 6px 22px color-mix(in srgb, var(--gold) 18%, transparent); }
+        .checkes-head { font-weight: 800; letter-spacing: .4px; font-size: 13.5px; color: var(--gold);
+          margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid color-mix(in srgb, var(--gold) 30%, var(--line)); }
+        .checkes-add { display: flex; gap: 8px; margin-bottom: 12px; }
+        .checkes-add input { flex: 1; min-width: 0; background: var(--surface); border: 1px solid var(--line-2);
+          color: var(--text); border-radius: 10px; padding: 10px 12px; font: inherit; font-size: 13.5px; }
+        .checkes-add input::placeholder { color: var(--faint); }
+        .checkes-add input:focus { outline: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--gold) 45%, transparent); }
+        .checkes-add button { width: 40px; flex-shrink: 0; border: none; border-radius: 10px; background: var(--gold);
+          color: var(--on-accent, #10141a); font-size: 20px; font-weight: 700; cursor: pointer; line-height: 1; }
+        .checkes-add button:hover { filter: brightness(1.08); }
+        .checkes-list { display: flex; flex-direction: column; max-height: 340px; overflow-y: auto; }
+        .checkes-empty { font-size: 13px; color: var(--faint); font-style: italic; padding: 4px 2px; }
+        .checkes-item { display: flex; align-items: flex-start; gap: 10px; font-size: 14px; line-height: 1.4;
+          padding: 9px 2px; border-bottom: 1px solid var(--line); }
+        .checkes-item:last-child { border-bottom: none; }
+        .checkes-item input[type=checkbox] { accent-color: var(--gold); margin-top: 2px; width: 16px; height: 16px; flex-shrink: 0; }
+        .checkes-item span { flex: 1; color: var(--text); }
+        .checkes-item.done span { text-decoration: line-through; color: var(--faint); }
+        .checkes-x { border: none; background: transparent; color: var(--faint); cursor: pointer; font-size: 18px; line-height: 1; padding: 0 2px; flex-shrink: 0; }
+        .checkes-x:hover { color: var(--coral); }
         .dp-card, .meta-card { display: flex; flex-direction: column; margin-top: 0; }
         .dp-lbl { font-size: 12px; letter-spacing: .4px; text-transform: uppercase; color: var(--faint); font-weight: 700; }
         .dp-big { font-size: 34px; font-weight: 800; color: var(--text); margin: 8px 0 2px; font-variant-numeric: tabular-nums; }
@@ -3693,6 +3770,12 @@ export default function App() {
 
         /* ===== Matérias ===== */
         .mat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; margin-top: 6px; }
+        .mat-cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 10px; align-items: start; }
+        .mat-col { display: flex; flex-direction: column; gap: 12px; }
+        .mat-col-head { font-size: 11px; font-weight: 800; letter-spacing: .8px; text-transform: uppercase; padding: 6px 4px 4px; border-bottom: 1px solid var(--line); }
+        .mat-col-head.b1 { color: #6c9be6; } .mat-col-head.b2 { color: #b58ae6; } .mat-col-head.b3 { color: #d3a63f; }
+        .mat-col-head.outras { color: var(--muted); margin-top: 22px; }
+        @media (max-width: 720px) { .mat-cols { grid-template-columns: 1fr; } }
         .mat-card { text-align: left; background: var(--surface); border: 1px solid var(--line-2); border-radius: 16px; padding: 16px 18px; cursor: pointer; font: inherit; color: var(--text); transition: border-color .15s; }
         .mat-card:hover { border-color: var(--gold); }
         .mat-nome { font-size: 14.5px; font-weight: 700; color: var(--coral); }
@@ -3954,8 +4037,6 @@ export default function App() {
                               <button className={`ed-band${matOpen ? " open" : ""}`} onClick={() => setOpenMat((p) => ({ ...p, [matKey]: !p[matKey] }))}>
                                 <span className="mat-arrow">{matOpen ? "▾" : "▸"}</span>
                                 <h3>{m.nome}</h3>
-                                {bl && <span className={`ed-bloco-tag b${bl.b}`}>{BLOCO_LBL[bl.b]}</span>}
-                                {bl && <span className="ed-imp" title="Peso desta matéria dentro do bloco">{bl.imp}%</span>}
                                 <span className="mono edital-count">{done}/{total}</span>
                               </button>
                               {matOpen && m.itens.map((it, ii) => renderNode(it, `${mi}.${ii}`, 0))}
@@ -4251,6 +4332,27 @@ export default function App() {
               <h1>Bom estudo, <em>Nádia</em></h1>
               <p className="hero-sub">Seu ritmo, seus ciclos e o que estudar agora — tudo numa tela só.</p>
             </header>
+
+            {/* ---------- CHECKLIST RÁPIDO (ESTUDEI) ---------- */}
+            <aside className="checkes">
+              <div className="checkes-head">✅ NÃO ESQUECER — tópicos pra cumprir</div>
+              <div className="checkes-add">
+                <input value={esCheckInput} onChange={(e) => setEsCheckInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") addEsCheck(); }} placeholder="anota um tópico rápido..." />
+                <button onClick={addEsCheck} title="Adicionar">+</button>
+              </div>
+              <div className="checkes-list">
+                {esCheck.length === 0 && <div className="checkes-empty">nada anotado ainda — escreve aí em cima ✨</div>}
+                {esCheck.map((p) => (
+                  <div key={p.id} className={`checkes-item${p.done ? " done" : ""}`}>
+                    <input type="checkbox" checked={p.done} onChange={() => toggleEsCheck(p.id)} />
+                    <span>{p.txt}</span>
+                    <button className="checkes-x" onClick={() => removeEsCheck(p.id)} title="Remover">×</button>
+                  </div>
+                ))}
+              </div>
+            </aside>
+
             <FraseDoDia />
             <div className="painel-2col">
               <DataProva data={dataProva && dataProva.data} nome={dataProva && dataProva.nome} onSave={saveDataProva} />
