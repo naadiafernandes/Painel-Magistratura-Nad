@@ -1351,13 +1351,12 @@ function CaixaView({ onBack, onArquivarEdital }) {
   const setDestino = (id, d) => persist(notas.map((n) => n.id === id ? { ...n, destino: n.destino === d ? null : d } : n));
   const clickDestino = (n, d) => {
     if (d !== "edital") { setDestino(n.id, d); return; }
-    if (n.arquivadoEdital) { setAviso((a) => ({ ...a, [n.id]: "Esta nota já está no edital: " + n.arquivadoEdital })); return; }
     const r = onArquivarEdital ? onArquivarEdital(n) : { ok: false };
     if (r && r.ok) {
-      persist(notas.map((x) => x.id === n.id ? { ...x, destino: "edital", arquivadoEdital: r.label } : x));
-      setAviso((a) => ({ ...a, [n.id]: "Arquivada no edital: " + r.label }));
+      persist(notas.filter((x) => x.id !== n.id));   // mandou pro edital → sai da caixa
+      setImpMsg("Foi pro edital: " + r.label + " — e saiu da caixa.");
     } else {
-      setAviso((a) => ({ ...a, [n.id]: "Escolha a matéria e o tópico acima para arquivar no edital." }));
+      setAviso((a) => ({ ...a, [n.id]: "Escolha a matéria e o tópico acima para mandar pro edital." }));
     }
   };
   const toggleFav = (id) => persist(notas.map((n) => n.id === id ? { ...n, favorito: !n.favorito } : n));
