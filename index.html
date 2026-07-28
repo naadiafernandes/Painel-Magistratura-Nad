@@ -114,6 +114,7 @@ window.storage = {
 </script>
 
 <script src="editais.js"></script>
+<script src="caixa-seed.js"></script>
 <script type="text/babel" data-presets="react">
 const { useState, useEffect, useRef } = React;
 
@@ -1084,6 +1085,7 @@ const NAV_ICON_PATHS = {
   refresh: <><path d="M20 12a8 8 0 1 1-2.3-5.6" /><path d="M20 4v4h-4" /></>,
   clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3.5 2" /></>,
   chart: <><path d="M5 21V10" /><path d="M12 21V4" /><path d="M19 21v-7" /></>,
+  inbox: <><path d="M4 13l2.5-8h11L20 13" /><path d="M4 13v6h16v-6" /><path d="M4 13h5l1 2h4l1-2h5" /></>,
 };
 function Ic({ n }) {
   return (
@@ -1108,6 +1110,7 @@ const NAV_GROUPS = [
     { key: "painel", icon: "home", label: "Painel", kind: "home" },
     { key: "editais", icon: "file", label: "Editais verticalizados", kind: "view", view: "editais" },
     { key: "diario", icon: "book", label: "Diário de estudos", kind: "view", view: "diario" },
+    { key: "caixa", icon: "inbox", label: "Caixa de entrada", kind: "view", view: "caixa" },
   ] },
   { label: "Matérias", items: [
     { key: "sec-base", n: "1", label: "Matérias-base", kind: "anchor" },
@@ -1226,6 +1229,192 @@ function beautifyFrase(texto) {
   s = s.charAt(0).toUpperCase() + s.slice(1);
   if (!/[.!?…]$/.test(s)) s += ".";
   return s;
+}
+
+// ---------- Caixa de entrada: cole qualquer material e vira nota carimbada sozinha ----------
+const CAIXA_KEY = "tjsc-caixa:v1";
+const CAIXA_SEED_FLAG = "tjsc-caixa-seed:v1";
+const CAIXA_UID = () => "n" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+const CAIXA_DESTINOS = [
+  { id: "edital",  label: "Nota no edital",    ic: "M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z M14 3v5h5" },
+  { id: "anki",    label: "Card de Anki",       ic: "M4 7a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z M8 5h9a2 2 0 0 1 2 2v9" },
+  { id: "julgado", label: "Julgado na matéria", ic: "M12 3v18 M6 8h12 M8 8l-2.5 5a2.5 2.5 0 0 0 5 0z M16 8l-2.5 5a2.5 2.5 0 0 0 5 0z" },
+  { id: "guardar", label: "Só guardar",         ic: "M6 3h12a1 1 0 0 1 1 1v16l-7-4-7 4V4a1 1 0 0 1 1-1z" },
+];
+// mapeia a categoria do Buscador -> id da matéria do painel (quando a frase não denuncia sozinha)
+function caixaCatToMat(cat) {
+  const c = diaNorm(cat);
+  if (/process(o|ual)?\s*penal/.test(c)) return "ppenal";
+  if (/process(o|ual)?\s*civil/.test(c)) return "pcivil";
+  if (/administrativ|improbidade/.test(c)) return "adm";
+  if (/constitucional|garantias fundamentais|poder judiciario|poder legislativo|poder executivo|controle de constitucional|nacionalidade|remedios constitucionais|organizacao (do estado|dos poderes)|repartic(ao|ao de) competencias/.test(c)) return "const";
+  if (/eleitoral/.test(c)) return "eleit";
+  if (/consumidor/.test(c)) return "cdc";
+  if (/crianca|adolescente/.test(c)) return "eca";
+  if (/empresarial/.test(c)) return "empres";
+  if (/ambiental/.test(c)) return "amb";
+  if (/tributar|financeir/.test(c)) return "trib";
+  if (/\bpenal\b/.test(c)) return "penal";
+  if (/\bcivil\b/.test(c)) return "civil";
+  return null;
+}
+function caixaMatLabel(id) {
+  if (typeof SUBJ_BY_ID !== "undefined" && SUBJ_BY_ID[id]) return SUBJ_BY_ID[id].name.replace(/^Direito /, "");
+  return ({ const: "Constitucional", adm: "Administrativo", civil: "Civil", pcivil: "Processual Civil", penal: "Penal", ppenal: "Processual Penal", empres: "Empresarial", trib: "Financeiro e Tributário", cdc: "Consumidor", eca: "Criança e Adolescente", amb: "Ambiental", penesp: "Penal Especial", civesp: "Civil Especial", eleit: "Eleitoral", dh: "Direitos Humanos", human: "Humanística" })[id] || id;
+}
+// quebra um material colado em um ou vários julgados (separador: "Adicionado ao caderno em: ...")
+function caixaSplit(text) {
+  const marker = /Adicionado ao caderno em:[^\n]*/g;
+  const parts = []; let last = 0, m;
+  while ((m = marker.exec(text))) { parts.push(text.slice(last, m.index)); last = m.index + m[0].length; }
+  const tail = text.slice(last);
+  if (tail.trim()) parts.push(tail);
+  return parts.map((s) => s.trim()).filter(Boolean);
+}
+// lê um bloco e extrai matéria, assunto, título, fonte e favorito
+function caixaParseBloco(bloco) {
+  const linhas = bloco.split("\n").map((l) => l.trim()).filter(Boolean);
+  const flag = (l) => /^(lido|favorito|julgado|tese|novo!?)$/i.test(l);
+  const idxJ = linhas.findIndex((l) => /^(JULGADO|TESE)$/i.test(l));
+  const cabec = (idxJ >= 0 ? linhas.slice(0, idxJ) : linhas.slice(0, 3)).filter((l) => !flag(l));
+  const corpo = idxJ >= 0 ? linhas.slice(idxJ + 1) : linhas;
+  const categoria = cabec[0] || "";
+  const assunto = cabec[1] || "";
+  const titulo = (corpo[0] || categoria || "Material colado").trim();
+  const favorito = linhas.some((l) => /^favorito$/i.test(l));
+  const infos = [...bloco.matchAll(/Info\s*\d+/gi)].map((x) => x[0].replace(/\s+/g, " "));
+  const corte = /\bSTF\b/.test(bloco) ? "STF" : (/\bSTJ\b/.test(bloco) ? "STJ" : "");
+  const info = infos.length ? infos[infos.length - 1] : "";
+  const fonte = [corte, info].filter(Boolean).join(" · ");
+  // a categoria do próprio Buscador manda; só se ela não disser nada é que lemos o corpo
+  let mats = [];
+  const principal = caixaCatToMat(categoria);
+  if (principal) {
+    mats = [principal];
+    const segunda = caixaCatToMat(assunto);
+    if (segunda && segunda !== principal) mats.push(segunda);
+  } else {
+    mats = detectMaterias(bloco).slice(0, 1);
+  }
+  return { id: CAIXA_UID(), raw: bloco.trim(), titulo, categoria, assunto, mats, fonte, favorito, destino: null, ts: Date.now() };
+}
+function caixaParse(text) { return caixaSplit(text).map(caixaParseBloco); }
+
+function CaixaView({ onBack }) {
+  const [notas, setNotas] = useState([]);
+  const [texto, setTexto] = useState("");
+  const [aberto, setAberto] = useState({});
+  const [carregou, setCarregou] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      let arr = null;
+      try { const r = await window.storage.get(CAIXA_KEY); arr = r ? JSON.parse(r.value) : null; } catch { arr = null; }
+      if (!arr) {
+        let semeado = null;
+        try { const f = await window.storage.get(CAIXA_SEED_FLAG); semeado = f ? f.value : null; } catch {}
+        if (!semeado && typeof window.CAIXA_SEED === "string") {
+          arr = caixaParse(window.CAIXA_SEED);
+          try { window.storage.set(CAIXA_KEY, JSON.stringify(arr)); window.storage.set(CAIXA_SEED_FLAG, "1"); } catch {}
+        } else { arr = []; }
+      }
+      setNotas(arr || []); setCarregou(true);
+    })();
+  }, []);
+
+  const persist = (arr) => { setNotas(arr); try { window.storage.set(CAIXA_KEY, JSON.stringify(arr)); } catch {} };
+  const guardar = () => { const novas = caixaParse(texto); if (!novas.length) return; persist([...novas, ...notas]); setTexto(""); };
+  const remover = (id) => persist(notas.filter((n) => n.id !== id));
+  const setDestino = (id, d) => persist(notas.map((n) => n.id === id ? { ...n, destino: n.destino === d ? null : d } : n));
+  const toggleFav = (id) => persist(notas.map((n) => n.id === id ? { ...n, favorito: !n.favorito } : n));
+  const toggleAberto = (id) => setAberto((o) => ({ ...o, [id]: !o[id] }));
+
+  return (
+    <section className="caixa-page">
+      <style>{`
+        .caixa-page{ padding-top:8px; max-width:1000px; }
+        .caixa-compose{ background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:16px; margin-bottom:22px; }
+        .caixa-ta{ width:100%; box-sizing:border-box; min-height:120px; resize:vertical; background:var(--surface-2); color:var(--text);
+          border:1px solid var(--line-2); border-radius:12px; padding:13px 14px; font:inherit; font-size:14px; line-height:1.55; }
+        .caixa-ta::placeholder{ color:var(--faint); }
+        .caixa-compose-bar{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:11px; flex-wrap:wrap; }
+        .caixa-hint{ font-size:12px; color:var(--faint); line-height:1.4; flex:1; min-width:180px; }
+        .caixa-go{ font:inherit; font-size:13px; font-weight:800; cursor:pointer; background:var(--gold); color:var(--on-accent,#10141a);
+          border:none; border-radius:10px; padding:10px 18px; white-space:nowrap; }
+        .caixa-go:disabled{ opacity:.45; cursor:default; }
+        .caixa-card{ background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:15px 17px; margin-bottom:13px; }
+        .caixa-chips{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:9px; align-items:center; }
+        .caixa-chip{ font-size:11.5px; font-weight:700; padding:3px 10px; border-radius:999px; border:1px solid; }
+        .caixa-chip.neutral{ color:var(--muted); border-color:var(--line-2); background:var(--surface-2); }
+        .caixa-chip.fonte{ color:var(--gold); border-color:color-mix(in srgb,var(--gold) 40%,transparent); background:color-mix(in srgb,var(--gold) 14%,transparent); }
+        .caixa-fav{ margin-left:auto; cursor:pointer; background:none; border:none; font-size:15px; line-height:1; color:var(--faint); }
+        .caixa-fav.on{ color:var(--gold); }
+        .caixa-titulo{ font-size:14.5px; font-weight:700; color:var(--text); line-height:1.4; }
+        .caixa-raw{ font-size:13px; color:var(--muted); line-height:1.55; white-space:pre-wrap; margin-top:8px;
+          border-left:2px solid var(--line-2); padding-left:11px; }
+        .caixa-toggle{ font:inherit; font-size:12px; font-weight:700; color:var(--gold); background:none; border:none; cursor:pointer; padding:6px 0 0; }
+        .caixa-actions{ display:flex; flex-wrap:wrap; gap:7px; margin-top:12px; padding-top:12px; border-top:1px solid var(--line); }
+        .caixa-act{ font:inherit; font-size:12.5px; font-weight:700; cursor:pointer; color:var(--muted); background:var(--surface-2);
+          border:1px solid var(--line-2); border-radius:9px; padding:7px 11px; display:inline-flex; align-items:center; gap:6px; }
+        .caixa-act:hover{ color:var(--text); }
+        .caixa-act.on{ color:var(--on-accent,#10141a); background:var(--gold); border-color:var(--gold); }
+        .caixa-act svg{ width:15px; height:15px; }
+        .caixa-del{ margin-left:auto; color:var(--faint); border-color:transparent; background:none; }
+        .caixa-del:hover{ color:var(--coral); }
+        .caixa-empty{ text-align:center; color:var(--faint); font-size:13.5px; margin-top:30px; line-height:1.6; }
+        .caixa-count{ font-size:12px; color:var(--faint); margin-bottom:14px; }
+      `}</style>
+      <button className="edital-back" onClick={onBack}>← Voltar ao painel</button>
+      <p className="eyebrow">Painel de Estudos</p>
+      <h1 className="serif" style={{ marginBottom: 6 }}>Caixa de entrada</h1>
+      <p className="desc" style={{ marginBottom: 18 }}>Cole qualquer coisa aqui. Vira uma nota que já se carimba com a matéria e o assunto — depois você decide o que ela vira.</p>
+
+      <div className="caixa-compose">
+        <textarea className="caixa-ta" value={texto} onChange={(e) => setTexto(e.target.value)}
+          placeholder="Cole aqui um julgado do Buscador, um trecho de lei, uma questão ou uma frase sua… (pode colar vários de uma vez)" />
+        <div className="caixa-compose-bar">
+          <span className="caixa-hint">A matéria e a fonte (ex.: Info 1204) são reconhecidas sozinhas. Nada se perde.</span>
+          <button className="caixa-go" onClick={guardar} disabled={!texto.trim()}>Guardar na caixa</button>
+        </div>
+      </div>
+
+      {carregou && (notas.length === 0 ? (
+        <p className="caixa-empty">Sua caixa está vazia.<br />Cole o primeiro material acima — ele aterrissa aqui já organizado.</p>
+      ) : (
+        <>
+          <p className="caixa-count">{notas.length} {notas.length === 1 ? "nota guardada" : "notas guardadas"}</p>
+          {notas.map((n) => {
+            const open = !!aberto[n.id];
+            const longo = n.raw.length > 260;
+            return (
+              <div key={n.id} className="caixa-card">
+                <div className="caixa-chips">
+                  {n.mats.length > 0 ? n.mats.map((mid) => (
+                    <span key={mid} className="caixa-chip" style={chipStyle(materiaColor(mid))}>{caixaMatLabel(mid)}</span>
+                  )) : n.categoria ? <span className="caixa-chip neutral">{n.categoria}</span> : null}
+                  {n.assunto && n.assunto !== n.categoria && <span className="caixa-chip neutral">{n.assunto}</span>}
+                  {n.fonte && <span className="caixa-chip fonte">{n.fonte}</span>}
+                  <button className={"caixa-fav" + (n.favorito ? " on" : "")} title="Favorito" onClick={() => toggleFav(n.id)}>{n.favorito ? "★" : "☆"}</button>
+                </div>
+                <div className="caixa-titulo">{n.titulo}</div>
+                {(open || !longo) && n.raw !== n.titulo && <div className="caixa-raw">{n.raw}</div>}
+                {longo && <button className="caixa-toggle" onClick={() => toggleAberto(n.id)}>{open ? "esconder" : "ver conteúdo completo"}</button>}
+                <div className="caixa-actions">
+                  {CAIXA_DESTINOS.map((d) => (
+                    <button key={d.id} className={"caixa-act" + (n.destino === d.id ? " on" : "")} onClick={() => setDestino(n.id, d.id)}>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d={d.ic} /></svg>
+                      {d.label}
+                    </button>
+                  ))}
+                  <button className="caixa-act caixa-del" title="Apagar nota" onClick={() => remover(n.id)}>apagar</button>
+                </div>
+              </div>
+            );
+          })}
+        </>
+      ))}
+    </section>
+  );
 }
 
 // ---------- Página de notas de um tópico do edital (caixinhas arrastáveis, rich text) ----------
@@ -3229,6 +3418,10 @@ function App() {
             blocks={ES_PAGES[view].blocks}
             onBack={() => setView("main")}
           />
+        )}
+
+        {view === "caixa" && (
+          <CaixaView onBack={() => setView("main")} />
         )}
 
         {view === "main" && (<>
