@@ -1017,7 +1017,6 @@ const NAV_GROUPS = [
   ] },
   { label: "Acervo", items: [
     { key: "sec-informativos", icon: "info", label: "Informativos", kind: "anchor" },
-    { key: "sec-simulados", icon: "clipboard", label: "Simulados e provas", kind: "anchor" },
     { key: "sec-cursos", icon: "video", label: "Cursos isolados", kind: "anchor" },
   ] },
 ];
