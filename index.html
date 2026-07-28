@@ -2351,7 +2351,7 @@ function App() {
       editRef.current.focus();
     }
   }, [editId]);
-  const [view, setView] = useState("main");
+  const [view, setView] = useState("es-painel");
   const [openEdital, setOpenEdital] = useState(0);
   const [openMat, setOpenMat] = useState({});
   const [openNote, setOpenNote] = useState(null); // chave do tópico com a caixinha de Observações aberta
@@ -3862,7 +3862,7 @@ function App() {
         })()}
         {view === "editais" && !openTopic && (
           <section className="editais-page">
-            <button className="edital-back" onClick={() => setView("main")}>← Voltar ao painel</button>
+            <button className="edital-back" onClick={() => setView("es-painel")}>← Voltar ao painel</button>
             <p className="eyebrow">Painel de Estudos</p>
             <h1 className="serif" style={{ marginBottom: 18 }}>Editais Verticalizados</h1>
             {EDITAIS.length === 0 ? (
@@ -4025,7 +4025,7 @@ function App() {
 
         {view === "diario" && (
           <section className="diario-page">
-            <button className="edital-back" onClick={() => setView("main")}>← Voltar ao painel</button>
+            <button className="edital-back" onClick={() => setView("es-painel")}>← Voltar ao painel</button>
             <p className="eyebrow">Painel de Estudos</p>
             <h1 className="serif" style={{ marginBottom: 18 }}>Diário de Estudos</h1>
 
@@ -4276,20 +4276,20 @@ function App() {
 
         {view === "es-materias" && (matAberta
           ? <MateriaDetail materia={matAberta} registros={registros} onBack={() => setMatAberta(null)} onEdit={abrirRegistro} onDelete={removeRegistro} />
-          : <MateriasGrid registros={registros} onOpen={setMatAberta} onBack={() => setView("main")} />
+          : <MateriasGrid registros={registros} onOpen={setMatAberta} onBack={() => setView("es-painel")} />
         )}
         {view === "es-revisoes" && (
-          <RevisoesView registros={registros} revStatus={revStatus} onMark={marcarRevisao} onBack={() => setView("main")} />
+          <RevisoesView registros={registros} revStatus={revStatus} onMark={marcarRevisao} onBack={() => setView("es-painel")} />
         )}
         {view === "es-estatisticas" && (
-          <EstatisticasView registros={registros} onBack={() => setView("main")} />
+          <EstatisticasView registros={registros} onBack={() => setView("es-painel")} />
         )}
         {view === "es-historico" && (
-          <RegHistorico registros={registros} onBack={() => setView("main")} onDelete={removeRegistro} onEdit={abrirRegistro} />
+          <RegHistorico registros={registros} onBack={() => setView("es-painel")} onDelete={removeRegistro} onEdit={abrirRegistro} />
         )}
         {view === "es-ciclos" && (
           <section className="editais-page es-page">
-            <button className="edital-back" onClick={() => setView("main")}>← Voltar ao painel</button>
+            <button className="edital-back" onClick={() => setView("es-painel")}>← Voltar ao painel</button>
             <p className="eyebrow">ESTUDEI</p>
             <h1 className="serif" style={{ marginBottom: 10 }}>Ciclos</h1>
             <p className="es-sub">Cada fonte enche conforme você registra — o tempo total manda no tamanho da fatia.</p>
@@ -4298,9 +4298,8 @@ function App() {
         )}
         {view === "es-painel" && (
           <section className="editais-page es-page">
-            <button className="edital-back" onClick={() => setView("main")}>← Voltar ao painel</button>
-            <p className="eyebrow">ESTUDEI</p>
-            <h1 className="serif" style={{ marginBottom: 10 }}>Painel</h1>
+            <p className="eyebrow">Painel de estudos</p>
+            <h1 className="serif" style={{ marginBottom: 10 }}>Bom estudo, Nádia</h1>
             <FraseDoDia />
             <div className="painel-2col">
               <DataProva data={dataProva && dataProva.data} nome={dataProva && dataProva.nome} onSave={saveDataProva} />
@@ -4313,7 +4312,7 @@ function App() {
         )}
 
         {view === "caixa" && (
-          <CaixaView onBack={() => setView("main")} onArquivarEdital={arquivarNoEdital} />
+          <CaixaView onBack={() => setView("es-painel")} onArquivarEdital={arquivarNoEdital} />
         )}
 
         {view === "main" && (<>
