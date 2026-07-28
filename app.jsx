@@ -4346,7 +4346,7 @@ export default function App() {
               <div className="checkes-head">📌 NÃO ESQUECER</div>
               <div className="checkes-add">
                 <input value={esCheckInput} onChange={(e) => setEsCheckInput(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") addEsCheck(); }} placeholder="TAREFA RÁPIDA" />
+                  onKeyDown={(e) => { if (e.key === "Enter") addEsCheck(); }} placeholder="tarefa rápida" />
                 <button onClick={addEsCheck} title="Adicionar">+</button>
               </div>
               <div className="checkes-list">
