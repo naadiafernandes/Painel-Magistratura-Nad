@@ -1001,6 +1001,8 @@ function editalCell(raw) {
 function editalDone(cell) { return !!(cell.t && cell.l && cell.q); }
 const PRIORIDADES_KEY = "tjsc-prioridades:list";
 const REGISTROS_KEY = "tjsc-registros:v1";
+const DATAPROVA_KEY = "tjsc-dataprova:v1";
+const METAS_KEY = "tjsc-metas:v1";
 // fontes de estudo do "Registrar estudo" (categorias do ESTUDEI, adaptadas)
 const REG_FONTES = [
   { id: "teoria",   label: "Teoria",         color: "#7fa8e6" },
@@ -1886,6 +1888,91 @@ function Constancia({ registros }) {
   );
 }
 
+// ===== ESTUDEI: frase do dia, data da prova, meta da semana =====
+const FRASES = [
+  "Nada é em vão. Se não é bênção, é lição.",
+  "Um pouco todo dia vira aprovação.",
+  "Disciplina é lembrar do que você quer.",
+  "A vaga é sua; falta só o caminho até ela.",
+  "Constância vence intensidade.",
+  "Cada questão resolvida é um degrau.",
+  "Você já passou por dias mais difíceis. Segue.",
+  "Foco no próximo tópico, não no edital inteiro.",
+  "O esforço de hoje é a tranquilidade da prova.",
+  "Estudar cansada também conta — e conta muito.",
+];
+function FraseDoDia() {
+  const now = new Date();
+  const doy = Math.floor((now - new Date(now.getFullYear(), 0, 0)) / 86400000);
+  return (
+    <div className="panel frase-card">
+      <span className="frase-mk">“</span>
+      <span className="frase-tx">{FRASES[doy % FRASES.length]}</span>
+    </div>
+  );
+}
+function DataProva({ data, nome, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [d, setD] = useState(data || "");
+  const [n, setN] = useState(nome || "");
+  const dias = data ? Math.max(0, Math.ceil((Date.parse(data + "T00:00:00") - Date.now()) / 86400000)) : null;
+  const fmt = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" });
+  if (editing || !data) {
+    return (
+      <div className="panel dp-card">
+        <div className="dp-lbl">Data da prova</div>
+        <input className="reg-in" placeholder="ex.: TJSC · Juiz" value={n} onChange={(e) => setN(e.target.value)} style={{ margin: "8px 0" }} />
+        <input className="reg-in" type="date" value={d} onChange={(e) => setD(e.target.value)} />
+        <div className="dp-actions">
+          {data && <button className="reg-cancel" onClick={() => { setEditing(false); setD(data); setN(nome || ""); }}>Cancelar</button>}
+          <button className="reg-save" onClick={() => { if (d) { onSave({ data: d, nome: n.trim() }); setEditing(false); } }} disabled={!d}>Salvar</button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="panel dp-card">
+      <div className="dp-lbl">Data da prova{nome ? ` · ${nome}` : ""}</div>
+      <div className="dp-big">{dias}<small> {dias === 1 ? "dia" : "dias"}</small></div>
+      <div className="dp-date">{fmt(data)}<button className="dp-edit" onClick={() => setEditing(true)}>editar</button></div>
+    </div>
+  );
+}
+function MetaSemana({ registros, metas, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [h, setH] = useState(metas.horas);
+  const [q, setQ] = useState(metas.questoes);
+  const [rv, setRv] = useState(metas.revisoes);
+  const ws = (() => { const dt = new Date(); dt.setHours(0, 0, 0, 0); dt.setDate(dt.getDate() - dt.getDay()); return dt.getTime(); })();
+  const wk = registros.filter((r) => r.ts >= ws);
+  const minStudied = wk.reduce((s, r) => s + (r.tempo || 0), 0);
+  const qDone = wk.reduce((s, r) => s + (r.acertos || 0) + (r.erros || 0), 0);
+  const rDone = wk.filter((r) => r.concluido).length;
+  const pct = (a, b) => (b > 0 ? Math.min(100, Math.round((a / b) * 100)) : 0);
+  if (editing) {
+    return (
+      <div className="panel meta-card">
+        <div className="meta-head"><span>Meta da semana</span></div>
+        <div className="meta-editrow"><label>Horas</label><input className="reg-in reg-num" type="number" min="0" value={h} onChange={(e) => setH(e.target.value)} /></div>
+        <div className="meta-editrow"><label>Questões</label><input className="reg-in reg-num" type="number" min="0" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+        <div className="meta-editrow"><label>Revisões</label><input className="reg-in reg-num" type="number" min="0" value={rv} onChange={(e) => setRv(e.target.value)} /></div>
+        <div className="dp-actions">
+          <button className="reg-cancel" onClick={() => { setEditing(false); setH(metas.horas); setQ(metas.questoes); setRv(metas.revisoes); }}>Cancelar</button>
+          <button className="reg-save" onClick={() => { onSave({ horas: +h || 0, questoes: +q || 0, revisoes: +rv || 0 }); setEditing(false); }}>Salvar</button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="panel meta-card">
+      <div className="meta-head"><span>Meta da semana</span><button className="dp-edit" onClick={() => setEditing(true)}>editar</button></div>
+      <div className="meta-row"><div className="meta-lab"><b>Horas de estudo</b><span>{fmtTempo(minStudied)} / {metas.horas}h</span></div><div className="meta-track"><i style={{ width: pct(minStudied, metas.horas * 60) + "%" }} /></div></div>
+      <div className="meta-row"><div className="meta-lab"><b>Questões</b><span>{qDone} / {metas.questoes}</span></div><div className="meta-track"><i style={{ width: pct(qDone, metas.questoes) + "%" }} /></div></div>
+      <div className="meta-row"><div className="meta-lab"><b>Revisões</b><span>{rDone} / {metas.revisoes}</span></div><div className="meta-track"><i style={{ width: pct(rDone, metas.revisoes) + "%" }} /></div></div>
+    </div>
+  );
+}
+
 function App() {
   const [data, setData] = useState({});
   const [simData, setSimData] = useState({});
@@ -1920,6 +2007,8 @@ function App() {
   const [openTopic, setOpenTopic] = useState(null); // { editalId, key, label, materia } — página de notas do tópico
   const [prioridades, setPrioridades] = useState([]);
   const [registros, setRegistros] = useState([]);
+  const [dataProva, setDataProva] = useState(null);
+  const [metas, setMetas] = useState({ horas: 20, questoes: 300, revisoes: 8 });
   const [regOpen, setRegOpen] = useState(false);
   const [regEditing, setRegEditing] = useState(null);
   const [regToast, setRegToast] = useState(false);
@@ -2047,6 +2136,10 @@ function App() {
       try { const r = await window.storage.get(PRIORIDADES_KEY); prio = r ? JSON.parse(r.value) : []; } catch { prio = []; }
       let regs = [];
       try { const r = await window.storage.get(REGISTROS_KEY); regs = r ? JSON.parse(r.value) : []; } catch { regs = []; }
+      let dp = null;
+      try { const r = await window.storage.get(DATAPROVA_KEY); dp = r ? JSON.parse(r.value) : null; } catch { dp = null; }
+      let mt = { horas: 20, questoes: 300, revisoes: 8 };
+      try { const r = await window.storage.get(METAS_KEY); if (r) mt = { ...mt, ...JSON.parse(r.value) }; } catch {}
       let manuais = [];
       try { const r = await window.storage.get(SIM_MANUAIS_KEY); manuais = r ? JSON.parse(r.value) : []; } catch { manuais = []; }
       let ocultas = [];
@@ -2062,6 +2155,8 @@ function App() {
       setEditaisData(eds);
       setPrioridades(prio);
       setRegistros(regs);
+      setDataProva(dp);
+      setMetas(mt);
       setSimManuais(manuais);
       setSimHidden(ocultas);
       setDiario(diaEntries);
@@ -2094,6 +2189,8 @@ function App() {
   const removeRegistro = (id) => saveRegistros(registros.filter((r) => r.id !== id));
   const abrirRegistro = (r) => { setRegEditing(r || null); setRegOpen(true); };
   const fecharRegistro = () => { setRegOpen(false); setRegEditing(null); };
+  const saveDataProva = (v) => { setDataProva(v); try { window.storage.set(DATAPROVA_KEY, JSON.stringify(v)); } catch {} };
+  const saveMetas = (v) => { setMetas(v); try { window.storage.set(METAS_KEY, JSON.stringify(v)); } catch {} };
 
   // ---------- Diário de estudos ----------
   const saveDiario = (arr) => {
@@ -3244,6 +3341,30 @@ function App() {
         .consta-day.on { background: var(--gold); border-color: transparent; }
         .consta-day.today { outline: 2px solid var(--gold); outline-offset: 2px; }
         .sechead-es { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin: 26px 4px 12px; }
+
+        /* ===== Painel: frase, data da prova, meta ===== */
+        .frase-card { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+        .frase-mk { font-family: Georgia, "Times New Roman", serif; font-size: 40px; line-height: .5; color: var(--gold); opacity: .55; }
+        .frase-tx { font-size: 15px; font-style: italic; color: var(--text); }
+        .painel-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+        @media (max-width: 720px){ .painel-2col { grid-template-columns: 1fr; } }
+        .dp-card, .meta-card { display: flex; flex-direction: column; margin-top: 0; }
+        .dp-lbl { font-size: 12px; letter-spacing: .4px; text-transform: uppercase; color: var(--faint); font-weight: 700; }
+        .dp-big { font-size: 34px; font-weight: 800; color: var(--text); margin: 8px 0 2px; font-variant-numeric: tabular-nums; }
+        .dp-big small { font-size: 15px; font-weight: 600; color: var(--muted); }
+        .dp-date { font-size: 13px; color: var(--muted); display: flex; align-items: center; }
+        .dp-edit { background: transparent; border: none; color: var(--gold); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; margin-left: 8px; }
+        .dp-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+        .meta-head { display: flex; justify-content: space-between; align-items: center; font-size: 12px; letter-spacing: .4px; text-transform: uppercase; color: var(--faint); font-weight: 700; margin-bottom: 14px; }
+        .meta-row { margin-bottom: 14px; }
+        .meta-row:last-child { margin-bottom: 0; }
+        .meta-lab { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px; color: var(--text); }
+        .meta-lab span { color: var(--muted); font-variant-numeric: tabular-nums; }
+        .meta-track { height: 8px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+        .meta-track i { display: block; height: 100%; background: var(--gold); border-radius: 999px; }
+        .meta-editrow { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+        .meta-editrow label { font-size: 13px; color: var(--muted); }
+        .meta-editrow input { width: 100px; }
       `}</style>
 
       <button
@@ -3766,6 +3887,11 @@ function App() {
             <button className="edital-back" onClick={() => setView("main")}>← Voltar ao painel</button>
             <p className="eyebrow">ESTUDEI</p>
             <h1 className="serif" style={{ marginBottom: 10 }}>Painel</h1>
+            <FraseDoDia />
+            <div className="painel-2col">
+              <DataProva data={dataProva && dataProva.data} nome={dataProva && dataProva.nome} onSave={saveDataProva} />
+              <MetaSemana registros={registros} metas={metas} onSave={saveMetas} />
+            </div>
             <Constancia registros={registros} />
             <div className="sechead-es">Ciclos</div>
             <CiclosPizzas registros={registros} />

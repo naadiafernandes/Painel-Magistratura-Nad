@@ -883,6 +883,8 @@ function editalCell(raw) {
 function editalDone(cell) { return !!(cell.t && cell.l && cell.q); }
 const PRIORIDADES_KEY = "tjsc-prioridades:list";
 const REGISTROS_KEY = "tjsc-registros:v1";
+const DATAPROVA_KEY = "tjsc-dataprova:v1";
+const METAS_KEY = "tjsc-metas:v1";
 // fontes de estudo do "Registrar estudo" (categorias do ESTUDEI, adaptadas)
 const REG_FONTES = [
   { id: "teoria",   label: "Teoria",         color: "#7fa8e6" },
@@ -1126,16 +1128,52 @@ function beautifyFrase(texto) {
   return s;
 }
 
-// ---------- Caixa de entrada: cole qualquer material e vira nota carimbada sozinha ----------
-const CAIXA_KEY = "tjsc-caixa:v1";
-const CAIXA_SEED_FLAG = "tjsc-caixa-seed:v1";
+// ---------- Caixa de entrada: cole qualquer material e vira nota (você escolhe a matéria; o tópico vem do edital) ----------
+const CAIXA_KEY = "tjsc-caixa:v2";
+const CAIXA_KEY_OLD = "tjsc-caixa:v1";
+const CAIXA_SEED_FLAG = "tjsc-caixa-seed:v2";
 const CAIXA_UID = () => "n" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const CAIXA_DESTINOS = [
-  { id: "edital",  label: "Nota no edital",    ic: "M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z M14 3v5h5" },
-  { id: "anki",    label: "Card de Anki",       ic: "M4 7a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z M8 5h9a2 2 0 0 1 2 2v9" },
-  { id: "julgado", label: "Julgado na matéria", ic: "M12 3v18 M6 8h12 M8 8l-2.5 5a2.5 2.5 0 0 0 5 0z M16 8l-2.5 5a2.5 2.5 0 0 0 5 0z" },
-  { id: "guardar", label: "Só guardar",         ic: "M6 3h12a1 1 0 0 1 1 1v16l-7-4-7 4V4a1 1 0 0 1 1-1z" },
+  { id: "edital",  label: "Nota no edital verticalizado", ic: "M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z M14 3v5h5" },
+  { id: "anki",    label: "Card do Anki",                 ic: "M4 7a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z M8 5h9a2 2 0 0 1 2 2v9" },
+  { id: "julgado", label: "Julgado na matéria",           ic: "M12 3v18 M6 8h12 M8 8l-2.5 5a2.5 2.5 0 0 0 5 0z M16 8l-2.5 5a2.5 2.5 0 0 0 5 0z" },
+  { id: "guardar", label: "Só guardar",                   ic: "M6 3h12a1 1 0 0 1 1 1v16l-7-4-7 4V4a1 1 0 0 1 1-1z" },
 ];
+const CAIXA_CORES = ["#378ADD", "#4CA65E", "#E24B4A", "#D9A017", "#8B7FE0"];
+// todas as matérias que a Nadia pode escolher na mão
+const CAIXA_MATS = ["const", "adm", "civil", "pcivil", "penal", "ppenal", "empres", "trib", "cdc", "eca", "amb", "eleit", "dh", "human", "penesp", "civesp"];
+// matéria do painel -> nome da matéria no edital verticalizado (TJSC), pra buscar os tópicos reais
+const CAIXA_MAT_EDITAL = {
+  const: "DIREITO CONSTITUCIONAL", adm: "DIREITO ADMINISTRATIVO", civil: "DIREITO CIVIL",
+  pcivil: "DIREITO PROCESSUAL CIVIL", penal: "DIREITO PENAL", ppenal: "DIREITO PROCESSUAL PENAL",
+  empres: "DIREITO EMPRESARIAL", trib: "DIREITO FINANCEIRO E TRIBUTÁRIO", cdc: "DIREITO DO CONSUMIDOR",
+  eca: "DIREITO DA CRIANÇA E DO ADOLESCENTE", amb: "DIREITO AMBIENTAL", eleit: "DIREITO ELEITORAL",
+  dh: "DIREITOS HUMANOS", human: "NOÇÕES GERAIS DE DIREITO E FORMAÇÃO HUMANÍSTICA",
+};
+// lista os tópicos (itens de 1º nível) daquela matéria no edital verticalizado
+function caixaTopicosEdital(matId) {
+  const nome = CAIXA_MAT_EDITAL[matId];
+  if (!nome || typeof window === "undefined" || !window.EDITAIS || !window.EDITAIS[0]) return [];
+  const mat = (window.EDITAIS[0].materias || []).find((m) => m.nome === nome);
+  if (!mat) return [];
+  const out = [];
+  (mat.itens || []).forEach((it) => { const t = (it.txt || "").trim().replace(/\.$/, ""); if (t) out.push(t); });
+  return out;
+}
+// palpite do tópico do edital que mais combina com o texto (a Nadia confirma/troca)
+function caixaMelhorTopico(texto, topicos) {
+  if (!topicos.length) return "";
+  const t = diaNorm(texto);
+  let best = "", score = 0;
+  topicos.forEach((top) => {
+    let s = 0;
+    diaNorm(top).split(/[^a-z0-9]+/).forEach((w) => { if (w.length > 4 && t.includes(w)) s++; });
+    if (s > score) { score = s; best = top; }
+  });
+  return score > 0 ? best : "";
+}
+function caixaEsc(s) { return (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+function caixaTxtToHtml(s) { return caixaEsc(s).replace(/\n/g, "<br>"); }
 // mapeia a categoria do Buscador -> id da matéria do painel (quando a frase não denuncia sozinha)
 function caixaCatToMat(cat) {
   const c = diaNorm(cat);
@@ -1166,7 +1204,7 @@ function caixaSplit(text) {
   if (tail.trim()) parts.push(tail);
   return parts.map((s) => s.trim()).filter(Boolean);
 }
-// lê um bloco e extrai matéria, assunto, título, fonte e favorito
+// lê um bloco e monta a nota: Destaque (título), Ver mais (resto), matéria(s) sugerida(s), tópico do edital, fonte
 function caixaParseBloco(bloco) {
   const linhas = bloco.split("\n").map((l) => l.trim()).filter(Boolean);
   const flag = (l) => /^(lido|favorito|julgado|tese|novo!?)$/i.test(l);
@@ -1175,25 +1213,45 @@ function caixaParseBloco(bloco) {
   const corpo = idxJ >= 0 ? linhas.slice(idxJ + 1) : linhas;
   const categoria = cabec[0] || "";
   const assunto = cabec[1] || "";
-  const titulo = (corpo[0] || categoria || "Material colado").trim();
+  const destaque = (corpo[0] || categoria || "Material colado").trim();
+  const resto = corpo.slice(1).join("\n").trim();
   const favorito = linhas.some((l) => /^favorito$/i.test(l));
   const infos = [...bloco.matchAll(/Info\s*\d+/gi)].map((x) => x[0].replace(/\s+/g, " "));
   const corte = /\bSTF\b/.test(bloco) ? "STF" : (/\bSTJ\b/.test(bloco) ? "STJ" : "");
   const info = infos.length ? infos[infos.length - 1] : "";
   const fonte = [corte, info].filter(Boolean).join(" · ");
-  // a categoria do próprio Buscador manda; só se ela não disser nada é que lemos o corpo
+  // palpite de matéria (a Nadia troca na mão): categoria do Buscador manda; só senão lemos o corpo
   let mats = [];
   const principal = caixaCatToMat(categoria);
-  if (principal) {
-    mats = [principal];
-    const segunda = caixaCatToMat(assunto);
-    if (segunda && segunda !== principal) mats.push(segunda);
-  } else {
-    mats = detectMaterias(bloco).slice(0, 1);
-  }
-  return { id: CAIXA_UID(), raw: bloco.trim(), titulo, categoria, assunto, mats, fonte, favorito, destino: null, ts: Date.now() };
+  if (principal) mats = [principal];
+  else mats = detectMaterias(bloco).slice(0, 1);
+  const topicos = mats.length ? caixaTopicosEdital(mats[0]) : [];
+  const topico = caixaMelhorTopico(destaque + " " + assunto + " " + resto.slice(0, 240), topicos) || assunto || "";
+  return { id: CAIXA_UID(), destaque, verMais: caixaTxtToHtml(resto), mats, topico, fonte, favorito, destino: null, ts: Date.now() };
 }
 function caixaParse(text) { return caixaSplit(text).map(caixaParseBloco); }
+// normaliza notas antigas (v1) pro novo formato, sem perder nada
+function caixaNormalize(n) {
+  if (!n) return null;
+  const destaque = n.destaque != null ? n.destaque : (n.titulo || "");
+  let verMais = n.verMais;
+  if (verMais == null) {
+    let corpo = n.raw || "";
+    if (destaque && corpo.indexOf(destaque) === 0) corpo = corpo.slice(destaque.length).trim();
+    verMais = caixaTxtToHtml(corpo);
+  }
+  return { id: n.id || CAIXA_UID(), destaque, verMais, mats: n.mats || [], topico: n.topico || n.assunto || "", fonte: n.fonte || "", favorito: !!n.favorito, destino: n.destino || null, ts: n.ts || Date.now() };
+}
+// caixinha editável (título ou "Ver mais"): recebe html inicial uma vez e salva ao sair
+function CaixaEdit({ html, plain, onSave, className, placeholder }) {
+  const ref = useRef(null);
+  useEffect(() => { if (ref.current) ref.current.innerHTML = html || ""; }, []);
+  return (
+    <div ref={ref} className={className} contentEditable suppressContentEditableWarning
+      data-ph={placeholder}
+      onBlur={() => onSave(plain ? ref.current.innerText : ref.current.innerHTML)} />
+  );
+}
 
 function CaixaView({ onBack }) {
   const [notas, setNotas] = useState([]);
@@ -1768,6 +1826,91 @@ function Constancia({ registros }) {
   );
 }
 
+// ===== ESTUDEI: frase do dia, data da prova, meta da semana =====
+const FRASES = [
+  "Nada é em vão. Se não é bênção, é lição.",
+  "Um pouco todo dia vira aprovação.",
+  "Disciplina é lembrar do que você quer.",
+  "A vaga é sua; falta só o caminho até ela.",
+  "Constância vence intensidade.",
+  "Cada questão resolvida é um degrau.",
+  "Você já passou por dias mais difíceis. Segue.",
+  "Foco no próximo tópico, não no edital inteiro.",
+  "O esforço de hoje é a tranquilidade da prova.",
+  "Estudar cansada também conta — e conta muito.",
+];
+function FraseDoDia() {
+  const now = new Date();
+  const doy = Math.floor((now - new Date(now.getFullYear(), 0, 0)) / 86400000);
+  return (
+    <div className="panel frase-card">
+      <span className="frase-mk">“</span>
+      <span className="frase-tx">{FRASES[doy % FRASES.length]}</span>
+    </div>
+  );
+}
+function DataProva({ data, nome, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [d, setD] = useState(data || "");
+  const [n, setN] = useState(nome || "");
+  const dias = data ? Math.max(0, Math.ceil((Date.parse(data + "T00:00:00") - Date.now()) / 86400000)) : null;
+  const fmt = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" });
+  if (editing || !data) {
+    return (
+      <div className="panel dp-card">
+        <div className="dp-lbl">Data da prova</div>
+        <input className="reg-in" placeholder="ex.: TJSC · Juiz" value={n} onChange={(e) => setN(e.target.value)} style={{ margin: "8px 0" }} />
+        <input className="reg-in" type="date" value={d} onChange={(e) => setD(e.target.value)} />
+        <div className="dp-actions">
+          {data && <button className="reg-cancel" onClick={() => { setEditing(false); setD(data); setN(nome || ""); }}>Cancelar</button>}
+          <button className="reg-save" onClick={() => { if (d) { onSave({ data: d, nome: n.trim() }); setEditing(false); } }} disabled={!d}>Salvar</button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="panel dp-card">
+      <div className="dp-lbl">Data da prova{nome ? ` · ${nome}` : ""}</div>
+      <div className="dp-big">{dias}<small> {dias === 1 ? "dia" : "dias"}</small></div>
+      <div className="dp-date">{fmt(data)}<button className="dp-edit" onClick={() => setEditing(true)}>editar</button></div>
+    </div>
+  );
+}
+function MetaSemana({ registros, metas, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [h, setH] = useState(metas.horas);
+  const [q, setQ] = useState(metas.questoes);
+  const [rv, setRv] = useState(metas.revisoes);
+  const ws = (() => { const dt = new Date(); dt.setHours(0, 0, 0, 0); dt.setDate(dt.getDate() - dt.getDay()); return dt.getTime(); })();
+  const wk = registros.filter((r) => r.ts >= ws);
+  const minStudied = wk.reduce((s, r) => s + (r.tempo || 0), 0);
+  const qDone = wk.reduce((s, r) => s + (r.acertos || 0) + (r.erros || 0), 0);
+  const rDone = wk.filter((r) => r.concluido).length;
+  const pct = (a, b) => (b > 0 ? Math.min(100, Math.round((a / b) * 100)) : 0);
+  if (editing) {
+    return (
+      <div className="panel meta-card">
+        <div className="meta-head"><span>Meta da semana</span></div>
+        <div className="meta-editrow"><label>Horas</label><input className="reg-in reg-num" type="number" min="0" value={h} onChange={(e) => setH(e.target.value)} /></div>
+        <div className="meta-editrow"><label>Questões</label><input className="reg-in reg-num" type="number" min="0" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+        <div className="meta-editrow"><label>Revisões</label><input className="reg-in reg-num" type="number" min="0" value={rv} onChange={(e) => setRv(e.target.value)} /></div>
+        <div className="dp-actions">
+          <button className="reg-cancel" onClick={() => { setEditing(false); setH(metas.horas); setQ(metas.questoes); setRv(metas.revisoes); }}>Cancelar</button>
+          <button className="reg-save" onClick={() => { onSave({ horas: +h || 0, questoes: +q || 0, revisoes: +rv || 0 }); setEditing(false); }}>Salvar</button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="panel meta-card">
+      <div className="meta-head"><span>Meta da semana</span><button className="dp-edit" onClick={() => setEditing(true)}>editar</button></div>
+      <div className="meta-row"><div className="meta-lab"><b>Horas de estudo</b><span>{fmtTempo(minStudied)} / {metas.horas}h</span></div><div className="meta-track"><i style={{ width: pct(minStudied, metas.horas * 60) + "%" }} /></div></div>
+      <div className="meta-row"><div className="meta-lab"><b>Questões</b><span>{qDone} / {metas.questoes}</span></div><div className="meta-track"><i style={{ width: pct(qDone, metas.questoes) + "%" }} /></div></div>
+      <div className="meta-row"><div className="meta-lab"><b>Revisões</b><span>{rDone} / {metas.revisoes}</span></div><div className="meta-track"><i style={{ width: pct(rDone, metas.revisoes) + "%" }} /></div></div>
+    </div>
+  );
+}
+
 export default function App() {
   const [data, setData] = useState({});
   const [simData, setSimData] = useState({});
@@ -1802,6 +1945,8 @@ export default function App() {
   const [openTopic, setOpenTopic] = useState(null); // { editalId, key, label, materia } — página de notas do tópico
   const [prioridades, setPrioridades] = useState([]);
   const [registros, setRegistros] = useState([]);
+  const [dataProva, setDataProva] = useState(null);
+  const [metas, setMetas] = useState({ horas: 20, questoes: 300, revisoes: 8 });
   const [regOpen, setRegOpen] = useState(false);
   const [regEditing, setRegEditing] = useState(null);
   const [regToast, setRegToast] = useState(false);
@@ -1929,6 +2074,10 @@ export default function App() {
       try { const r = await window.storage.get(PRIORIDADES_KEY); prio = r ? JSON.parse(r.value) : []; } catch { prio = []; }
       let regs = [];
       try { const r = await window.storage.get(REGISTROS_KEY); regs = r ? JSON.parse(r.value) : []; } catch { regs = []; }
+      let dp = null;
+      try { const r = await window.storage.get(DATAPROVA_KEY); dp = r ? JSON.parse(r.value) : null; } catch { dp = null; }
+      let mt = { horas: 20, questoes: 300, revisoes: 8 };
+      try { const r = await window.storage.get(METAS_KEY); if (r) mt = { ...mt, ...JSON.parse(r.value) }; } catch {}
       let manuais = [];
       try { const r = await window.storage.get(SIM_MANUAIS_KEY); manuais = r ? JSON.parse(r.value) : []; } catch { manuais = []; }
       let ocultas = [];
@@ -1944,6 +2093,8 @@ export default function App() {
       setEditaisData(eds);
       setPrioridades(prio);
       setRegistros(regs);
+      setDataProva(dp);
+      setMetas(mt);
       setSimManuais(manuais);
       setSimHidden(ocultas);
       setDiario(diaEntries);
@@ -1976,6 +2127,8 @@ export default function App() {
   const removeRegistro = (id) => saveRegistros(registros.filter((r) => r.id !== id));
   const abrirRegistro = (r) => { setRegEditing(r || null); setRegOpen(true); };
   const fecharRegistro = () => { setRegOpen(false); setRegEditing(null); };
+  const saveDataProva = (v) => { setDataProva(v); try { window.storage.set(DATAPROVA_KEY, JSON.stringify(v)); } catch {} };
+  const saveMetas = (v) => { setMetas(v); try { window.storage.set(METAS_KEY, JSON.stringify(v)); } catch {} };
 
   // ---------- Diário de estudos ----------
   const saveDiario = (arr) => {
@@ -3126,6 +3279,30 @@ export default function App() {
         .consta-day.on { background: var(--gold); border-color: transparent; }
         .consta-day.today { outline: 2px solid var(--gold); outline-offset: 2px; }
         .sechead-es { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin: 26px 4px 12px; }
+
+        /* ===== Painel: frase, data da prova, meta ===== */
+        .frase-card { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+        .frase-mk { font-family: Georgia, "Times New Roman", serif; font-size: 40px; line-height: .5; color: var(--gold); opacity: .55; }
+        .frase-tx { font-size: 15px; font-style: italic; color: var(--text); }
+        .painel-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+        @media (max-width: 720px){ .painel-2col { grid-template-columns: 1fr; } }
+        .dp-card, .meta-card { display: flex; flex-direction: column; margin-top: 0; }
+        .dp-lbl { font-size: 12px; letter-spacing: .4px; text-transform: uppercase; color: var(--faint); font-weight: 700; }
+        .dp-big { font-size: 34px; font-weight: 800; color: var(--text); margin: 8px 0 2px; font-variant-numeric: tabular-nums; }
+        .dp-big small { font-size: 15px; font-weight: 600; color: var(--muted); }
+        .dp-date { font-size: 13px; color: var(--muted); display: flex; align-items: center; }
+        .dp-edit { background: transparent; border: none; color: var(--gold); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; margin-left: 8px; }
+        .dp-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+        .meta-head { display: flex; justify-content: space-between; align-items: center; font-size: 12px; letter-spacing: .4px; text-transform: uppercase; color: var(--faint); font-weight: 700; margin-bottom: 14px; }
+        .meta-row { margin-bottom: 14px; }
+        .meta-row:last-child { margin-bottom: 0; }
+        .meta-lab { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px; color: var(--text); }
+        .meta-lab span { color: var(--muted); font-variant-numeric: tabular-nums; }
+        .meta-track { height: 8px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+        .meta-track i { display: block; height: 100%; background: var(--gold); border-radius: 999px; }
+        .meta-editrow { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+        .meta-editrow label { font-size: 13px; color: var(--muted); }
+        .meta-editrow input { width: 100px; }
       `}</style>
 
       <button
@@ -3648,6 +3825,11 @@ export default function App() {
             <button className="edital-back" onClick={() => setView("main")}>← Voltar ao painel</button>
             <p className="eyebrow">ESTUDEI</p>
             <h1 className="serif" style={{ marginBottom: 10 }}>Painel</h1>
+            <FraseDoDia />
+            <div className="painel-2col">
+              <DataProva data={dataProva && dataProva.data} nome={dataProva && dataProva.nome} onSave={saveDataProva} />
+              <MetaSemana registros={registros} metas={metas} onSave={saveMetas} />
+            </div>
             <Constancia registros={registros} />
             <div className="sechead-es">Ciclos</div>
             <CiclosPizzas registros={registros} />
