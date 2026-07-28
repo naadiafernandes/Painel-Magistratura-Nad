@@ -2808,7 +2808,6 @@ function App() {
                             <button className={`ed-band${matOpen ? " open" : ""}`} onClick={() => setOpenMat((p) => ({ ...p, [matKey]: !p[matKey] }))}>
                               <span className="mat-arrow">{matOpen ? "▾" : "▸"}</span>
                               <h3>{m.nome}</h3>
-                              {pp != null && <span className="edital-link" title="Progresso desta matéria no painel principal (Teoria/Lei Seca/Jurisprudência/Questões/Anki)">painel {pp}%</span>}
                               <span className="mono edital-count">{done}/{total}</span>
                             </button>
                             {matOpen && m.itens.map((it, ii) => renderNode(it, `${mi}.${ii}`, 0))}
