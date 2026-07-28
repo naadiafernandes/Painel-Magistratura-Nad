@@ -1484,8 +1484,8 @@ function CaixaView({ onBack, onArquivarEdital }) {
                       <button title="Itálico" style={{ fontStyle: "italic" }} onMouseDown={fmt("italic")}>I</button>
                       <button title="Sublinhado" style={{ textDecoration: "underline" }} onMouseDown={fmt("underline")}>S</button>
                       <span className="caixa-vsep" />
+                      <button className="caixa-sw" style={{ background: "var(--text)" }} title="Cor padrão" onMouseDown={cor("reset")} />
                       {CAIXA_CORES.map((c) => <button key={c} className="caixa-sw" style={{ background: c }} title="Cor" onMouseDown={cor(c)} />)}
-                      <button title="Tirar a cor" style={{ fontSize: 11 }} onMouseDown={cor("reset")}>limpar cor</button>
                     </div>
                     <CaixaEdit className="caixa-veditor" html={n.verMais} placeholder="Escreva ou cole aqui o resto do conteúdo…" onSave={(h) => update(n.id, { verMais: h })} />
                   </div>
@@ -3742,6 +3742,7 @@ export default function App() {
                 : (view === "main" && showTop && activeSec === it.key);
               const handle = (e) => {
                 e.preventDefault();
+                setOpenTopic(null); // fecha a página de notas do tópico ao navegar pelo menu (senão fica sobreposta)
                 if (it.kind === "view") { setView(it.view); window.scrollTo(0, 0); }
                 else if (it.kind === "home") { setView("main"); window.scrollTo({ top: 0, behavior: "smooth" }); }
                 else { setView("main"); setTimeout(() => goTo(it.key), 0); }
