@@ -1047,7 +1047,7 @@ const NAV_GROUPS = [
     { key: "es-revisoes", icon: "refresh", label: "Revisões", kind: "view", view: "es-revisoes" },
     { key: "es-historico", icon: "clock", label: "Histórico", kind: "view", view: "es-historico" },
     { key: "es-estatisticas", icon: "chart", label: "Estatísticas", kind: "view", view: "es-estatisticas" },
-    { key: "es-simulados", icon: "clipboard", label: "Simulados", kind: "view", view: "es-simulados" },
+    { key: "es-simulados", icon: "clipboard", label: "Simulados e Provas Anteriores", kind: "view", view: "es-simulados" },
   ] },
   { label: "Navegação", items: [
     { key: "painel", icon: "home", label: "Painel", kind: "home" },
@@ -2546,7 +2546,7 @@ function SimuladosView({ feitos, sugestoes, onNovo, onEditFeito, onDeleteFeito, 
     <section className="editais-page es-page">
       <button className="edital-back" onClick={onBack}>← Voltar ao painel</button>
       <p className="eyebrow">ESTUDEI</p>
-      <h1 className="serif" style={{ marginBottom: 10 }}>Simulados</h1>
+      <h1 className="serif" style={{ marginBottom: 10 }}>Simulados e provas anteriores</h1>
       <p className="es-sub">Registre cada simulado que você fez e acompanhe sua evolução.</p>
 
       <div className="mat-topcards">
@@ -2790,13 +2790,31 @@ export default function App() {
       try { const r = await window.storage.get(SIM_MANUAIS_KEY); manuais = r ? JSON.parse(r.value) : []; } catch { manuais = []; }
       let ocultas = [];
       try { const r = await window.storage.get(SIM_HIDDEN_KEY); ocultas = r ? JSON.parse(r.value) : []; } catch { ocultas = []; }
-      let feitos = [];
-      try { const r = await window.storage.get(SIM_FEITOS_KEY); feitos = r ? JSON.parse(r.value) : []; } catch { feitos = []; }
+      let feitos = [], feitosExiste = false;
+      try { const r = await window.storage.get(SIM_FEITOS_KEY); if (r) { feitos = JSON.parse(r.value); feitosExiste = true; } } catch { feitos = []; }
+      if (!feitosExiste) {
+        // 1ª vez: as provas que ela já marcou como feitas (com nota por matéria) viram simulados
+        const nomes = [...SIMULADOS.flatMap((g) => g.provas), ...manuais.map((m) => m.nome)];
+        const vistos = new Set();
+        const seed = [];
+        for (const nome of nomes) {
+          if (vistos.has(nome)) continue; vistos.add(nome);
+          let sd = sim[nome];
+          if (!sd) { try { const r = await window.storage.get(SIM_KEY_PREFIX + nome); sd = r ? JSON.parse(r.value) : null; } catch { sd = null; } }
+          if (!sd || !sd.checked || !sd.mats) continue;
+          let a = 0, q = 0;
+          for (const k in sd.mats) { a += parseInt(sd.mats[k].a || 0, 10) || 0; q += parseInt(sd.mats[k].q || 0, 10) || 0; }
+          if (q > 0) seed.push({ nome, acertos: a, brancos: 0, erros: Math.max(0, q - a) });
+        }
+        feitos = seed.map((s, i) => ({ id: SIM_UID() + i, ts: Date.now() - i * 86400000, ...s }));
+        try { window.storage.set(SIM_FEITOS_KEY, JSON.stringify(feitos)); } catch {}
+      }
+      const feitosNomes = new Set(feitos.map((f) => f.nome));
       let sug = null;
       try { const r = await window.storage.get(SIM_SUG_KEY); sug = r ? JSON.parse(r.value) : null; } catch { sug = null; }
       if (!Array.isArray(sug)) {
-        // primeira vez: semeia com o catálogo de provas anteriores
-        sug = SIMULADOS.flatMap((g) => g.provas).map((nome) => ({ id: SIM_UID(), nome }));
+        // primeira vez: semeia com o catálogo (menos as provas que ela já fez)
+        sug = SIMULADOS.flatMap((g) => g.provas).filter((nome) => !feitosNomes.has(nome)).map((nome) => ({ id: SIM_UID(), nome }));
       }
       let diaEntries = [];
       try { const r = await window.storage.get(DIARIO_KEY); diaEntries = r ? JSON.parse(r.value) : []; } catch { diaEntries = []; }
