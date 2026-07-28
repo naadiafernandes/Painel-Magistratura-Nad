@@ -1220,6 +1220,25 @@ const TN_FORE = ["#ececee", "#e68a8a", "#7fa8e6", "#7bd39a", "#e6c060", "#c79bff
 const TN_BACK = ["none", "#5a3d3d", "#3d4a5a", "#3d5a45", "#5a5030", "#4a3d5a"];
 const TN_TAGS = [["#a9c4ef", "127,168,230"], ["#e6c060", "230,192,96"], ["#7bd39a", "123,211,154"], ["#e68a8a", "230,138,138"], ["#c79bff", "199,155,255"], ["#5fbfc0", "95,191,192"]];
 
+// Blocos do edital TJSC (Juiz 2025): bloco de cada matéria + importância (%) dentro do bloco
+const TJSC_BLOCOS = {
+  "DIREITO CIVIL": { b: 1, imp: 30 },
+  "DIREITO PROCESSUAL CIVIL": { b: 1, imp: 30 },
+  "DIREITO DO CONSUMIDOR": { b: 1, imp: 15 },
+  "DIREITO DA CRIANÇA E DO ADOLESCENTE": { b: 1, imp: 15 },
+  "DIREITO CONSTITUCIONAL": { b: 2, imp: 35 },
+  "DIREITO PENAL": { b: 2, imp: 25 },
+  "DIREITO PROCESSUAL PENAL": { b: 2, imp: 25 },
+  "DIREITO ELEITORAL": { b: 2, imp: 8 },
+  "DIREITO ADMINISTRATIVO": { b: 3, imp: 35 },
+  "DIREITO EMPRESARIAL": { b: 3, imp: 20 },
+  "DIREITO FINANCEIRO E TRIBUTÁRIO": { b: 3, imp: 20 },
+  "DIREITO AMBIENTAL": { b: 3, imp: 15 },
+  "DIREITOS HUMANOS": { b: 3, imp: 5 },
+  "NOÇÕES GERAIS DE DIREITO E FORMAÇÃO HUMANÍSTICA": { b: 3, imp: 5 },
+};
+const BLOCO_LBL = { 1: "Bloco I", 2: "Bloco II", 3: "Bloco III" };
+
 function TopicNotes({ label, materia, initial, onBack, onSave }) {
   const [boxes, setBoxes] = useState(() => {
     const arr = initial && initial.length ? initial : [{ id: TN_UID(), html: "", tags: [] }];
@@ -2445,6 +2464,14 @@ function App() {
         .edital-count { margin-left: auto; font-size: 11px; color: var(--faint); }
         .edital-link { font-size: 10px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase; color: var(--gold);
           background: rgba(240,200,90,.12); border: 1px solid rgba(240,200,90,.35); border-radius: 999px; padding: 2px 9px; }
+        /* tag do bloco + peso (%) da matéria, e cabeçalho de cada bloco (edital TJSC) */
+        .ed-bloco-tag { font-size: 10px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase; border-radius: 999px; padding: 2px 9px; flex-shrink: 0; }
+        .ed-bloco-tag.b1 { color: #6c9be6; background: rgba(127,168,230,.14); border: 1px solid rgba(127,168,230,.36); }
+        .ed-bloco-tag.b2 { color: #b58ae6; background: rgba(199,155,255,.14); border: 1px solid rgba(199,155,255,.36); }
+        .ed-bloco-tag.b3 { color: #d3a63f; background: rgba(230,192,96,.14); border: 1px solid rgba(230,192,96,.36); }
+        .ed-imp { font-size: 10.5px; font-weight: 700; color: var(--muted); flex-shrink: 0; }
+        .ed-bloco-sep { padding: 12px 16px 6px; font-size: 11px; font-weight: 800; letter-spacing: .8px; text-transform: uppercase; border-top: 1px solid var(--line); }
+        .ed-bloco-sep.b1 { color: #6c9be6; } .ed-bloco-sep.b2 { color: #b58ae6; } .ed-bloco-sep.b3 { color: #d3a63f; }
         .ed-row { display: flex; align-items: center; gap: 12px; padding: 6px 16px; border-top: 1px solid var(--line); }
         .ed-row:hover { background: var(--surface-2); }
         .ed-topic { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; font-size: 13px; line-height: 1.4; }
@@ -2697,6 +2724,18 @@ function App() {
                   const ed = EDITAIS[openEdital] || EDITAIS[0];
                   const v = editaisData[ed.id] || {};
                   const RICH = ed.id === "tjsc-juiz-2025"; // este edital usa página de notas por tópico
+                  const BLOCOS = RICH ? TJSC_BLOCOS : null; // matéria → { bloco, importância }
+                  // ordem de exibição das matérias: por bloco (I→II→III) e, dentro, da mais pra menos importante
+                  const matOrder = ed.materias.map((m, mi) => ({ m, mi }));
+                  if (BLOCOS) {
+                    const ordKeys = Object.keys(BLOCOS);
+                    const ordOf = (nome) => { const i = ordKeys.indexOf(nome); return i < 0 ? 999 : i; };
+                    matOrder.sort((a, b) => {
+                      const A = BLOCOS[a.m.nome] || { b: 9, imp: 0 };
+                      const B = BLOCOS[b.m.nome] || { b: 9, imp: 0 };
+                      return A.b - B.b || B.imp - A.imp || ordOf(a.m.nome) - ordOf(b.m.nome);
+                    });
+                  }
                   const renderNode = (node, key, depth) => {
                     const kids = node.subs || [];
                     const hasKids = kids.length > 0;
@@ -2792,7 +2831,7 @@ function App() {
                           </div>
                         </div>
                       </div>
-                      {ed.materias.map((m, mi) => {
+                      {matOrder.map(({ m, mi }, idx) => {
                         let done = 0, total = 0;
                         const countNode = (node, key) => {
                           total++; if (editalDone(editalCell(v[key]))) done++;
@@ -2801,17 +2840,23 @@ function App() {
                         m.itens.forEach((it, ii) => countNode(it, `${mi}.${ii}`));
                         const matKey = `${ed.id}:${mi}`;
                         const matOpen = !!openMat[matKey];
-                        const sid = editalSubjId(m.nome);
-                        const pp = sid ? subjProgress(sid) : null;
+                        const bl = BLOCOS ? BLOCOS[m.nome] : null;
+                        const prevBl = BLOCOS && idx > 0 ? BLOCOS[matOrder[idx - 1].m.nome] : null;
+                        const showHead = bl && (!prevBl || prevBl.b !== bl.b);
                         return (
-                          <div key={mi} className="ed-materia">
-                            <button className={`ed-band${matOpen ? " open" : ""}`} onClick={() => setOpenMat((p) => ({ ...p, [matKey]: !p[matKey] }))}>
-                              <span className="mat-arrow">{matOpen ? "▾" : "▸"}</span>
-                              <h3>{m.nome}</h3>
-                              <span className="mono edital-count">{done}/{total}</span>
-                            </button>
-                            {matOpen && m.itens.map((it, ii) => renderNode(it, `${mi}.${ii}`, 0))}
-                          </div>
+                          <React.Fragment key={mi}>
+                            {showHead && <div className={`ed-bloco-sep b${bl.b}`}>{BLOCO_LBL[bl.b]}</div>}
+                            <div className="ed-materia">
+                              <button className={`ed-band${matOpen ? " open" : ""}`} onClick={() => setOpenMat((p) => ({ ...p, [matKey]: !p[matKey] }))}>
+                                <span className="mat-arrow">{matOpen ? "▾" : "▸"}</span>
+                                <h3>{m.nome}</h3>
+                                {bl && <span className={`ed-bloco-tag b${bl.b}`}>{BLOCO_LBL[bl.b]}</span>}
+                                {bl && <span className="ed-imp" title="Peso desta matéria dentro do bloco">{bl.imp}%</span>}
+                                <span className="mono edital-count">{done}/{total}</span>
+                              </button>
+                              {matOpen && m.itens.map((it, ii) => renderNode(it, `${mi}.${ii}`, 0))}
+                            </div>
+                          </React.Fragment>
                         );
                       })}
                     </div>
