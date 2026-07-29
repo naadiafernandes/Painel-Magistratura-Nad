@@ -4690,20 +4690,20 @@ export default function App() {
         .juris-card { position: relative; overflow: hidden; height: 128px; display: flex; flex-direction: column;
           align-items: center; justify-content: center; text-align: center; gap: 5px; padding: 12px;
           border: none; border-radius: 16px; cursor: pointer; font: inherit;
-          box-shadow: 0 5px 14px rgba(0,0,0,.20), inset 0 1px 0 rgba(255,255,255,.28), inset 0 -3px 8px rgba(0,0,0,.14);
+          box-shadow: 0 4px 12px rgba(0,0,0,.16), inset 0 1px 0 rgba(255,255,255,.16);
           transition: transform .14s, box-shadow .14s, filter .14s; }
-        /* brilho suave no topo pra dar profundidade (funciona em qualquer cor) */
+        /* brilho bem sutil no topo pra dar leve profundidade (funciona em qualquer cor) */
         .juris-card::before { content: ""; position: absolute; inset: 0; pointer-events: none;
-          background: linear-gradient(180deg, rgba(255,255,255,.26), rgba(255,255,255,0) 46%, rgba(0,0,0,.10)); }
-        .juris-card:hover { transform: translateY(-3px); filter: brightness(1.06) saturate(1.05);
-          box-shadow: 0 12px 26px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.30); }
+          background: linear-gradient(180deg, rgba(255,255,255,.12), rgba(255,255,255,0) 52%, rgba(0,0,0,.05)); }
+        .juris-card:hover { transform: translateY(-3px); filter: brightness(1.05);
+          box-shadow: 0 10px 22px rgba(0,0,0,.22), inset 0 1px 0 rgba(255,255,255,.18); }
         .juris-card-nome, .juris-card-cnt { position: relative; z-index: 1; }
-        .juris-card-nome { font-size: 14.5px; font-weight: 800; line-height: 1.22; letter-spacing: -.1px; text-shadow: 0 1px 2px rgba(0,0,0,.14); }
-        .juris-card-cnt { font-size: 13px; font-weight: 800; opacity: .85; }
-        /* cores das 3 seções seguem a paleta do cabeçalho (--gold/--gold2/--coral), com degradê pra ter volume */
-        .jcard-1 { background: var(--gold); background: linear-gradient(152deg, color-mix(in srgb, var(--gold) 82%, #fff), var(--gold) 50%, color-mix(in srgb, var(--gold) 86%, #000)); color: var(--js1t, #fff); }
-        .jcard-2 { background: var(--gold2); background: linear-gradient(152deg, color-mix(in srgb, var(--gold2) 82%, #fff), var(--gold2) 50%, color-mix(in srgb, var(--gold2) 86%, #000)); color: var(--js2t, #fff); }
-        .jcard-3 { background: var(--coral); background: linear-gradient(152deg, color-mix(in srgb, var(--coral) 82%, #fff), var(--coral) 50%, color-mix(in srgb, var(--coral) 86%, #000)); color: var(--js3t, #fff); }
+        .juris-card-nome { font-size: 14.5px; font-weight: 650; line-height: 1.22; letter-spacing: -.1px; }
+        .juris-card-cnt { font-size: 13px; font-weight: 700; opacity: .85; }
+        /* cores das 3 seções seguem a paleta do cabeçalho (--gold/--gold2/--coral), com degradê leve pra ter volume */
+        .jcard-1 { background: var(--gold); background: linear-gradient(150deg, color-mix(in srgb, var(--gold) 91%, #fff), var(--gold) 58%, color-mix(in srgb, var(--gold) 93%, #000)); color: var(--js1t, #fff); }
+        .jcard-2 { background: var(--gold2); background: linear-gradient(150deg, color-mix(in srgb, var(--gold2) 91%, #fff), var(--gold2) 58%, color-mix(in srgb, var(--gold2) 93%, #000)); color: var(--js2t, #fff); }
+        .jcard-3 { background: var(--coral); background: linear-gradient(150deg, color-mix(in srgb, var(--coral) 91%, #fff), var(--coral) 58%, color-mix(in srgb, var(--coral) 93%, #000)); color: var(--js3t, #fff); }
         @media (max-width: 560px) { .juris-cards { grid-template-columns: repeat(2, 1fr); } }
         .juris-sub-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; }
         .juris-sub-cnt { font-size: 13px; font-weight: 700; color: var(--faint); }
