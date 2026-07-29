@@ -1183,7 +1183,7 @@ const NAV_GROUPS = [
     { key: "es-ciclos", icon: "pie", label: "Ciclos", kind: "view", view: "es-ciclos" },
     { key: "es-crono", icon: "timer", label: "Cronômetro", kind: "view", view: "es-crono" },
     { key: "es-historico", icon: "clock", label: "Histórico", kind: "view", view: "es-historico" },
-    { key: "es-estatisticas", icon: "chart", label: "Estatísticas e Simulados", kind: "view", view: "es-estatisticas" },
+    { key: "es-estatisticas", icon: "chart", label: "Questões, Simulados e Desempenho (%)", kind: "view", view: "es-estatisticas" },
     { key: "caixa", icon: "inbox", label: "Caixa de entrada", kind: "view", view: "caixa" },
   ] },
   { label: "FONTES", items: [
@@ -2170,12 +2170,14 @@ function CronometroView({ crono, now, onPlay, onPause, onReset, onMode, onField,
       )}
 
       <div className="cron-form">
-        <label className="reg-lbl cron-fonte-lbl">Fonte</label>
-        <div className="reg-fontes cron-fontes">
-          {REG_FONTES.map((f) => (
-            <button key={f.id} className={`reg-chip${c.fonte === f.id ? " on" : ""}`} onClick={() => onField("fonte", f.id)}
-              style={c.fonte === f.id ? { color: f.color, borderColor: f.color, background: `color-mix(in srgb, ${f.color} 16%, transparent)` } : undefined}>{f.label}</button>
-          ))}
+        <div className="cron-fonte-row">
+          <label className="reg-lbl cron-fonte-lbl">Fonte</label>
+          <div className="reg-fontes cron-fontes">
+            {REG_FONTES.map((f) => (
+              <button key={f.id} className={`reg-chip${c.fonte === f.id ? " on" : ""}`} onClick={() => onField("fonte", f.id)}
+                style={c.fonte === f.id ? { color: f.color, borderColor: f.color, background: `color-mix(in srgb, ${f.color} 16%, transparent)` } : undefined}>{f.label}</button>
+            ))}
+          </div>
         </div>
         <div className="reg-2col" style={{ marginTop: 12 }}>
           <div>
@@ -2456,24 +2458,35 @@ function CiclosRoscas({ registros, onRegistrar }) {
         <button className={`roscas-tg${ciclo === 2 ? " on" : ""}`} onClick={() => { setCiclo(2); setAberta(null); }}>Ciclo 2 <small>· o resto</small></button>
       </div>
 
-      <div className="ciclo-grid">
+      <div className="roscas-grid">
         {CICLO_ROSCAS.map((r) => {
           const d = r.kind === "fila" ? filaData(r.id) : rotData(r.id);
           const isRot = r.kind === "rot";
-          const topLabel = isRot
-            ? (d.next ? d.next.nome : "—")
-            : (d.topo ? `${cicloMatNome(d.topo.m, d.topo.lab)} · ${d.topo.nome}` : "tudo dominado 🎉");
           const center = isRot ? `${d.pct}%` : (d.total ? `${d.done}/${d.total}` : "—");
+          const mat = isRot ? (d.next ? d.next.nome : null) : (d.topo ? cicloMatNome(d.topo.m, d.topo.lab) : null);
+          const topRaw = isRot ? null : (d.topo ? d.topo.nome : null);
+          const topico = (topRaw && cicloNorm(topRaw) !== cicloNorm(mat || "")) ? topRaw : "Geral (sem tópico específico)";
           const on = aberta === r.id;
           return (
-            <button className={`ciclo-card roscas-card${on ? " on" : ""}`} key={r.id}
+            <button className={`roscas-card${on ? " on" : ""}`} key={r.id}
               onClick={() => setAberta(on ? null : r.id)} title="Abrir a fila inteira">
               <div className="ciclo-donut" style={{ "--p": d.pct, "--c": `var(${r.tok})` }}>
                 <div className="ciclo-hole"><b>{center}</b></div>
               </div>
               <div className="ciclo-nm" style={{ color: `var(${r.tok})` }}>{r.label}</div>
-              <div className="roscas-badge">{isRot ? `Volta ${d.lap}` : `${d.pct}% da fila`}</div>
-              <div className="roscas-topo">{isRot ? "próxima:" : "topo:"} <b>{topLabel}</b></div>
+              <div className="roscas-pct">{isRot ? `Volta ${d.lap}` : `${d.pct}%`}</div>
+              <div className="roscas-box">
+                {isRot ? (
+                  <div className="roscas-line"><span className="roscas-k">Próxima:</span> {mat || "—"}</div>
+                ) : d.topo ? (
+                  <>
+                    <div className="roscas-line"><span className="roscas-k">Matéria:</span> {mat}</div>
+                    <div className="roscas-line"><span className="roscas-k">Tópico:</span> {topico}</div>
+                  </>
+                ) : (
+                  <div className="roscas-line roscas-done">tudo dominado 🎉</div>
+                )}
+              </div>
             </button>
           );
         })}
@@ -3147,7 +3160,7 @@ function EstatSimView({ registros, feitos, sugestoes, onNovo, onEditFeito, onDel
   // historicozinho da semana (puxado do histórico), agrupado por dia — só desta semana
   const weekStart = (() => { const dt = new Date(); dt.setHours(0, 0, 0, 0); dt.setDate(dt.getDate() - dt.getDay()); return dt.getTime(); })();
   const semGrupos = []; const semByDay = {};
-  for (const r of [...registros].filter((r) => r.ts >= weekStart).sort((a, b) => b.ts - a.ts)) {
+  for (const r of [...registros].filter((r) => r.ts >= weekStart && r.fonte === "questoes").sort((a, b) => b.ts - a.ts)) {
     const key = new Date(r.ts).toISOString().slice(0, 10);
     if (!semByDay[key]) { semByDay[key] = { key, ts: r.ts, itens: [] }; semGrupos.push(semByDay[key]); }
     semByDay[key].itens.push(r);
@@ -3261,7 +3274,7 @@ function EstatSimView({ registros, feitos, sugestoes, onNovo, onEditFeito, onDel
     <section className="editais-page es-page">
       <button className="edital-back" onClick={onBack}>← Voltar ao painel</button>
       <p className="eyebrow">ESTUDEI</p>
-      <h1 className="serif" style={{ marginBottom: 10 }}>Estatísticas e Simulados</h1>
+      <h1 className="serif" style={{ marginBottom: 10 }}>Questões, Simulados e Desempenho (%)</h1>
       <p className="es-sub">Todos os seus números e gráficos num lugar só</p>
 
       <div className="sechead-es" style={{ marginTop: 8 }}>Questões Diárias</div>
@@ -3322,7 +3335,7 @@ function EstatSimView({ registros, feitos, sugestoes, onNovo, onEditFeito, onDel
           <button className="sim-newbtn" onClick={onRegistrarQuestoes} style={{ marginTop: 4 }}>+ Registrar questões</button>
           <div className="sechead-es">Histórico da semana</div>
           {semGrupos.length === 0
-            ? <div className="es-hint">Nada registrado esta semana ainda.</div>
+            ? <div className="es-hint">Nenhuma questão registrada esta semana ainda.</div>
             : semGrupos.map((g) => (
                 <div className="hist-day" key={g.key}>
                   <div className="hist-dayhead"><span>{fmtDiaSem(g.ts)}</span><span className="hist-daytot">{fmtTempo(g.itens.reduce((s, r) => s + (r.tempo || 0), 0))}</span></div>
@@ -5160,8 +5173,9 @@ export default function App() {
         .cron-cfg input { width: 56px; padding: 6px 8px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; text-align: center; }
         .cron-form { margin: 22px auto 6px; max-width: 620px; }
         .cron-form .reg-2col { margin-top: 14px; }
-        .cron-fonte-lbl { text-align: left; }
-        .cron-fontes { flex-wrap: nowrap; justify-content: flex-start; gap: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+        .cron-fonte-row { display: flex; align-items: center; gap: 12px; }
+        .cron-fonte-lbl { text-align: left; margin: 0; white-space: nowrap; flex: 0 0 auto; }
+        .cron-fontes { flex: 1 1 auto; min-width: 0; flex-wrap: nowrap; justify-content: flex-start; gap: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
         .cron-fontes::-webkit-scrollbar { display: none; }
         .cron-fontes .reg-chip { flex: 0 0 auto; white-space: nowrap; padding: 7px 11px; font-size: 12px; }
         .cron-save { width: 100%; margin-top: 16px; background: var(--gold); color: var(--on-accent); border: none; border-radius: 12px; padding: 14px; font: inherit; font-size: 15px; font-weight: 800; cursor: pointer; }
@@ -5259,12 +5273,24 @@ export default function App() {
           border-radius: 9px; padding: 7px 14px; cursor: pointer; transition: background .15s, color .15s; }
         .roscas-tg small { font-weight: 500; opacity: .8; }
         .roscas-tg.on { background: var(--gold); color: var(--on-accent, #10141a); }
-        .roscas-card { cursor: pointer; font: inherit; border: 1px solid var(--line-2); transition: border-color .15s, transform .1s; }
-        .roscas-card:hover { border-color: var(--gold); }
-        .roscas-card.on { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold); }
-        .roscas-badge { font-size: 11px; font-weight: 700; color: var(--muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
-        .roscas-topo { font-size: 11px; color: var(--faint); margin-top: 5px; line-height: 1.4; }
-        .roscas-topo b { color: var(--text); font-weight: 600; }
+        .roscas-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 26px 20px; margin-top: 8px; }
+        @media (max-width: 640px) { .roscas-grid { grid-template-columns: repeat(2, 1fr); gap: 22px 14px; } }
+        .roscas-card { cursor: pointer; font: inherit; background: none; border: none; padding: 0; text-align: center;
+          display: flex; flex-direction: column; align-items: center; }
+        .roscas-grid .ciclo-donut { width: 148px; height: 148px; transition: filter .15s; }
+        .roscas-grid .ciclo-hole { width: 108px; height: 108px; }
+        .roscas-grid .ciclo-hole b { font-size: 19px; }
+        .roscas-card:hover .ciclo-donut { filter: brightness(1.04); }
+        .roscas-card .ciclo-nm { margin-top: 14px; font-size: 16px; }
+        .roscas-pct { font-size: 12px; font-weight: 700; color: var(--muted); margin-top: 3px; font-variant-numeric: tabular-nums; }
+        .roscas-box { margin-top: 10px; width: 100%; background: var(--surface); border: 1px solid var(--line-2);
+          border-radius: 14px; padding: 11px 13px; text-align: left; transition: border-color .15s, box-shadow .15s; }
+        .roscas-card:hover .roscas-box { border-color: var(--gold); }
+        .roscas-card.on .roscas-box { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold); }
+        .roscas-line { font-size: 12.5px; color: var(--text); font-weight: 600; line-height: 1.45; }
+        .roscas-line + .roscas-line { margin-top: 3px; }
+        .roscas-k { color: var(--faint); font-weight: 500; }
+        .roscas-done { color: var(--faint); font-weight: 500; }
 
         .fila-panel { margin-top: 16px; background: var(--surface); border: 1px solid var(--line-2); border-radius: 16px; padding: 16px 18px; }
         .fila-head { display: flex; align-items: center; justify-content: space-between; font-size: 14px; margin-bottom: 12px; }
