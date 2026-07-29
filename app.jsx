@@ -5175,9 +5175,9 @@ export default function App() {
         .cron-form .reg-2col { margin-top: 14px; }
         .cron-fonte-row { display: flex; align-items: center; gap: 12px; }
         .cron-fonte-lbl { text-align: left; margin: 0; white-space: nowrap; flex: 0 0 auto; }
-        .cron-fontes { flex: 1 1 auto; min-width: 0; flex-wrap: nowrap; justify-content: flex-start; gap: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
-        .cron-fontes::-webkit-scrollbar { display: none; }
-        .cron-fontes .reg-chip { flex: 0 0 auto; white-space: nowrap; padding: 7px 11px; font-size: 12px; }
+        .cron-fonte-row .cron-fontes { flex: 1 1 auto; min-width: 0; flex-wrap: nowrap; justify-content: flex-start; gap: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+        .cron-fonte-row .cron-fontes::-webkit-scrollbar { display: none; }
+        .cron-fonte-row .cron-fontes .reg-chip { flex: 0 0 auto; white-space: nowrap; padding: 7px 11px; font-size: 12px; }
         .cron-save { width: 100%; margin-top: 16px; background: var(--gold); color: var(--on-accent); border: none; border-radius: 12px; padding: 14px; font: inherit; font-size: 15px; font-weight: 800; cursor: pointer; }
         .cron-save:disabled { opacity: .5; cursor: default; }
         .cron-save b { font-weight: 800; }
