@@ -108,7 +108,7 @@
   <button id="btnLight" class="theme-btn" title="Tema claro">&#9728;</button>
   <button id="btnDark" class="theme-btn" title="Tema escuro">&#9789;</button>
   <span id="bellWrap">
-    <button id="btnBell" class="theme-btn" title="Avisos de informativos">&#128276;<span id="bellDot"></span></button>
+    <button id="btnBell" class="theme-btn" title="Avisos de informativos"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg><span id="bellDot"></span></button>
     <div id="bellPanel"></div>
   </span>
   <button id="btnRestore" title="Restaurar uma versão anterior salva automaticamente">&#8635; Restaurar</button>
@@ -2119,66 +2119,131 @@ function EmBreve({ title, sub, onBack }) {
   );
 }
 // Uma "gaveta" que abre e fecha (título fixo; conteúdo só aparece no clique).
-function Gaveta({ titulo, cnt, aberta, onToggle, children }) {
+// Caixinha de anotação (igual à da Caixa de entrada). Ao salvar, a nota vai PRA Caixa.
+function AnotarBox() {
+  const [aberta, setAberta] = useState(false);
+  const [texto, setTexto] = useState("");
+  const [msg, setMsg] = useState("");
+  const salvar = async () => {
+    const novas = caixaParse(texto);
+    if (!novas.length) return;
+    let arr = [];
+    try { const r = await window.storage.get(CAIXA_KEY); arr = r ? JSON.parse(r.value) : []; } catch {}
+    try { await window.storage.set(CAIXA_KEY, JSON.stringify([...novas, ...arr])); } catch {}
+    setTexto(""); setAberta(false);
+    setMsg(novas.length > 1 ? `${novas.length} anotações foram pra Caixa de entrada` : "Anotação foi pra Caixa de entrada");
+    setTimeout(() => setMsg(""), 4500);
+  };
   return (
-    <div className="juris-gav">
-      <button className="juris-gav-head" onClick={onToggle}>
-        <span className="chev" style={{ transform: aberta ? "rotate(90deg)" : "none" }}>▶</span>
-        <span>{titulo}</span>
-        {cnt != null && <span className="cnt">{cnt}</span>}
-      </button>
-      {aberta && <div className="juris-gav-body">{children}</div>}
+    <div className="juris-anotar">
+      {!aberta && (
+        <button className="juris-anotar-btn" onClick={() => setAberta(true)}>+ Anotações</button>
+      )}
+      {msg && <span className="juris-anotar-msg">✓ {msg}</span>}
+      {aberta && (
+        <div className="juris-anotar-box">
+          <textarea className="juris-anotar-ta" value={texto} autoFocus
+            onChange={(e) => setTexto(e.target.value)}
+            placeholder="Escreva ou cole aqui. Vira nota na sua Caixa de entrada, já com a matéria sugerida." />
+          <div className="juris-anotar-bar">
+            <button className="juris-anotar-cancel" onClick={() => { setAberta(false); setTexto(""); }}>Cancelar</button>
+            <button className="juris-anotar-go" onClick={salvar} disabled={!texto.trim()}>Salvar na Caixa</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-// Página FONTES › Jurisprudência: Súmulas, Teses e Informativos (aulas do Mege).
+// Uma aula da lista do Mege (linha com ✓, vídeo e PDFs oficiais).
+function AulaRow({ a, checked, onToggle }) {
+  return (
+    <div className="info-row juris-aula" onClick={() => onToggle("mege", a.id)}>
+      <input type="checkbox" checked={checked} onChange={() => {}} />
+      <div style={{ display: "flex", flexDirection: "column", gap: 4, marginRight: "auto" }}>
+        <span className="aula-t">{aulaTitulo(a)}</span>
+        <div className="juris-chips" onClick={(e) => e.stopPropagation()}>
+          <a className="juris-chip yt" href={ytUrl(a.id)} target="_blank" rel="noopener noreferrer" title="Assistir a aula no YouTube">▶ assistir</a>
+          {(a.stj || []).map((n) => (
+            <a key={`j${n}`} className="juris-chip" href={infoUrl("stj", n)} target="_blank" rel="noopener noreferrer" title="PDF oficial do STJ">STJ {n} ↗</a>
+          ))}
+          {(a.stf || []).map((n) => (
+            <a key={`f${n}`} className="juris-chip" href={infoUrl("stf", n)} target="_blank" rel="noopener noreferrer" title="PDF oficial do STF">STF {n} ↗</a>
+          ))}
+          {a.tse && (
+            <a className="juris-chip" href={TSE_INFO_URL} target="_blank" rel="noopener noreferrer" title="Informativos do TSE">TSE {a.tse} ↗</a>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+// Página FONTES › Jurisprudência: grade de quadradinhos; cada um abre a sua própria página.
 function JurisFonte({ infoData, onToggle, onBack, feitos, total }) {
-  const [aberto, setAberto] = useState({ informativos: true });
-  const flip = (k) => setAberto((o) => ({ ...o, [k]: !o[k] }));
+  const [sub, setSub] = useState(null); // null = grade de quadradinhos; senão a chave da subfonte
+  const findItem = (k) => {
+    for (const sec of JURIS_SECOES) { const it = sec.itens.find((x) => x.key === k); if (it) return it; }
+    return null;
+  };
+
+  // ---------- PÁGINA DE UMA SUBFONTE ----------
+  if (sub) {
+    const isMege = sub === "mege";
+    const it = isMege
+      ? { nome: "Mege Informativos", link: "https://www.youtube.com/playlist?list=PL9LLssUqTQ9aiF9ZNLqbA6yFSnjm3Vj7A" }
+      : findItem(sub);
+    return (
+      <section className="editais-page es-page">
+        <button className="edital-back" onClick={() => setSub(null)}>← Jurisprudência</button>
+        <p className="eyebrow">FONTES › JURISPRUDÊNCIA</p>
+        <div className="juris-sub-head">
+          <h1 className="serif" style={{ margin: 0 }}>{it ? it.nome : ""}</h1>
+          {isMege && <span className="juris-sub-cnt">{feitos}/{total}</span>}
+        </div>
+        <AnotarBox />
+        {isMege ? (
+          <div style={{ marginTop: 6 }}>
+            {MEGE_AULAS.map((a) => (
+              <AulaRow key={a.id} a={a} checked={!!infoData[`mege-${a.id}`]} onToggle={onToggle} />
+            ))}
+          </div>
+        ) : (
+          <div className="juris-vazio" style={{ marginTop: 10 }}>
+            Ainda vazio — a gente vai preencher juntas. Enquanto isso, a fonte oficial:{" "}
+            <a href={it.link} target="_blank" rel="noopener noreferrer">abrir {it.nome} ↗</a>
+          </div>
+        )}
+      </section>
+    );
+  }
+
+  // ---------- GRADE DE QUADRADINHOS ----------
   return (
     <section className="editais-page es-page">
       <button className="edital-back" onClick={onBack}>← Voltar ao painel</button>
       <p className="eyebrow">FONTES</p>
-      <h1 className="serif" style={{ marginBottom: 10 }}>Jurisprudência</h1>
-      <p className="es-sub">Súmulas, teses e informativos — cada fonte abre no clique. Você acompanha os informativos pelas aulas do Mege.</p>
+      <h1 className="serif" style={{ marginBottom: 18 }}>Jurisprudência</h1>
 
       {JURIS_SECOES.map((sec) => (
         <div key={sec.grupo}>
           <div className="juris-grupo">{sec.grupo}</div>
-          {sec.itens.map((it) => (
-            <Gaveta key={it.key} titulo={it.nome} aberta={!!aberto[it.key]} onToggle={() => flip(it.key)}>
-              <div className="juris-vazio">
-                Ainda vazio — a gente vai preencher juntas. Enquanto isso, a fonte oficial:{" "}
-                <a href={it.link} target="_blank" rel="noopener noreferrer">abrir {it.nome} ↗</a>
-              </div>
-            </Gaveta>
-          ))}
+          <div className={`juris-cards c${sec.itens.length}`}>
+            {sec.itens.map((it) => (
+              <button key={it.key} className="juris-card" onClick={() => setSub(it.key)}>
+                <span className="juris-card-nome">{it.nome}</span>
+                <span className="juris-card-go">abrir ›</span>
+              </button>
+            ))}
+          </div>
         </div>
       ))}
 
       <div className="juris-grupo">Informativos</div>
-      <Gaveta titulo="Aulas do Mege (Informativos)" cnt={`${feitos}/${total} vistas`} aberta={!!aberto.informativos} onToggle={() => flip("informativos")}>
-        {MEGE_AULAS.map((a) => (
-          <div key={a.id} className="info-row juris-aula" onClick={() => onToggle("mege", a.id)}>
-            <input type="checkbox" checked={!!infoData[`mege-${a.id}`]} onChange={() => {}} />
-            <div style={{ display: "flex", flexDirection: "column", gap: 4, marginRight: "auto" }}>
-              <span className="aula-t">{aulaTitulo(a)}</span>
-              <div className="juris-chips" onClick={(e) => e.stopPropagation()}>
-                <a className="juris-chip yt" href={ytUrl(a.id)} target="_blank" rel="noopener noreferrer" title="Assistir a aula no YouTube">▶ assistir</a>
-                {(a.stj || []).map((n) => (
-                  <a key={`j${n}`} className="juris-chip" href={infoUrl("stj", n)} target="_blank" rel="noopener noreferrer" title="PDF oficial do STJ">STJ {n} ↗</a>
-                ))}
-                {(a.stf || []).map((n) => (
-                  <a key={`f${n}`} className="juris-chip" href={infoUrl("stf", n)} target="_blank" rel="noopener noreferrer" title="PDF oficial do STF">STF {n} ↗</a>
-                ))}
-                {a.tse && (
-                  <a className="juris-chip" href={TSE_INFO_URL} target="_blank" rel="noopener noreferrer" title="Informativos do TSE">TSE {a.tse} ↗</a>
-                )}
-              </div>
-            </div>
-          </div>
-        ))}
-      </Gaveta>
+      <div className="juris-cards c1">
+        <button className="juris-card" onClick={() => setSub("mege")}>
+          <span className="juris-card-nome">Mege Informativos</span>
+          <span className="juris-card-go">{feitos}/{total} · abrir ›</span>
+        </button>
+      </div>
     </section>
   );
 }
@@ -4763,17 +4828,42 @@ function App() {
         .info-link { color: var(--text); text-decoration: none; font-weight: 500; }
         .info-link:hover { color: var(--gold); text-decoration: underline; }
 
-        /* Jurisprudência: gavetas (abre/fecha) + chips das fontes */
+        /* Jurisprudência: quadradinhos (cards) + subpágina + anotações */
         .juris-grupo { font-size: 11px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase;
           color: var(--gold); margin: 22px 0 10px; }
-        .juris-gav { border: 1px solid var(--line); border-radius: 13px; background: var(--surface-2); margin-bottom: 9px; overflow: hidden; }
-        .juris-gav-head { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
-          font: inherit; font-size: 14px; font-weight: 600; color: var(--text); background: none; border: none;
-          padding: 13px 15px; cursor: pointer; }
-        .juris-gav-head:hover { background: var(--surface-3); }
-        .juris-gav-head .chev { color: var(--muted); font-size: 12px; transition: transform .18s; }
-        .juris-gav-head .cnt { margin-left: auto; font-size: 11.5px; color: var(--faint); font-weight: 500; }
-        .juris-gav-body { padding: 6px 13px 15px; }
+        .juris-cards { display: grid; gap: 12px; margin-bottom: 4px; }
+        .juris-cards.c4 { grid-template-columns: repeat(4, 1fr); }
+        .juris-cards.c3 { grid-template-columns: repeat(3, 1fr); }
+        .juris-cards.c1 { grid-template-columns: repeat(4, 1fr); }
+        @media (max-width: 640px) {
+          .juris-cards.c4, .juris-cards.c3, .juris-cards.c1 { grid-template-columns: repeat(2, 1fr); }
+        }
+        .juris-card { aspect-ratio: 1 / 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+          text-align: center; gap: 8px; padding: 14px; border: 1px solid var(--line); border-radius: 18px;
+          background: var(--surface-2); color: var(--text); cursor: pointer; font: inherit;
+          transition: transform .14s, border-color .14s, background .14s; }
+        .juris-card:hover { border-color: var(--gold); background: var(--surface-3); transform: translateY(-2px); }
+        .juris-card-nome { font-size: 14px; font-weight: 700; line-height: 1.3; }
+        .juris-card-go { font-size: 11px; font-weight: 600; color: var(--faint); }
+        .juris-card:hover .juris-card-go { color: var(--gold); }
+        .juris-sub-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; }
+        .juris-sub-cnt { font-size: 13px; font-weight: 700; color: var(--faint); }
+        .juris-anotar { margin-bottom: 8px; }
+        .juris-anotar-btn { font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; color: var(--gold);
+          background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px; padding: 7px 14px; }
+        .juris-anotar-btn:hover { border-color: var(--gold); }
+        .juris-anotar-msg { font-size: 12.5px; font-weight: 600; color: var(--green); margin-left: 10px; }
+        .juris-anotar-box { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px; margin-top: 4px; }
+        .juris-anotar-ta { width: 100%; box-sizing: border-box; min-height: 110px; resize: vertical; font: inherit; font-size: 13.5px;
+          line-height: 1.5; background: var(--surface-2); color: var(--text); border: 1px solid var(--line); border-radius: 11px; padding: 11px 13px; }
+        .juris-anotar-ta::placeholder { color: var(--faint); }
+        .juris-anotar-bar { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 11px; }
+        .juris-anotar-cancel { font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; color: var(--muted);
+          background: none; border: none; padding: 8px 6px; }
+        .juris-anotar-cancel:hover { color: var(--text); }
+        .juris-anotar-go { font: inherit; font-size: 13px; font-weight: 800; cursor: pointer; background: var(--gold);
+          color: var(--on-accent, #10141a); border: none; border-radius: 10px; padding: 9px 16px; }
+        .juris-anotar-go:disabled { opacity: .45; cursor: default; }
         .juris-vazio { font-size: 13px; color: var(--muted); line-height: 1.6; }
         .juris-vazio a { color: var(--gold); text-decoration: none; font-weight: 600; }
         .juris-vazio a:hover { text-decoration: underline; }
