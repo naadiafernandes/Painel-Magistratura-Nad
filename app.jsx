@@ -2818,17 +2818,6 @@ function EstatSimView({ registros, feitos, sugestoes, onNovo, onEditFeito, onDel
   const mediaGeral = provas.length ? Math.round(provas.reduce((s, x) => s + simPct(x), 0) / provas.length) : 0;
   const barCor = (p) => (p >= 70 ? "var(--green)" : p >= 50 ? "var(--gold)" : "var(--coral)");
   const todasMats = [...new Set(provas.flatMap((s) => (s.mats || []).map((m) => matNorm(m.nome)).filter(Boolean)))];
-  // desempenho somado por matéria (todas as provas juntas) — pro gráfico de colunas
-  const agg = {};
-  for (const s of provas) for (const m of (s.mats || [])) {
-    const nome = matNorm(m.nome);
-    if (!nome) continue;
-    const a = parseInt(m.a || 0, 10) || 0, q = parseInt(m.q || 0, 10) || 0;
-    if (!agg[nome]) agg[nome] = { a: 0, q: 0 };
-    agg[nome].a += a; agg[nome].q += q;
-  }
-  const matBars = Object.keys(agg).map((nome) => ({ nome, a: agg[nome].a, q: agg[nome].q, pct: agg[nome].q ? Math.round((agg[nome].a / agg[nome].q) * 100) : 0 }))
-    .filter((x) => x.q > 0).sort((a, b) => a.pct - b.pct);
 
   const lineChart = (() => {
     const pts = asc.map((s) => {
@@ -2863,35 +2852,6 @@ function EstatSimView({ registros, feitos, sugestoes, onNovo, onEditFeito, onDel
               onMouseMove={(e) => showTip(e, "line", [x.s.nome, `${matFiltro ? matCurto(matFiltro) + " · " : ""}${x.a}/${x.q} · ${x.p}%`, simFmtData(x.s.ts)])} />
           </g>
         ))}
-      </svg>
-    );
-  })();
-
-  const colChart = (() => {
-    if (matBars.length === 0) return <div className="sim-chart-empty">Sem nota por matéria ainda.</div>;
-    const n = matBars.length;
-    const W = 520, H = 178, padT = 16, padB = 62, padX = 8;
-    const plotH = H - padT - padB;
-    const colW = (W - padX * 2) / n;
-    const barW = Math.min(24, colW * 0.6);
-    return (
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height="178" role="img" aria-label="Desempenho por matéria">
-        <line x1={padX} y1={padT + plotH} x2={W - padX} y2={padT + plotH} stroke="var(--line)" strokeWidth="1" />
-        {matBars.map((m, i) => {
-          const cx = padX + colW * i + colW / 2;
-          const h = Math.max(2, plotH * (m.pct / 100));
-          const y = padT + plotH - h;
-          const ly = padT + plotH + 10;
-          return (
-            <g key={m.nome}>
-              <rect x={cx - barW / 2} y={y} width={barW} height={h} rx="3" fill={barCor(m.pct)} />
-              <text x={cx} y={y - 4} fill="var(--muted)" fontSize="9" textAnchor="middle">{m.pct}</text>
-              <text x={cx} y={ly} fill="var(--faint)" fontSize="9" textAnchor="end" transform={`rotate(-45 ${cx} ${ly})`}>{matCurto(m.nome)}</text>
-              <rect x={padX + colW * i} y={padT} width={colW} height={plotH} fill="transparent" style={{ cursor: "pointer" }}
-                onMouseMove={(e) => showTip(e, "col", [m.nome, `${m.a}/${m.q} questões · ${m.pct}%`])} />
-            </g>
-          );
-        })}
       </svg>
     );
   })();
@@ -2936,33 +2896,22 @@ function EstatSimView({ registros, feitos, sugestoes, onNovo, onEditFeito, onDel
 
       <button className="sim-newbtn" onClick={() => onNovo()}>+ Novo simulado</button>
 
-      <div className="sim-charts">
-        <div className="sim-cardbox" onMouseLeave={() => setTip(null)}>
-          <div className="sim-cardhead2">
-            <span>Meu desempenho</span>
-            {todasMats.length > 0 && (
-              <select className="sim-matsel" value={matFiltro} onChange={(e) => setMatFiltro(e.target.value)}>
-                <option value="">Todas as matérias</option>
-                {todasMats.map((m) => <option key={m} value={m}>{m}</option>)}
-              </select>
-            )}
+      <div className="sim-cardbox" onMouseLeave={() => setTip(null)}>
+        <div className="sim-cardhead2">
+          <span>Meu desempenho</span>
+          {todasMats.length > 0 && (
+            <select className="sim-matsel" value={matFiltro} onChange={(e) => setMatFiltro(e.target.value)}>
+              <option value="">Todas as matérias</option>
+              {todasMats.map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+          )}
+        </div>
+        {lineChart}
+        {tip && tip.card === "line" && (
+          <div className="sim-tip" style={{ left: tip.x, top: tip.y }}>
+            <b>{tip.lines[0]}</b>{tip.lines.slice(1).map((l, i) => <span key={i}>{l}</span>)}
           </div>
-          {lineChart}
-          {tip && tip.card === "line" && (
-            <div className="sim-tip" style={{ left: tip.x, top: tip.y }}>
-              <b>{tip.lines[0]}</b>{tip.lines.slice(1).map((l, i) => <span key={i}>{l}</span>)}
-            </div>
-          )}
-        </div>
-        <div className="sim-cardbox" onMouseLeave={() => setTip(null)}>
-          <div className="sim-cardhead2"><span>Desempenho por matéria</span><span className="sim-cardhead-sub">pior → melhor</span></div>
-          {colChart}
-          {tip && tip.card === "col" && (
-            <div className="sim-tip" style={{ left: tip.x, top: tip.y }}>
-              <b>{tip.lines[0]}</b>{tip.lines.slice(1).map((l, i) => <span key={i}>{l}</span>)}
-            </div>
-          )}
-        </div>
+        )}
       </div>
 
       <div className="painel-2col es-split">
