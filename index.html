@@ -5332,9 +5332,9 @@ function App() {
         .cron-cfg input { width: 56px; padding: 6px 8px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; text-align: center; }
         .cron-form { margin: 22px auto 6px; max-width: 620px; }
         .cron-form .reg-2col { margin-top: 14px; }
-        .cron-fonte-row { display: flex; align-items: center; gap: 12px; }
+        .cron-fonte-row { display: flex; align-items: center; justify-content: center; gap: 12px; }
         .cron-fonte-lbl { text-align: left; margin: 0; white-space: nowrap; flex: 0 0 auto; }
-        .cron-fonte-row .cron-fontes { flex: 1 1 auto; min-width: 0; flex-wrap: nowrap; justify-content: flex-start; gap: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+        .cron-fonte-row .cron-fontes { flex: 0 1 auto; min-width: 0; flex-wrap: nowrap; justify-content: flex-start; gap: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
         .cron-fonte-row .cron-fontes::-webkit-scrollbar { display: none; }
         .cron-fonte-row .cron-fontes .reg-chip { flex: 0 0 auto; white-space: nowrap; padding: 7px 11px; font-size: 12px; }
         .cron-save { width: 100%; margin-top: 16px; background: var(--gold); color: var(--on-accent); border: none; border-radius: 12px; padding: 14px; font: inherit; font-size: 15px; font-weight: 800; cursor: pointer; }
@@ -5442,7 +5442,8 @@ function App() {
         .roscas-card:hover .ciclo-donut { filter: brightness(1.04); }
         .roscas-card .ciclo-nm { margin-top: 14px; font-size: 16px; }
         .roscas-pct { font-size: 12px; font-weight: 700; color: var(--muted); margin-top: 3px; font-variant-numeric: tabular-nums; }
-        .roscas-box { margin-top: 10px; width: 100%; background: var(--surface); border: 1px solid var(--line-2);
+        .roscas-box { margin-top: 10px; width: 100%; min-height: 64px; box-sizing: border-box; display: flex;
+          flex-direction: column; justify-content: center; background: var(--surface); border: 1px solid var(--line-2);
           border-radius: 14px; padding: 11px 13px; text-align: left; transition: border-color .15s, box-shadow .15s; }
         .roscas-card:hover .roscas-box { border-color: var(--gold); }
         .roscas-card.on .roscas-box { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold); }
