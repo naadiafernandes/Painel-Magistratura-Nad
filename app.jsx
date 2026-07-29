@@ -2098,6 +2098,8 @@ function cicloMatchItem(fonte, topico) {
 const FONTE_ED_FIELD = { teoria: "t", leiseca: "l", questoes: "q", juris: "j", anki: "a" };
 // nome cheio da matéria a partir do código m (cai no rótulo curto quando não é matéria da grade)
 const cicloMatNome = (m, lab) => (SUBJ_BY_ID[m] && SUBJ_BY_ID[m].name) || lab || m;
+// busca o tópico direto no Buscador Dizer o Direito (ela precisa estar logada)
+const buscadorDoD = (termo) => "https://buscadordizerodireito.com.br/jurisprudencia?palavra-chave=" + encodeURIComponent(termo || "");
 // matérias de um ciclo, na ordem de incidência (derivadas da "geralzona" de questões)
 function cicloMatsDoCiclo(ciclo) {
   const q = CICLOS.questoes || [];
@@ -2212,6 +2214,7 @@ function CiclosRoscas({ registros, onRegistrar }) {
                 {rosca.id === "questoes" && <div className="fila-topo-n">{d.topo.n} questões no TEC</div>}
                 <div className="fila-topo-acts">
                   <button className="fila-fin" onClick={() => finalizar(rosca.id, d.topo)}>Finalizei ✓</button>
+                  {rosca.id === "juris" && <a className="fila-dod" href={buscadorDoD(d.topo.nome)} target="_blank" rel="noopener noreferrer">🔎 Buscar no Dizer o Direito ↗</a>}
                   <button className="fila-so" onClick={() => soTempo(rosca.id, d.topo)}>só registrar tempo</button>
                 </div>
               </div>
@@ -2222,7 +2225,9 @@ function CiclosRoscas({ registros, onRegistrar }) {
               {pend.slice(1).map((it) => (
                 <li key={cicloItemKey(it)} className="fila-row">
                   <span className="fila-tag">{cicloMatNome(it.m, it.lab)}</span>
-                  <span className="fila-nm">{it.nome}</span>
+                  {rosca.id === "juris"
+                    ? <a className="fila-nm fila-nm-link" href={buscadorDoD(it.nome)} target="_blank" rel="noopener noreferrer" title="Buscar no Dizer o Direito">{it.nome} <span className="fila-nm-ext">🔎</span></a>
+                    : <span className="fila-nm">{it.nome}</span>}
                   {rosca.id === "questoes" && <span className="fila-n">{it.n}q</span>}
                 </li>
               ))}
@@ -4723,6 +4728,14 @@ export default function App() {
           border: none; border-radius: 10px; padding: 8px 16px; cursor: pointer; }
         .fila-fin:hover { filter: brightness(1.06); }
         .fila-so { font: inherit; font-size: 12px; font-weight: 600; color: var(--muted); background: none; border: none; cursor: pointer; text-decoration: underline; }
+        .fila-dod { font: inherit; font-size: 12.5px; font-weight: 700; color: var(--gold2); text-decoration: none;
+          border: 1px solid color-mix(in srgb, var(--gold2) 40%, transparent); border-radius: 10px; padding: 7px 12px;
+          background: color-mix(in srgb, var(--gold2) 10%, transparent); white-space: nowrap; }
+        .fila-dod:hover { background: color-mix(in srgb, var(--gold2) 18%, transparent); }
+        .fila-nm-link { color: var(--text); text-decoration: none; }
+        .fila-nm-link:hover { color: var(--gold2); text-decoration: underline; }
+        .fila-nm-ext { font-size: 10px; opacity: .5; }
+        .fila-nm-link:hover .fila-nm-ext { opacity: 1; }
         .fila-next-h { font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--faint); margin: 4px 0 8px; }
         .fila-list { list-style: none; margin: 0; padding: 0; counter-reset: fila; }
         .fila-row { display: flex; align-items: center; gap: 10px; padding: 9px 4px; border-bottom: 1px solid var(--line-2); font-size: 13px; }
