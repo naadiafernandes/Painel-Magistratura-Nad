@@ -1092,8 +1092,7 @@ const NAV_GROUPS = [
     { key: "es-ciclos", icon: "pie", label: "Ciclos", kind: "view", view: "es-ciclos" },
     { key: "es-revisoes", icon: "refresh", label: "Revisões", kind: "view", view: "es-revisoes" },
     { key: "es-historico", icon: "clock", label: "Histórico", kind: "view", view: "es-historico" },
-    { key: "es-estatisticas", icon: "chart", label: "Estatísticas", kind: "view", view: "es-estatisticas" },
-    { key: "es-simulados", icon: "clipboard", label: "Simulados e Provas Anteriores", kind: "view", view: "es-simulados" },
+    { key: "es-estatisticas", icon: "chart", label: "Estatísticas e Simulados", kind: "view", view: "es-estatisticas" },
     { key: "caixa", icon: "inbox", label: "Caixa de entrada", kind: "view", view: "caixa" },
   ] },
   { label: "Navegação", items: [
@@ -2604,53 +2603,6 @@ function RevisoesView({ registros, revStatus, onMark, onBack }) {
   );
 }
 
-// ===== ESTUDEI: Estatísticas =====
-function EstatisticasView({ registros, onBack }) {
-  const tempo = registros.reduce((s, r) => s + (r.tempo || 0), 0);
-  const ac = registros.reduce((s, r) => s + (r.acertos || 0), 0);
-  const er = registros.reduce((s, r) => s + (r.erros || 0), 0);
-  const q = ac + er; const perc = q ? Math.round((ac / q) * 100) : 0;
-  const dias = new Set(registros.map((r) => new Date(r.ts).toDateString())).size;
-  const media = dias ? Math.round(tempo / dias) : 0;
-  const matAgg = {};
-  for (const r of registros) {
-    const k = r.materia; if (!k) continue;
-    if (!matAgg[k]) matAgg[k] = { ac: 0, er: 0 };
-    matAgg[k].ac += r.acertos || 0; matAgg[k].er += r.erros || 0;
-  }
-  const matPerf = Object.keys(matAgg).map((m) => ({ m, ...matAgg[m], q: matAgg[m].ac + matAgg[m].er }))
-    .filter((x) => x.q > 0).map((x) => ({ ...x, p: Math.round((x.ac / x.q) * 100) })).sort((a, b) => b.q - a.q);
-  return (
-    <section className="editais-page es-page">
-      <button className="edital-back" onClick={onBack}>← Voltar ao painel</button>
-      <p className="eyebrow">ESTUDEI</p>
-      <h1 className="serif" style={{ marginBottom: 14 }}>Estatísticas</h1>
-      {registros.length === 0 ? <div className="es-hint">Registre estudos pra ver suas estatísticas.</div> : (<>
-        <div className="stat-grid">
-          <div className="panel stat-desemp">
-            <div className="dp-lbl">Desempenho</div>
-            <div className="desemp-donut" style={{ "--p": perc }}><div className="ciclo-hole"><b>{perc}%</b></div></div>
-            <div className="stat-sub">{ac} acertos · {er} erros</div>
-          </div>
-          <div className="panel"><div className="dp-lbl">Tempo total</div><div className="dp-big mat-big">{fmtTempo(tempo)}</div></div>
-          <div className="panel"><div className="dp-lbl">Dias estudados</div><div className="dp-big mat-big">{dias}</div></div>
-          <div className="panel"><div className="dp-lbl">Média por dia</div><div className="dp-big mat-big">{fmtTempo(media)}</div></div>
-        </div>
-        <div className="sechead-es">Tempo por fonte</div>
-        <CiclosPizzas registros={registros} />
-        {matPerf.length ? (<><div className="sechead-es">Desempenho por matéria</div>
-          <div className="panel">
-            {matPerf.map((x) => (
-              <div className="meta-row" key={x.m}>
-                <div className="meta-lab"><b>{x.m}</b><span>{x.ac}/{x.q} · {x.p}%</span></div>
-                <div className="meta-track"><i style={{ width: x.p + "%" }} /></div>
-              </div>
-            ))}
-          </div></>) : null}
-      </>)}
-    </section>
-  );
-}
 
 // ===== Cursos isolados: lista de aulas reaproveitável (menu Cursos + dentro da matéria) =====
 const CURSO_COR = "#7f96c4";
@@ -2824,7 +2776,7 @@ function SimMats({ mats, onChange }) {
   );
 }
 
-function SimuladosView({ feitos, sugestoes, onNovo, onEditFeito, onDeleteFeito, onUpdateMats, onRegistrarSug, onReorder, onAddSug, onDeleteSug, onBack }) {
+function EstatSimView({ registros, feitos, sugestoes, onNovo, onEditFeito, onDeleteFeito, onUpdateMats, onRegistrarSug, onReorder, onAddSug, onDeleteSug, onBack }) {
   const [novoSug, setNovoSug] = useState("");
   const [over, setOver] = useState(null);
   const [openSim, setOpenSim] = useState(null);
@@ -2837,15 +2789,44 @@ function SimuladosView({ feitos, sugestoes, onNovo, onEditFeito, onDeleteFeito, 
     const r = box.getBoundingClientRect();
     setTip({ card, lines, x: e.clientX - r.left, y: e.clientY - r.top });
   };
-  const feitosOrd = [...feitos].sort((a, b) => b.ts - a.ts);
-  const asc = [...feitos].sort((a, b) => a.ts - b.ts);
+  // separa o HISTÓRICO DO TEC (entra no "dia a dia") das provas registradas
+  const tec = feitos.find((f) => f.nome === TEC_NOME);
+  const provas = feitos.filter((f) => f.nome !== TEC_NOME);
+  let tecA = 0, tecQ = 0;
+  if (tec) for (const m of (tec.mats || [])) { tecA += parseInt(m.a || 0, 10) || 0; tecQ += parseInt(m.q || 0, 10) || 0; }
+
+  // números do dia a dia (registros + TEC no desempenho por matéria e no geral)
+  const tempo = registros.reduce((s, r) => s + (r.tempo || 0), 0);
+  const ac = registros.reduce((s, r) => s + (r.acertos || 0), 0) + tecA;
+  const er = registros.reduce((s, r) => s + (r.erros || 0), 0) + (tecQ - tecA);
+  const q = ac + er; const perc = q ? Math.round((ac / q) * 100) : 0;
+  const dias = new Set(registros.map((r) => new Date(r.ts).toDateString())).size;
+  const mediaDia = dias ? Math.round(tempo / dias) : 0;
+  const matAgg = {};
+  for (const r of registros) {
+    const k = matNorm(r.materia); if (!k) continue;
+    if (!matAgg[k]) matAgg[k] = { ac: 0, er: 0 };
+    matAgg[k].ac += r.acertos || 0; matAgg[k].er += r.erros || 0;
+  }
+  if (tec) for (const m of (tec.mats || [])) {
+    const k = matNorm(m.nome); if (!k) continue;
+    const a = parseInt(m.a || 0, 10) || 0, qq = parseInt(m.q || 0, 10) || 0;
+    if (!matAgg[k]) matAgg[k] = { ac: 0, er: 0 };
+    matAgg[k].ac += a; matAgg[k].er += (qq - a);
+  }
+  const matPerf = Object.keys(matAgg).map((m) => ({ m, ...matAgg[m], q: matAgg[m].ac + matAgg[m].er }))
+    .filter((x) => x.q > 0).map((x) => ({ ...x, p: Math.round((x.ac / x.q) * 100) })).sort((a, b) => b.q - a.q);
+
+  // números e gráficos dos simulados (só as provas registradas)
+  const feitosOrd = [...provas].sort((a, b) => b.ts - a.ts);
+  const asc = [...provas].sort((a, b) => a.ts - b.ts);
   const ultimo = feitosOrd[0];
-  const media = feitos.length ? Math.round(feitos.reduce((s, x) => s + simPct(x), 0) / feitos.length) : 0;
+  const mediaGeral = provas.length ? Math.round(provas.reduce((s, x) => s + simPct(x), 0) / provas.length) : 0;
   const barCor = (p) => (p >= 70 ? "var(--green)" : p >= 50 ? "var(--gold)" : "var(--coral)");
-  const todasMats = [...new Set(feitos.flatMap((s) => (s.mats || []).map((m) => matNorm(m.nome)).filter(Boolean)))];
+  const todasMats = [...new Set(provas.flatMap((s) => (s.mats || []).map((m) => matNorm(m.nome)).filter(Boolean)))];
   // desempenho somado por matéria (todas as provas juntas) — pro gráfico de colunas
   const agg = {};
-  for (const s of feitos) for (const m of (s.mats || [])) {
+  for (const s of provas) for (const m of (s.mats || [])) {
     const nome = matNorm(m.nome);
     if (!nome) continue;
     const a = parseInt(m.a || 0, 10) || 0, q = parseInt(m.q || 0, 10) || 0;
@@ -2935,15 +2916,28 @@ function SimuladosView({ feitos, sugestoes, onNovo, onEditFeito, onDeleteFeito, 
     <section className="editais-page es-page">
       <button className="edital-back" onClick={onBack}>← Voltar ao painel</button>
       <p className="eyebrow">ESTUDEI</p>
-      <h1 className="serif" style={{ marginBottom: 10 }}>Simulados e Provas anteriores</h1>
-      <p className="es-sub">Registre cada simulado e prova que você fez e acompanhe sua evolução</p>
+      <h1 className="serif" style={{ marginBottom: 10 }}>Estatísticas e Simulados</h1>
+      <p className="es-sub">Todos os seus números e gráficos num lugar só</p>
 
+      <div className="sechead-es" style={{ marginTop: 8 }}>Do dia a dia</div>
+      <div className="stat-grid">
+        <div className="panel stat-desemp">
+          <div className="dp-lbl">Desempenho</div>
+          <div className="desemp-donut" style={{ "--p": perc }}><div className="ciclo-hole"><b>{perc}%</b></div></div>
+          <div className="stat-sub">{ac} acertos · {er} erros</div>
+        </div>
+        <div className="panel"><div className="dp-lbl">Tempo total</div><div className="dp-big mat-big">{fmtTempo(tempo)}</div></div>
+        <div className="panel"><div className="dp-lbl">Dias estudados</div><div className="dp-big mat-big">{dias}</div></div>
+        <div className="panel"><div className="dp-lbl">Média por dia</div><div className="dp-big mat-big">{fmtTempo(mediaDia)}</div></div>
+      </div>
+
+      <div className="sechead-es">Simulados e provas</div>
       <div className="mat-topcards">
-        <div className="panel"><div className="dp-lbl">Simulados/Provas feitos</div><div className="dp-big mat-big">{feitos.length}</div></div>
+        <div className="panel"><div className="dp-lbl">Simulados/Provas feitos</div><div className="dp-big mat-big">{provas.length}</div></div>
         <div className="panel"><div className="dp-lbl">Último simulado/Prova</div>
           {ultimo ? (() => { const b = simBreak(ultimo); return <><div className="dp-big mat-big">{simPct(ultimo)}%</div><div className="sim-cardnote">{b.a} acertos · {b.br} brancos · {b.er} erros</div></>; })() : <div className="dp-big mat-big" style={{ color: "var(--faint)" }}>—</div>}
         </div>
-        <div className="panel"><div className="dp-lbl">Média geral</div><div className="dp-big mat-big">{feitos.length ? media + "%" : "—"}</div></div>
+        <div className="panel"><div className="dp-lbl">Média geral</div><div className="dp-big mat-big">{provas.length ? mediaGeral + "%" : "—"}</div></div>
       </div>
 
       <button className="sim-newbtn" onClick={() => onNovo()}>+ Novo simulado</button>
@@ -2977,7 +2971,25 @@ function SimuladosView({ feitos, sugestoes, onNovo, onEditFeito, onDeleteFeito, 
         </div>
       </div>
 
-      <div className="sechead-es">Meus simulados e provas</div>
+      <div className="painel-2col es-split">
+        <div className="es-col">
+          <div className="es-colhead">Do dia a dia</div>
+          <div className="sechead-es">Tempo por fonte</div>
+          <CiclosPizzas registros={registros} />
+          {matPerf.length ? (<><div className="sechead-es">Desempenho por matéria</div>
+            <div className="panel">
+              {matPerf.map((x) => (
+                <div className="meta-row" key={x.m}>
+                  <div className="meta-lab"><b>{x.m}</b><span>{x.ac}/{x.q} · {x.p}%</span></div>
+                  <div className="meta-track"><i style={{ width: x.p + "%" }} /></div>
+                </div>
+              ))}
+            </div></>) : <div className="es-hint">Registre estudos pra ver o desempenho por matéria.</div>}
+        </div>
+
+        <div className="es-col">
+          <div className="es-colhead">Simulados e provas</div>
+          <div className="sechead-es">Meus simulados e provas</div>
       {feitosOrd.length === 0 ? <div className="es-hint">Nenhum simulado ainda. Toque em “+ Novo simulado” pra registrar o primeiro.</div>
         : feitosOrd.map((s) => {
           const p = simPct(s); const { a, q } = simTot(s); const isOpen = openSim === s.id;
@@ -3021,6 +3033,8 @@ function SimuladosView({ feitos, sugestoes, onNovo, onEditFeito, onDeleteFeito, 
         <span className="sug-plus">+</span>
         <input value={novoSug} onChange={(ev) => setNovoSug(ev.target.value)} onKeyDown={(ev) => { if (ev.key === "Enter") addSug(); }} placeholder="adicionar uma prova (ex.: TJ RS 2026)" />
         {novoSug.trim() && <button className="sug-addbtn" onClick={addSug}>adicionar</button>}
+      </div>
+        </div>
       </div>
     </section>
   );
@@ -4779,6 +4793,11 @@ export default function App() {
         .consta-day.on { background: var(--gold); border-color: transparent; }
         .consta-day.today { outline: 2px solid var(--gold); outline-offset: 2px; }
         .sechead-es { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin: 26px 4px 12px; }
+        .es-split { margin-top: 14px; align-items: start; }
+        .es-col { min-width: 0; }
+        .es-colhead { font-size: 14.5px; font-weight: 700; color: var(--text); padding-bottom: 9px; margin: 2px 2px 4px; border-bottom: 2px solid var(--gold); }
+        .es-split .es-col > .sechead-es { margin-top: 16px; }
+        .es-split .es-col > .sechead-es:first-of-type { margin-top: 14px; }
 
         /* ===== banner de entrada do ESTUDEI + bolinhas de cor ===== */
         .es-hero { position: relative; margin-top: 4px; }
@@ -5386,7 +5405,20 @@ export default function App() {
           <RevisoesView registros={registros} revStatus={revStatus} onMark={marcarRevisao} onBack={() => setView("es-painel")} />
         )}
         {view === "es-estatisticas" && (
-          <EstatisticasView registros={registros} onBack={() => setView("es-painel")} />
+          <EstatSimView
+            registros={registros}
+            feitos={simFeitos}
+            sugestoes={simSug}
+            onNovo={(nome) => setSimModal(nome ? { nome } : {})}
+            onEditFeito={(s) => setSimModal(s)}
+            onDeleteFeito={removeSimFeito}
+            onUpdateMats={updateSimMats}
+            onRegistrarSug={(nome) => setSimModal({ nome })}
+            onReorder={saveSimSug}
+            onAddSug={addSimSug}
+            onDeleteSug={removeSimSug}
+            onBack={() => setView("es-painel")}
+          />
         )}
         {view === "es-historico" && (
           <RegHistorico registros={registros} onBack={() => setView("es-painel")} onDelete={removeRegistro} onEdit={abrirRegistro} />
@@ -5439,22 +5471,6 @@ export default function App() {
 
         {view === "caixa" && (
           <CaixaView onBack={() => setView("es-painel")} onArquivarEdital={arquivarNoEdital} />
-        )}
-
-        {view === "es-simulados" && (
-          <SimuladosView
-            feitos={simFeitos}
-            sugestoes={simSug}
-            onNovo={(nome) => setSimModal(nome ? { nome } : {})}
-            onEditFeito={(s) => setSimModal(s)}
-            onDeleteFeito={removeSimFeito}
-            onUpdateMats={updateSimMats}
-            onRegistrarSug={(nome) => setSimModal({ nome })}
-            onReorder={saveSimSug}
-            onAddSug={addSimSug}
-            onDeleteSug={removeSimSug}
-            onBack={() => setView("es-painel")}
-          />
         )}
 
         {view === "main" && (<>
