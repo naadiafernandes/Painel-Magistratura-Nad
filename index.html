@@ -1031,6 +1031,31 @@ const REG_FONTES = [
 ];
 const regFonte = (id) => REG_FONTES.find((f) => f.id === id) || { id, label: id, color: "#9995a4" };
 const fmtTempo = (min) => { min = Math.max(0, Math.round(min || 0)); const h = Math.floor(min / 60), m = min % 60; return h ? `${h}h${m ? String(m).padStart(2, "0") : "00"}` : `${m}min`; };
+// ===== Cronômetro do ESTUDEI (livre + pomodoro) =====
+const CRONO_KEY = "tjsc-crono:v1";
+const CRONO_DEFAULT = {
+  mode: "livre",          // "livre" (conta pra cima) | "pomo" (blocos de foco/pausa)
+  running: false,
+  startedAt: null,        // Date.now() do play atual
+  phaseAccMs: 0,          // ms acumulados da fase atual antes do play atual
+  studiedMs: 0,           // estudo (foco) já creditado de blocos anteriores — só pomodoro
+  fonte: "teoria", materia: "", topico: "",
+  fase: "foco",           // "foco" | "pausa" (pomodoro); no livre é sempre foco
+  ciclos: 0,              // blocos de foco concluídos na sessão
+  focoMin: 25, pausaMin: 5,
+};
+// ms decorridos da fase atual (com o play em curso, se estiver rodando)
+const cronoPhaseMs = (c, now) => c.phaseAccMs + (c.running && c.startedAt ? Math.max(0, now - c.startedAt) : 0);
+// ms de estudo (foco) da sessão inteira — é o que vira tempo no registro
+const cronoStudiedMs = (c, now) => c.mode === "livre" ? cronoPhaseMs(c, now) : c.studiedMs + (c.fase === "foco" ? cronoPhaseMs(c, now) : 0);
+const cronoAlvoMs = (c) => (c.mode === "pomo" ? (c.fase === "foco" ? c.focoMin : c.pausaMin) * 60000 : 0);
+const fmtClock = (ms) => {
+  const t = Math.max(0, Math.round(ms / 1000));
+  const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60;
+  const p = (n) => String(n).padStart(2, "0");
+  return h ? `${h}:${p(m)}:${p(s)}` : `${p(m)}:${p(s)}`;
+};
+function cronoBip(){ try{ const A = window.AudioContext || window.webkitAudioContext; if(!A) return; const ctx = new A(); const o = ctx.createOscillator(), g = ctx.createGain(); o.connect(g); g.connect(ctx.destination); o.type = "sine"; o.frequency.value = 660; g.gain.setValueAtTime(.0001, ctx.currentTime); g.gain.exponentialRampToValueAtTime(.25, ctx.currentTime + .02); g.gain.exponentialRampToValueAtTime(.0001, ctx.currentTime + .5); o.start(); o.stop(ctx.currentTime + .52); }catch{} try{ navigator.vibrate && navigator.vibrate(180); }catch{} }
 const SIM_MANUAIS_KEY = "tjsc-simulados-manuais:list";
 const SIM_HIDDEN_KEY = "tjsc-simulados-ocultas:list";
 const SIM_FEITOS_KEY = "tjsc-simulados-feitos:v1";     // simulados que ela registrou (nota)
@@ -1204,6 +1229,7 @@ const NAV_ICON_PATHS = {
   pie: <><circle cx="12" cy="12" r="9" /><path d="M12 12V3" /><path d="M12 12l7.8 4.5" /></>,
   refresh: <><path d="M20 12a8 8 0 1 1-2.3-5.6" /><path d="M20 4v4h-4" /></>,
   clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3.5 2" /></>,
+  timer: <><circle cx="12" cy="13" r="8" /><path d="M12 13V9" /><path d="M9 2h6" /><path d="M12 2v3" /><path d="M18 6l1.5-1.5" /></>,
   chart: <><path d="M5 21V10" /><path d="M12 21V4" /><path d="M19 21v-7" /></>,
   inbox: <><path d="M4 13l2.5-8h11L20 13" /><path d="M4 13v6h16v-6" /><path d="M4 13h5l1 2h4l1-2h5" /></>,
 };
@@ -1221,6 +1247,7 @@ const NAV_GROUPS = [
     { key: "es-materias", icon: "layers", label: "Matérias", kind: "view", view: "es-materias" },
     { key: "es-editais", icon: "file", label: "Editais Verticalizados", kind: "view", view: "editais" },
     { key: "es-ciclos", icon: "pie", label: "Ciclos", kind: "view", view: "es-ciclos" },
+    { key: "es-crono", icon: "timer", label: "Cronômetro", kind: "view", view: "es-crono" },
     { key: "es-historico", icon: "clock", label: "Histórico", kind: "view", view: "es-historico" },
     { key: "es-estatisticas", icon: "chart", label: "Estatísticas e Simulados", kind: "view", view: "es-estatisticas" },
     { key: "caixa", icon: "inbox", label: "Caixa de entrada", kind: "view", view: "caixa" },
@@ -2073,6 +2100,106 @@ const ES_PAGES = {
     { t: "Novo simulado" },
   ] },
 };
+
+// ===== ESTUDEI: Cronômetro (livre + pomodoro) =====
+function CronometroView({ crono, now, onPlay, onPause, onReset, onMode, onField, onPomoCfg, onSalvar, onBack }) {
+  const c = crono;
+  const materias = [...new Set(SECTIONS.flatMap((s) => s.subjects.map((x) => x.name)))].sort();
+  const phaseMs = cronoPhaseMs(c, now);
+  const estudoMs = cronoStudiedMs(c, now);
+  const estudoMin = Math.round(estudoMs / 60000);
+  const isPomo = c.mode === "pomo";
+  const alvo = cronoAlvoMs(c);
+  const restante = isPomo ? Math.max(0, alvo - phaseMs) : 0;
+  const display = isPomo ? fmtClock(restante) : fmtClock(phaseMs);
+  // anel: pomodoro mostra fração restante; livre fica cheio e sereno
+  const frac = isPomo ? (alvo ? Math.max(0, Math.min(1, restante / alvo)) : 0) : 1;
+  const R = 130, C = 2 * Math.PI * R;
+  const faseColor = isPomo && c.fase === "pausa" ? "#5fbf87" : "var(--gold)";
+  const podeSalvar = estudoMin >= 1 && c.materia.trim();
+
+  return (
+    <section className="editais-page es-page cron-page">
+      <button className="edital-back" onClick={onBack}>← Voltar ao painel</button>
+      <p className="eyebrow">ESTUDEI</p>
+      <h1 className="serif" style={{ marginBottom: 10 }}>Cronômetro</h1>
+      <p className="es-sub">Escolha a matéria, dê o play e estude. Quando parar, o tempo já vai pro seu registro.</p>
+
+      <div className="cron-modes">
+        {[["livre", "Cronômetro"], ["pomo", "Pomodoro"]].map(([k, l]) => (
+          <button key={k} className={`cron-mode${c.mode === k ? " on" : ""}`}
+            onClick={() => onMode(k)} disabled={c.running}>{l}</button>
+        ))}
+      </div>
+
+      <div className="cron-dial-wrap">
+        <div className={`cron-dial${c.running ? " live" : ""}`}>
+          <svg viewBox="0 0 300 300" className="cron-ring">
+            <circle cx="150" cy="150" r={R} className="cron-ring-bg" />
+            <circle cx="150" cy="150" r={R} className="cron-ring-fg"
+              stroke={faseColor}
+              strokeDasharray={C} strokeDashoffset={C * (1 - frac)}
+              transform="rotate(-90 150 150)" />
+          </svg>
+          <div className="cron-face">
+            {isPomo && <div className="cron-fase" style={{ color: faseColor }}>{c.fase === "foco" ? "Foco" : "Pausa"}</div>}
+            <div className="cron-time">{display}</div>
+            {isPomo
+              ? <div className="cron-sub">{c.ciclos} {c.ciclos === 1 ? "bloco" : "blocos"} · estudo {fmtTempo(estudoMin)}</div>
+              : <div className="cron-sub">tempo de estudo</div>}
+          </div>
+        </div>
+      </div>
+
+      <div className="cron-controls">
+        {c.running
+          ? <button className="cron-btn cron-pause" onClick={onPause}>❚❚ Pausar</button>
+          : <button className="cron-btn cron-play" onClick={onPlay}>▶ {phaseMs > 0 || c.ciclos > 0 ? "Retomar" : "Iniciar"}</button>}
+        <button className="cron-btn cron-zero" onClick={onReset} disabled={c.running || (phaseMs === 0 && estudoMin === 0 && c.ciclos === 0)}>Zerar</button>
+      </div>
+
+      {isPomo && (
+        <div className="cron-cfg">
+          <label>Foco
+            <input type="number" min="1" max="120" value={c.focoMin} disabled={c.running}
+              onChange={(e) => onPomoCfg({ focoMin: Math.max(1, parseInt(e.target.value || 1, 10)) })} /> min
+          </label>
+          <label>Pausa
+            <input type="number" min="1" max="60" value={c.pausaMin} disabled={c.running}
+              onChange={(e) => onPomoCfg({ pausaMin: Math.max(1, parseInt(e.target.value || 1, 10)) })} /> min
+          </label>
+        </div>
+      )}
+
+      <div className="cron-form">
+        <label className="reg-lbl">Fonte</label>
+        <div className="reg-fontes">
+          {REG_FONTES.map((f) => (
+            <button key={f.id} className={`reg-chip${c.fonte === f.id ? " on" : ""}`} onClick={() => onField("fonte", f.id)}
+              style={c.fonte === f.id ? { color: f.color, borderColor: f.color, background: `color-mix(in srgb, ${f.color} 16%, transparent)` } : undefined}>{f.label}</button>
+          ))}
+        </div>
+        <div className="reg-2col" style={{ marginTop: 12 }}>
+          <div>
+            <label className="reg-lbl">Matéria</label>
+            <input className="reg-in" list="cron-materias" value={c.materia} onChange={(e) => onField("materia", e.target.value)} placeholder="ex.: Direito Administrativo" />
+            <datalist id="cron-materias">{materias.map((m) => <option key={m} value={m} />)}</datalist>
+          </div>
+          <div>
+            <label className="reg-lbl">Tópico <span className="reg-opt">(opcional)</span></label>
+            <input className="reg-in" value={c.topico} onChange={(e) => onField("topico", e.target.value)} placeholder="ex.: Súmulas do STJ" />
+          </div>
+        </div>
+      </div>
+
+      <button className="cron-save" onClick={onSalvar} disabled={!podeSalvar}>
+        Salvar no meu estudo {estudoMin >= 1 && <b>· {fmtTempo(estudoMin)}</b>}
+      </button>
+      {!podeSalvar && estudoMin >= 1 && <p className="cron-warn">Escolha a matéria pra poder salvar.</p>}
+      {estudoMin < 1 && <p className="cron-hint-sm">Estude pelo menos 1 minuto pra salvar.</p>}
+    </section>
+  );
+}
 
 // ===== ESTUDEI: Registrar estudo (janelinha) =====
 function RegistroModal({ inicial, onClose, onSave }) {
@@ -3184,6 +3311,8 @@ function App() {
   const [regOpen, setRegOpen] = useState(false);
   const [regEditing, setRegEditing] = useState(null);
   const [regToast, setRegToast] = useState(false);
+  const [crono, setCrono] = useState(CRONO_DEFAULT);
+  const [cronoNow, setCronoNow] = useState(0);
   useEffect(() => { setMatAberta(null); }, [view]);
   const [prioInput, setPrioInput] = useState("");
   const [simManuais, setSimManuais] = useState([]);
@@ -3384,6 +3513,8 @@ function App() {
       try { const r = await window.storage.get(DIARIO_KEY); diaEntries = r ? JSON.parse(r.value) : []; } catch { diaEntries = []; }
       let diaTags = null;
       try { const r = await window.storage.get(DIARIO_TAGS_KEY); diaTags = r ? JSON.parse(r.value) : null; } catch { diaTags = null; }
+      let cron = null;
+      try { const r = await window.storage.get(CRONO_KEY); cron = r ? JSON.parse(r.value) : null; } catch { cron = null; }
       // migra as anotações do diário para o histórico (1x por anotação; não duplica se rodar de novo)
       const jaMigrados = new Set(regs.filter((r) => r.origem === "diario").map((r) => r.dref));
       const novosDoDiario = diaEntries.filter((e) => e && !jaMigrados.has(e.id)).map(diarioParaRegistro);
@@ -3408,6 +3539,7 @@ function App() {
       setSimSug(sug);
       setDiario(diaEntries);
       if (diaTags && diaTags.fonte) setDiarioTags({ fonte: diaTags.fonte, materia: diaTags.materia || [] });
+      if (cron && typeof cron === "object") setCrono({ ...CRONO_DEFAULT, ...cron, running: false, startedAt: null });
       setLoaded(true);
     })();
   }, []);
@@ -3445,6 +3577,8 @@ function App() {
     saveRegistros(existe ? registros.map((x) => (x.id === r.id ? r : x)) : [r, ...registros]);
     setRegOpen(false); setRegEditing(null);
     setRegToast(true); setTimeout(() => setRegToast(false), 2200);
+    // veio do cronômetro? zera o relógio agora que o estudo foi salvo
+    if (cronoSavingRef.current) { cronoSavingRef.current = false; cronoZerar(); }
     // Ciclos: "concluí este tópico" tira o tópico do topo da fila + tica no edital verticalizado
     if (r.concluido && r.fonte) {
       const it = cicloMatchItem(r.fonte, r.topico);
@@ -3458,7 +3592,56 @@ function App() {
   };
   const removeRegistro = (id) => saveRegistros(registros.filter((r) => r.id !== id));
   const abrirRegistro = (r) => { setRegEditing(r || null); setRegOpen(true); };
-  const fecharRegistro = () => { setRegOpen(false); setRegEditing(null); };
+  const fecharRegistro = () => { setRegOpen(false); setRegEditing(null); cronoSavingRef.current = false; };
+
+  // ---------- Cronômetro (livre + pomodoro) ----------
+  const cronoRef = useRef(crono);
+  useEffect(() => { cronoRef.current = crono; }, [crono]);
+  const cronoSavingRef = useRef(false);
+  const saveCrono = (updater) => setCrono((prev) => {
+    const next = typeof updater === "function" ? updater(prev) : updater;
+    try { window.storage.set(CRONO_KEY, JSON.stringify(next)); } catch {}
+    return next;
+  });
+  const cronoPlay = () => saveCrono((c) => ({ ...c, running: true, startedAt: Date.now() }));
+  const cronoPause = () => saveCrono((c) => {
+    const add = c.running && c.startedAt ? Math.max(0, Date.now() - c.startedAt) : 0;
+    return { ...c, running: false, startedAt: null, phaseAccMs: c.phaseAccMs + add };
+  });
+  const cronoZerar = () => saveCrono((c) => ({ ...CRONO_DEFAULT, mode: c.mode, fonte: c.fonte, materia: c.materia, topico: c.topico, focoMin: c.focoMin, pausaMin: c.pausaMin }));
+  const cronoMode = (m) => saveCrono((c) => ({ ...c, mode: m, running: false, startedAt: null, phaseAccMs: 0, studiedMs: 0, ciclos: 0, fase: "foco" }));
+  const cronoField = (k, v) => saveCrono((c) => ({ ...c, [k]: v }));
+  const cronoPomoCfg = (patch) => saveCrono((c) => ({ ...c, ...patch }));
+  const cronoSalvar = () => {
+    const c = cronoRef.current, now = Date.now();
+    const estudoMin = Math.round(cronoStudiedMs(c, now) / 60000);
+    if (estudoMin < 1 || !c.materia.trim()) return;
+    if (c.running) cronoPause();                 // congela o relógio
+    cronoSavingRef.current = true;               // ao salvar o registro, zera o cronômetro
+    abrirRegistro({ fonte: c.fonte, materia: c.materia, topico: c.topico, tempo: estudoMin });
+  };
+  // o relógio: atualiza a cada segundo e vira as fases do pomodoro sozinho
+  useEffect(() => {
+    if (!crono.running) return;
+    setCronoNow(Date.now());
+    const id = setInterval(() => {
+      const now = Date.now();
+      setCronoNow(now);
+      const c = cronoRef.current;
+      if (!c.running || c.mode !== "pomo") return;
+      if (cronoPhaseMs(c, now) >= cronoAlvoMs(c)) {
+        cronoBip();
+        saveCrono((cc) => {
+          const a = cronoAlvoMs(cc);
+          const carry = Math.max(0, cronoPhaseMs(cc, now) - a);
+          return cc.fase === "foco"
+            ? { ...cc, studiedMs: cc.studiedMs + a, ciclos: cc.ciclos + 1, fase: "pausa", phaseAccMs: carry, startedAt: now }
+            : { ...cc, fase: "foco", phaseAccMs: carry, startedAt: now };
+        });
+      }
+    }, 1000);
+    return () => clearInterval(id);
+  }, [crono.running]);
 
   // ---------- Simulados (ESTUDEI) ----------
   const saveSimFeitos = (arr) => { setSimFeitos(arr); try { window.storage.set(SIM_FEITOS_KEY, JSON.stringify(arr)); } catch {} };
@@ -4763,6 +4946,44 @@ function App() {
         .reg-fab-ic { font-size: 18px; line-height: 1; margin-top: -1px; }
         @media (max-width: 640px){ .reg-fab-tx { display: none; } .reg-fab { padding: 15px; } .reg-fab-ic { margin: 0; } }
 
+        /* ===== Cronômetro ===== */
+        .cron-page { max-width: 560px; }
+        .cron-modes { display: inline-flex; gap: 6px; background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 999px; padding: 4px; margin: 4px 0 8px; }
+        .cron-mode { border: none; background: transparent; color: var(--muted); font: inherit; font-size: 13.5px; font-weight: 700; padding: 8px 18px; border-radius: 999px; cursor: pointer; }
+        .cron-mode.on { background: var(--surface); color: var(--text); box-shadow: 0 1px 4px rgba(0,0,0,.18); }
+        .cron-mode:disabled { cursor: default; opacity: .55; }
+        .cron-dial-wrap { display: flex; justify-content: center; margin: 18px 0 6px; }
+        .cron-dial { position: relative; width: 300px; max-width: 78vw; aspect-ratio: 1; }
+        .cron-ring { width: 100%; height: 100%; }
+        .cron-ring-bg { fill: none; stroke: var(--line-2); stroke-width: 14; }
+        .cron-ring-fg { fill: none; stroke-width: 14; stroke-linecap: round; transition: stroke-dashoffset .95s linear, stroke .3s; }
+        .cron-dial.live .cron-ring-fg { animation: cronPulse 2.4s ease-in-out infinite; }
+        @keyframes cronPulse { 0%,100% { opacity: 1; } 50% { opacity: .6; } }
+        .cron-face { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
+        .cron-fase { font-size: 12px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; }
+        .cron-time { font-size: 52px; font-weight: 800; letter-spacing: -1px; color: var(--text); font-variant-numeric: tabular-nums; line-height: 1; }
+        .cron-sub { font-size: 12px; color: var(--faint); }
+        .cron-controls { display: flex; justify-content: center; gap: 10px; margin: 10px 0 4px; }
+        .cron-btn { border: 1px solid var(--line-2); background: var(--surface); color: var(--text); font: inherit; font-size: 15px; font-weight: 700; padding: 12px 26px; border-radius: 999px; cursor: pointer; }
+        .cron-btn:hover:not(:disabled) { border-color: var(--gold); }
+        .cron-btn:disabled { opacity: .45; cursor: default; }
+        .cron-play { background: var(--gold); color: var(--on-accent); border-color: var(--gold); }
+        .cron-pause { background: var(--surface-2); }
+        .cron-cfg { display: flex; justify-content: center; gap: 18px; margin: 8px 0 4px; }
+        .cron-cfg label { font-size: 12.5px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+        .cron-cfg input { width: 56px; padding: 6px 8px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; text-align: center; }
+        .cron-form { margin: 16px 0 6px; }
+        .cron-save { width: 100%; margin-top: 14px; background: var(--gold); color: var(--on-accent); border: none; border-radius: 12px; padding: 14px; font: inherit; font-size: 15px; font-weight: 800; cursor: pointer; }
+        .cron-save:disabled { opacity: .5; cursor: default; }
+        .cron-save b { font-weight: 800; }
+        .cron-warn, .cron-hint-sm { text-align: center; font-size: 12px; color: var(--faint); margin: 8px 0 0; }
+        .cron-pill { position: fixed; right: 20px; bottom: 78px; z-index: 400; display: inline-flex; align-items: center; gap: 8px;
+          background: var(--surface); color: var(--text); border: 1px solid var(--line-2); border-radius: 999px; padding: 10px 16px; cursor: pointer;
+          font: inherit; font-size: 14px; font-weight: 800; box-shadow: 0 8px 24px rgba(0,0,0,.28); font-variant-numeric: tabular-nums; }
+        .cron-pill-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--gold); animation: cronPulse 1.4s ease-in-out infinite; }
+        .cron-pill-dot.pausa { background: #5fbf87; }
+        @media (max-width: 640px){ .cron-pill { bottom: 74px; } }
+
         .reg-overlay { position: fixed; inset: 0; z-index: 600; background: rgba(0,0,0,.5); backdrop-filter: blur(2px);
           display: flex; align-items: flex-start; justify-content: center; padding: 40px 16px; overflow-y: auto; }
         .reg-modal { width: 560px; max-width: 100%; background: var(--surface); border: 1px solid var(--line-2); border-radius: 18px;
@@ -5060,6 +5281,14 @@ function App() {
       <button className="reg-fab" onClick={() => abrirRegistro(null)} title="Registrar estudo">
         <span className="reg-fab-ic">＋</span><span className="reg-fab-tx">Registrar estudo</span>
       </button>
+      {crono.running && view !== "es-crono" && (
+        <button className="cron-pill" onClick={() => { setView("es-crono"); window.scrollTo(0, 0); }} title="Cronômetro rodando">
+          <span className={`cron-pill-dot${crono.mode === "pomo" && crono.fase === "pausa" ? " pausa" : ""}`} />
+          <span className="cron-pill-tx">{crono.mode === "pomo"
+            ? fmtClock(Math.max(0, cronoAlvoMs(crono) - cronoPhaseMs(crono, cronoNow)))
+            : fmtClock(cronoPhaseMs(crono, cronoNow))}</span>
+        </button>
+      )}
       {regOpen && <RegistroModal inicial={regEditing} onClose={fecharRegistro} onSave={upsertRegistro} />}
       {simModal && <SimNovoModal inicial={simModal} onClose={() => setSimModal(null)} onSave={upsertSimFeito} />}
       {regToast && <div className="reg-toast">Estudo registrado ✓</div>}
@@ -5553,6 +5782,10 @@ function App() {
             onDeleteSug={removeSimSug}
             onBack={() => setView("es-painel")}
           />
+        )}
+        {view === "es-crono" && (
+          <CronometroView crono={crono} now={cronoNow} onPlay={cronoPlay} onPause={cronoPause} onReset={cronoZerar}
+            onMode={cronoMode} onField={cronoField} onPomoCfg={cronoPomoCfg} onSalvar={cronoSalvar} onBack={() => setView("es-painel")} />
         )}
         {view === "es-historico" && (
           <RegHistorico registros={registros} onBack={() => setView("es-painel")} onDelete={removeRegistro} onEdit={abrirRegistro} />
