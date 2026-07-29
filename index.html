@@ -2230,7 +2230,8 @@ const FONTE_ED_FIELD = { teoria: "t", leiseca: "l", questoes: "q", juris: "j", a
 // nome cheio da matéria a partir do código m (cai no rótulo curto quando não é matéria da grade)
 const cicloMatNome = (m, lab) => (SUBJ_BY_ID[m] && SUBJ_BY_ID[m].name) || lab || m;
 // busca o tópico direto no Buscador Dizer o Direito (ela precisa estar logada)
-const buscadorDoD = (termo) => "https://buscadordizerodireito.com.br/jurisprudencia?palavra-chave=" + encodeURIComponent(termo || "");
+// sempre busca exata (entre aspas); o filtro "julgados vinculados a informativos" já é o padrão do buscador
+const buscadorDoD = (termo) => "https://buscadordizerodireito.com.br/jurisprudencia?palavra-chave=" + encodeURIComponent('"' + (termo || "") + '"');
 // matérias de um ciclo, na ordem de incidência (derivadas da "geralzona" de questões)
 function cicloMatsDoCiclo(ciclo) {
   const q = CICLOS.questoes || [];
