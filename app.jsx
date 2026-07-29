@@ -2040,8 +2040,8 @@ function CronometroView({ crono, now, onPlay, onPause, onReset, onMode, onField,
       )}
 
       <div className="cron-form">
-        <label className="reg-lbl">Fonte</label>
-        <div className="reg-fontes">
+        <label className="reg-lbl cron-fonte-lbl">Fonte</label>
+        <div className="reg-fontes cron-fontes">
           {REG_FONTES.map((f) => (
             <button key={f.id} className={`reg-chip${c.fonte === f.id ? " on" : ""}`} onClick={() => onField("fonte", f.id)}
               style={c.fonte === f.id ? { color: f.color, borderColor: f.color, background: `color-mix(in srgb, ${f.color} 16%, transparent)` } : undefined}>{f.label}</button>
@@ -4933,33 +4933,41 @@ export default function App() {
         @media (max-width: 640px){ .reg-fab-tx, .cron-fab-tx { display: none; } .reg-fab { padding: 15px; } .reg-fab-ic { margin: 0; } .cron-fab { padding: 13px; } }
 
         /* ===== Cronômetro ===== */
-        .cron-page { max-width: 560px; }
-        .cron-modes { display: inline-flex; gap: 6px; background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 999px; padding: 4px; margin: 4px 0 8px; }
-        .cron-mode { border: none; background: transparent; color: var(--muted); font: inherit; font-size: 13.5px; font-weight: 700; padding: 8px 18px; border-radius: 999px; cursor: pointer; }
+        .cron-page { max-width: 680px; margin: 0 auto; }
+        .cron-page .eyebrow, .cron-page > h1 { text-align: center; }
+        .cron-page .es-sub { text-align: center; max-width: 440px; margin-left: auto; margin-right: auto; }
+        .cron-modes { display: flex; width: max-content; gap: 6px; background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 999px; padding: 4px; margin: 8px auto 4px; }
+        .cron-mode { border: none; background: transparent; color: var(--muted); font: inherit; font-size: 13.5px; font-weight: 700; padding: 8px 20px; border-radius: 999px; cursor: pointer; }
         .cron-mode.on { background: var(--surface); color: var(--text); box-shadow: 0 1px 4px rgba(0,0,0,.18); }
         .cron-mode:disabled { cursor: default; opacity: .55; }
-        .cron-dial-wrap { display: flex; justify-content: center; margin: 18px 0 6px; }
-        .cron-dial { position: relative; width: 300px; max-width: 78vw; aspect-ratio: 1; }
+        .cron-dial-wrap { display: flex; justify-content: center; margin: 26px 0 10px; }
+        .cron-dial { position: relative; width: 380px; max-width: 84vw; aspect-ratio: 1; }
         .cron-ring { width: 100%; height: 100%; }
-        .cron-ring-bg { fill: none; stroke: var(--line-2); stroke-width: 14; }
-        .cron-ring-fg { fill: none; stroke-width: 14; stroke-linecap: round; transition: stroke-dashoffset .95s linear, stroke .3s; }
+        .cron-ring-bg { fill: none; stroke: var(--line-2); stroke-width: 13; }
+        .cron-ring-fg { fill: none; stroke-width: 13; stroke-linecap: round; transition: stroke-dashoffset .95s linear, stroke .3s; }
         .cron-dial.live .cron-ring-fg { animation: cronPulse 2.4s ease-in-out infinite; }
         @keyframes cronPulse { 0%,100% { opacity: 1; } 50% { opacity: .6; } }
-        .cron-face { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
-        .cron-fase { font-size: 12px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; }
-        .cron-time { font-size: 52px; font-weight: 800; letter-spacing: -1px; color: var(--text); font-variant-numeric: tabular-nums; line-height: 1; }
-        .cron-sub { font-size: 12px; color: var(--faint); }
-        .cron-controls { display: flex; justify-content: center; gap: 10px; margin: 10px 0 4px; }
-        .cron-btn { border: 1px solid var(--line-2); background: var(--surface); color: var(--text); font: inherit; font-size: 15px; font-weight: 700; padding: 12px 26px; border-radius: 999px; cursor: pointer; }
+        .cron-face { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
+        .cron-fase { font-size: 13px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; }
+        .cron-time { font-size: 68px; font-weight: 800; letter-spacing: -1.5px; color: var(--text); font-variant-numeric: tabular-nums; line-height: 1; }
+        .cron-sub { font-size: 12.5px; color: var(--faint); }
+        .cron-controls { display: flex; justify-content: center; gap: 10px; margin: 14px 0 4px; }
+        .cron-btn { border: 1px solid var(--line-2); background: var(--surface); color: var(--text); font: inherit; font-size: 15px; font-weight: 700; padding: 13px 30px; border-radius: 999px; cursor: pointer; }
         .cron-btn:hover:not(:disabled) { border-color: var(--gold); }
         .cron-btn:disabled { opacity: .45; cursor: default; }
         .cron-play { background: var(--gold); color: var(--on-accent); border-color: var(--gold); }
         .cron-pause { background: var(--surface-2); }
-        .cron-cfg { display: flex; justify-content: center; gap: 18px; margin: 8px 0 4px; }
+        .cron-cfg { display: flex; justify-content: center; gap: 18px; margin: 10px 0 4px; }
         .cron-cfg label { font-size: 12.5px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
         .cron-cfg input { width: 56px; padding: 6px 8px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; text-align: center; }
-        .cron-form { margin: 16px 0 6px; }
-        .cron-save { width: 100%; margin-top: 14px; background: var(--gold); color: var(--on-accent); border: none; border-radius: 12px; padding: 14px; font: inherit; font-size: 15px; font-weight: 800; cursor: pointer; }
+        .cron-form { margin: 22px auto 6px; }
+        .cron-form .reg-2col { max-width: 560px; margin: 12px auto 0; }
+        .cron-fonte-lbl { text-align: center; }
+        .cron-fontes { flex-wrap: nowrap; justify-content: center; gap: 7px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+        .cron-fontes::-webkit-scrollbar { display: none; }
+        .cron-fontes .reg-chip { flex: 0 0 auto; white-space: nowrap; padding: 8px 13px; font-size: 12.5px; }
+        .cron-save { max-width: 560px; margin-left: auto; margin-right: auto; }
+        .cron-save { width: 100%; margin-top: 16px; background: var(--gold); color: var(--on-accent); border: none; border-radius: 12px; padding: 14px; font: inherit; font-size: 15px; font-weight: 800; cursor: pointer; }
         .cron-save:disabled { opacity: .5; cursor: default; }
         .cron-save b { font-weight: 800; }
         .cron-warn, .cron-hint-sm { text-align: center; font-size: 12px; color: var(--faint); margin: 8px 0 0; }
