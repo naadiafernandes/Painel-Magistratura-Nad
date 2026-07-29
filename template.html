@@ -38,6 +38,29 @@
   #toolbar .cor-sw:hover{transform:scale(1.12);}
   #toolbar .cor-sw.on{border-color:#fafafa;}
   html[data-theme="light"] #toolbar .cor-sw.on{border-color:#18181b;}
+  /* sininho de avisos (informativos) */
+  #bellWrap{position:relative;display:inline-flex;}
+  #btnBell{position:relative;}
+  #bellDot{display:none;position:absolute;top:5px;right:5px;width:8px;height:8px;border-radius:50%;
+    background:#ef4444;border:1.5px solid #161619;}
+  html[data-theme="light"] #bellDot{border-color:#fff;}
+  #bellPanel{display:none;position:absolute;top:40px;right:0;z-index:600;width:290px;
+    background:#1c1c20;border:1px solid #3f3f46;border-radius:14px;padding:14px;
+    box-shadow:0 12px 30px rgba(0,0,0,.4);color:#fafafa;cursor:default;}
+  html[data-theme="light"] #bellPanel{background:#fff;border-color:#e4e4e7;color:#18181b;box-shadow:0 12px 30px rgba(0,0,0,.14);}
+  #bellPanel .bell-head{font-size:12px;font-weight:800;letter-spacing:.2px;margin-bottom:8px;color:#facc15;}
+  html[data-theme="light"] #bellPanel .bell-head{color:#ca8a04;}
+  #bellPanel .bell-title{font-size:13.5px;font-weight:600;line-height:1.4;margin-bottom:11px;}
+  #bellPanel .bell-actions{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:9px;}
+  #bellPanel .bell-go,#bellPanel .bell-open{font:inherit;font-size:12px;font-weight:700;text-decoration:none;
+    padding:7px 11px;border-radius:9px;cursor:pointer;border:1px solid #3f3f46;}
+  #bellPanel .bell-go{background:#E85D9A;color:#fff;border-color:#E85D9A;}
+  #bellPanel .bell-open{background:#27272a;color:#fafafa;}
+  html[data-theme="light"] #bellPanel .bell-open{background:#f4f4f5;color:#18181b;border-color:#d4d4d8;}
+  #bellPanel .bell-mark{font:inherit;font-size:11.5px;font-weight:600;background:none;border:none;cursor:pointer;
+    color:#a1a1aa;padding:4px 0 0;}
+  #bellPanel .bell-mark:hover{color:#facc15;}
+  #bellPanel .bell-empty{font-size:13px;color:#a1a1aa;}
   /* o logo mora no menu lateral no desktop; na barra só aparece em telas estreitas */
   @media (min-width:1025px){ #toolbar .brand{display:none;} }
   /* ---- tema claro ---- */
@@ -84,6 +107,10 @@
   </span>
   <button id="btnLight" class="theme-btn" title="Tema claro">&#9728;</button>
   <button id="btnDark" class="theme-btn" title="Tema escuro">&#9789;</button>
+  <span id="bellWrap">
+    <button id="btnBell" class="theme-btn" title="Avisos de informativos">&#128276;<span id="bellDot"></span></button>
+    <div id="bellPanel"></div>
+  </span>
   <button id="btnRestore" title="Restaurar uma versão anterior salva automaticamente">&#8635; Restaurar</button>
   <button id="btnExport" title="Baixar um backup .json com todo o seu progresso">Exportar backup</button>
   <button id="btnImport" title="Restaurar/mesclar um backup em outro aparelho ou navegador">Importar</button>
@@ -206,6 +233,43 @@ function setTheme(t){ document.documentElement.setAttribute('data-theme', t); lo
 document.getElementById('btnLight').onclick = function(){ setTheme('light'); };
 document.getElementById('btnDark').onclick = function(){ setTheme('dark'); };
 syncThemeBtns();
+
+// sininho: avisa quando entra aula nova de informativos
+(function(){
+  var btn = document.getElementById('btnBell');
+  var dot = document.getElementById('bellDot');
+  var panel = document.getElementById('bellPanel');
+  if (!btn || !panel) return;
+  function latest(){ try { return JSON.parse(localStorage.getItem('magisnad-info-latest') || 'null'); } catch(e){ return null; } }
+  function seen(){ return localStorage.getItem('magisnad-info-seen'); }
+  function refresh(){ var l = latest(); dot.style.display = (l && l.id && l.id !== seen()) ? 'block' : 'none'; }
+  function esc(s){ var d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
+  function hide(){ panel.style.display = 'none'; }
+  function render(){
+    var l = latest();
+    if (!l){ panel.innerHTML = '<div class="bell-empty">Sem aulas ainda.</div>'; return; }
+    var isNew = l.id !== seen();
+    panel.innerHTML =
+      '<div class="bell-head">' + (isNew ? '🔔 Aula nova de informativos' : 'Informativos — última aula') + '</div>' +
+      '<div class="bell-title">' + esc(l.label) + '</div>' +
+      '<div class="bell-actions">' +
+        '<a class="bell-go" target="_blank" rel="noopener noreferrer" href="' + esc(l.url) + '">▶ Assistir</a>' +
+        '<button class="bell-open" id="bellOpenJuris">Ver na Jurisprudência</button>' +
+      '</div>' +
+      '<button class="bell-mark" id="bellMark">Marcar como visto</button>';
+    document.getElementById('bellMark').onclick = function(){ localStorage.setItem('magisnad-info-seen', l.id); refresh(); hide(); };
+    document.getElementById('bellOpenJuris').onclick = function(){
+      localStorage.setItem('magisnad-info-seen', l.id);
+      localStorage.setItem('magisnad-goto', 'fonte-juris');
+      location.reload();
+    };
+  }
+  btn.onclick = function(e){ e.stopPropagation(); if (panel.style.display === 'block'){ hide(); } else { render(); panel.style.display = 'block'; } };
+  document.addEventListener('click', function(e){ if (panel.style.display === 'block' && !panel.contains(e.target) && e.target !== btn && !btn.contains(e.target)) hide(); });
+  window.addEventListener('magisnad-info-latest', refresh);
+  window.addEventListener('storage', refresh);
+  refresh();
+})();
 
 (function(){
   var sws = document.querySelectorAll('#corGroup .cor-sw');
