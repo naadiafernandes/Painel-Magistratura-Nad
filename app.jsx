@@ -2092,9 +2092,20 @@ function cicloMatchItem(fonte, topico) {
 const FONTE_ED_FIELD = { teoria: "t", leiseca: "l", questoes: "q", juris: "j", anki: "a" };
 // nome cheio da matéria a partir do código m (cai no rótulo curto quando não é matéria da grade)
 const cicloMatNome = (m, lab) => (SUBJ_BY_ID[m] && SUBJ_BY_ID[m].name) || lab || m;
-// busca o tópico direto no Buscador Dizer o Direito (ela precisa estar logada)
-// sempre busca exata (entre aspas); o filtro "julgados vinculados a informativos" já é o padrão do buscador
-const buscadorDoD = (termo) => "https://buscadordizerodireito.com.br/jurisprudencia?palavra-chave=" + encodeURIComponent('"' + (termo || "") + '"');
+// busca o tópico direto no Buscador Dizer o Direito (ela precisa estar logada).
+// Preferência: Categoria + Subcategoria certas (mapa em ciclos-dod.js). Se o tema não encaixa
+// numa subcategoria, cai na Categoria + palavra-chave entre aspas (busca exata). "Julgados
+// vinculados a informativos" já é o padrão do buscador.
+const CICLOS_DOD = (typeof window !== "undefined" && window.CICLOS_DOD) || { CAT_BY_M: {}, MAP: {} };
+const BUSCADOR_URL = "https://buscadordizerodireito.com.br/jurisprudencia?";
+const buscadorDoD = (item) => {
+  const nome = (item && item.nome) || "";
+  const rota = CICLOS_DOD.MAP[(item && item.m) + "|" + nome];
+  if (rota) return BUSCADOR_URL + "categoria=" + rota[0] + "&subcategoria=" + rota[1];
+  const cat = CICLOS_DOD.CAT_BY_M[item && item.m];
+  const q = "palavra-chave=" + encodeURIComponent('"' + nome + '"');
+  return cat ? BUSCADOR_URL + "categoria=" + cat + "&" + q : BUSCADOR_URL + q;
+};
 // matérias de um ciclo, na ordem de incidência (derivadas da "geralzona" de questões)
 function cicloMatsDoCiclo(ciclo) {
   const q = CICLOS.questoes || [];
@@ -2209,7 +2220,7 @@ function CiclosRoscas({ registros, onRegistrar }) {
                 {rosca.id === "questoes" && <div className="fila-topo-n">{d.topo.n} questões no TEC</div>}
                 <div className="fila-topo-acts">
                   <button className="fila-fin" onClick={() => finalizar(rosca.id, d.topo)}>Finalizei ✓</button>
-                  {rosca.id === "juris" && <a className="fila-dod" href={buscadorDoD(d.topo.nome)} target="_blank" rel="noopener noreferrer">🔎 Buscar no Dizer o Direito ↗</a>}
+                  {rosca.id === "juris" && <a className="fila-dod" href={buscadorDoD(d.topo)} target="_blank" rel="noopener noreferrer">🔎 Buscar no Dizer o Direito ↗</a>}
                   <button className="fila-so" onClick={() => soTempo(rosca.id, d.topo)}>só registrar tempo</button>
                 </div>
               </div>
@@ -2221,7 +2232,7 @@ function CiclosRoscas({ registros, onRegistrar }) {
                 <li key={cicloItemKey(it)} className="fila-row">
                   <span className="fila-tag">{cicloMatNome(it.m, it.lab)}</span>
                   {rosca.id === "juris"
-                    ? <a className="fila-nm fila-nm-link" href={buscadorDoD(it.nome)} target="_blank" rel="noopener noreferrer" title="Buscar no Dizer o Direito">{it.nome} <span className="fila-nm-ext">🔎</span></a>
+                    ? <a className="fila-nm fila-nm-link" href={buscadorDoD(it)} target="_blank" rel="noopener noreferrer" title="Buscar no Dizer o Direito">{it.nome} <span className="fila-nm-ext">🔎</span></a>
                     : <span className="fila-nm">{it.nome}</span>}
                   {rosca.id === "questoes" && <span className="fila-n">{it.n}q</span>}
                 </li>
