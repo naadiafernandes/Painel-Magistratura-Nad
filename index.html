@@ -2443,19 +2443,35 @@ function Constancia({ registros }) {
   const key = (offset) => new Date(today.getTime() - offset * 86400000).toDateString();
   let streak = 0;
   for (let i = dias.has(key(0)) ? 0 : 1; i < 500; i++) { if (dias.has(key(i))) streak++; else break; }
-  const fmtDia = (d) => d.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "short" });
+  const fmtDia = (d) => { const s = d.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" }); return s.charAt(0).toUpperCase() + s.slice(1); };
   const cells = [];
   for (let i = 27; i >= 0; i--) {
     const d = new Date(today.getTime() - i * 86400000);
     const on = dias.has(key(i));
-    const label = `${i === 0 ? "hoje, " : ""}${fmtDia(d)}${on ? " · estudou" : " · sem registro"}`;
-    cells.push({ i, on, hoje: i === 0, label });
+    cells.push({ i, on, hoje: i === 0, data: fmtDia(d) });
   }
+  const [tip, setTip] = useState(null);
+  const stripRef = useRef(null);
+  const showTip = (c, e) => {
+    const wrap = stripRef.current; if (!wrap) return;
+    const r = wrap.getBoundingClientRect();
+    const cr = e.currentTarget.getBoundingClientRect();
+    setTip({ x: cr.left - r.left + cr.width / 2, y: cr.top - r.top, data: (c.hoje ? "Hoje · " : "") + c.data, on: c.on });
+  };
   return (
     <div className="panel es-consta">
       <div className="consta-head"><span>Constância nos estudos</span><b>{streak} {streak === 1 ? "dia" : "dias"} seguidos</b></div>
-      <div className="consta-strip">
-        {cells.map((c) => <span key={c.i} title={c.label} className={`consta-day${c.on ? " on" : ""}${c.hoje ? " today" : ""}`} />)}
+      <div className="consta-strip" ref={stripRef} onMouseLeave={() => setTip(null)}>
+        {cells.map((c) => (
+          <span key={c.i} className={`consta-day${c.on ? " on" : ""}${c.hoje ? " today" : ""}`}
+            onMouseEnter={(e) => showTip(c, e)} onMouseMove={(e) => showTip(c, e)} />
+        ))}
+        {tip && (
+          <div className="sim-tip" style={{ left: tip.x, top: tip.y }}>
+            <b>{tip.data}</b>
+            <span>{tip.on ? "✓ estudou" : "sem registro"}</span>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -4887,8 +4903,8 @@ function App() {
         .consta-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px;
           font-size: 13px; font-weight: 600; color: var(--muted); }
         .consta-head b { color: var(--gold2); font-size: 14px; }
-        .consta-strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(20px, 1fr)); gap: 6px; }
-        .consta-day { aspect-ratio: 1; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--line-2); cursor: help; }
+        .consta-strip { position: relative; display: grid; grid-template-columns: repeat(auto-fill, minmax(20px, 1fr)); gap: 6px; }
+        .consta-day { aspect-ratio: 1; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--line-2); cursor: pointer; }
         .consta-day.on { background: var(--gold); border-color: transparent; }
         .consta-day.today { outline: 2px solid var(--gold); outline-offset: 2px; }
         .sechead-es { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin: 26px 4px 12px; }
