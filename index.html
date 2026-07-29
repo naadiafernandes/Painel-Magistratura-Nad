@@ -53,7 +53,12 @@
   #bellPanel .bell-head{font-size:12px;font-weight:800;letter-spacing:.2px;margin-bottom:8px;color:#facc15;}
   html[data-theme="light"] #bellPanel .bell-head{color:#ca8a04;}
   #bellPanel .bell-title{font-size:13.5px;font-weight:600;line-height:1.4;margin-bottom:11px;}
-  #bellPanel .bell-actions{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:9px;}
+  #bellPanel .bell-item{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid rgba(255,255,255,.09);}
+  #bellPanel .bell-item:first-of-type{border-top:none;}
+  html[data-theme="light"] #bellPanel .bell-item{border-top-color:#ececef;}
+  #bellPanel .bell-item-t{font-size:12.5px;font-weight:600;line-height:1.35;flex:1;}
+  #bellPanel .bell-item a{font-size:11px;font-weight:800;color:#E85D9A;text-decoration:none;white-space:nowrap;}
+  #bellPanel .bell-actions{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 9px;}
   #bellPanel .bell-go,#bellPanel .bell-open{font:inherit;font-size:12px;font-weight:700;text-decoration:none;
     padding:7px 11px;border-radius:9px;cursor:pointer;border:1px solid #3f3f46;}
   #bellPanel .bell-go{background:#E85D9A;color:#fff;border-color:#E85D9A;}
@@ -4376,12 +4381,15 @@ function App() {
     } catch {}
   };
 
-  // Avisa o sininho da barra qual é a aula mais nova de informativos.
+  // Alimenta o sininho da barra: lista das aulas recentes de informativos.
   useEffect(() => {
     try {
       const a = MEGE_AULAS[0];
       if (!a) return;
-      localStorage.setItem("magisnad-info-latest", JSON.stringify({ id: a.id, label: aulaTitulo(a), url: ytUrl(a.id) }));
+      const lista = MEGE_AULAS.slice(0, 10).map((x) => ({ id: x.id, label: aulaTitulo(x), url: ytUrl(x.id) }));
+      localStorage.setItem("magisnad-info-list", JSON.stringify(lista));
+      localStorage.setItem("magisnad-info-latest", JSON.stringify(lista[0])); // compatibilidade
+      // na primeiríssima vez, começa "em dia" (sem bolinha); depois só acende com aula nova
       if (localStorage.getItem("magisnad-info-seen") == null) localStorage.setItem("magisnad-info-seen", a.id);
       window.dispatchEvent(new Event("magisnad-info-latest"));
     } catch {}
@@ -6501,32 +6509,53 @@ document.getElementById('btnLight').onclick = function(){ setTheme('light'); };
 document.getElementById('btnDark').onclick = function(){ setTheme('dark'); };
 syncThemeBtns();
 
-// sininho: avisa quando entra aula nova de informativos
+// sininho: bolinha vermelha enquanto houver aula nova não lida; só some quando marcar tudo como lido
 (function(){
   var btn = document.getElementById('btnBell');
   var dot = document.getElementById('bellDot');
   var panel = document.getElementById('bellPanel');
   if (!btn || !panel) return;
-  function latest(){ try { return JSON.parse(localStorage.getItem('magisnad-info-latest') || 'null'); } catch(e){ return null; } }
+  function lista(){
+    try { var l = JSON.parse(localStorage.getItem('magisnad-info-list') || 'null'); if (l && l.length) return l; } catch(e){}
+    try { var one = JSON.parse(localStorage.getItem('magisnad-info-latest') || 'null'); return one ? [one] : []; } catch(e){ return []; }
+  }
   function seen(){ return localStorage.getItem('magisnad-info-seen'); }
-  function refresh(){ var l = latest(); dot.style.display = (l && l.id && l.id !== seen()) ? 'block' : 'none'; }
+  // não lidas = tudo que está ANTES da aula já marcada (a lista vem da mais nova pra mais antiga)
+  function naoLidas(){
+    var l = lista(), s = seen(), out = [];
+    for (var i = 0; i < l.length; i++){ if (l[i].id === s) break; out.push(l[i]); }
+    return out;
+  }
+  function refresh(){ dot.style.display = naoLidas().length > 0 ? 'block' : 'none'; }
   function esc(s){ var d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
   function hide(){ panel.style.display = 'none'; }
+  function marcarTudo(){ var l = lista(); if (l[0]) localStorage.setItem('magisnad-info-seen', l[0].id); refresh(); }
   function render(){
-    var l = latest();
-    if (!l){ panel.innerHTML = '<div class="bell-empty">Sem aulas ainda.</div>'; return; }
-    var isNew = l.id !== seen();
-    panel.innerHTML =
-      '<div class="bell-head">' + (isNew ? '🔔 Aula nova de informativos' : 'Informativos — última aula') + '</div>' +
-      '<div class="bell-title">' + esc(l.label) + '</div>' +
-      '<div class="bell-actions">' +
-        '<a class="bell-go" target="_blank" rel="noopener noreferrer" href="' + esc(l.url) + '">▶ Assistir</a>' +
-        '<button class="bell-open" id="bellOpenJuris">Ver na Jurisprudência</button>' +
-      '</div>' +
-      '<button class="bell-mark" id="bellMark">Marcar como visto</button>';
-    document.getElementById('bellMark').onclick = function(){ localStorage.setItem('magisnad-info-seen', l.id); refresh(); hide(); };
+    var l = lista(), u = naoLidas();
+    if (!l.length){ panel.innerHTML = '<div class="bell-empty">Sem aulas ainda.</div>'; return; }
+    if (u.length){
+      var itens = '';
+      for (var i = 0; i < u.length && i < 6; i++){
+        itens += '<div class="bell-item"><span class="bell-item-t">' + esc(u[i].label) + '</span>' +
+                 '<a href="' + esc(u[i].url) + '" target="_blank" rel="noopener noreferrer">▶ assistir</a></div>';
+      }
+      panel.innerHTML =
+        '<div class="bell-head">🔔 ' + u.length + (u.length > 1 ? ' aulas novas' : ' aula nova') + ' de informativos</div>' +
+        itens +
+        '<div class="bell-actions"><button class="bell-open" id="bellOpenJuris">Ver na Jurisprudência</button></div>' +
+        '<button class="bell-mark" id="bellMark">Marcar tudo como lido</button>';
+      document.getElementById('bellMark').onclick = function(){ marcarTudo(); hide(); };
+    } else {
+      panel.innerHTML =
+        '<div class="bell-head">Informativos — em dia ✓</div>' +
+        '<div class="bell-title">Última aula: ' + esc(l[0].label) + '</div>' +
+        '<div class="bell-actions">' +
+          '<a class="bell-go" target="_blank" rel="noopener noreferrer" href="' + esc(l[0].url) + '">▶ Assistir</a>' +
+          '<button class="bell-open" id="bellOpenJuris">Ver na Jurisprudência</button>' +
+        '</div>';
+    }
     document.getElementById('bellOpenJuris').onclick = function(){
-      localStorage.setItem('magisnad-info-seen', l.id);
+      marcarTudo();
       localStorage.setItem('magisnad-goto', 'fonte-juris');
       location.reload();
     };

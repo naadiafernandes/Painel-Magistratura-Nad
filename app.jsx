@@ -4186,12 +4186,15 @@ export default function App() {
     } catch {}
   };
 
-  // Avisa o sininho da barra qual é a aula mais nova de informativos.
+  // Alimenta o sininho da barra: lista das aulas recentes de informativos.
   useEffect(() => {
     try {
       const a = MEGE_AULAS[0];
       if (!a) return;
-      localStorage.setItem("magisnad-info-latest", JSON.stringify({ id: a.id, label: aulaTitulo(a), url: ytUrl(a.id) }));
+      const lista = MEGE_AULAS.slice(0, 10).map((x) => ({ id: x.id, label: aulaTitulo(x), url: ytUrl(x.id) }));
+      localStorage.setItem("magisnad-info-list", JSON.stringify(lista));
+      localStorage.setItem("magisnad-info-latest", JSON.stringify(lista[0])); // compatibilidade
+      // na primeiríssima vez, começa "em dia" (sem bolinha); depois só acende com aula nova
       if (localStorage.getItem("magisnad-info-seen") == null) localStorage.setItem("magisnad-info-seen", a.id);
       window.dispatchEvent(new Event("magisnad-info-latest"));
     } catch {}
