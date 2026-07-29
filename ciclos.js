@@ -16210,7 +16210,7 @@ window.CICLOS = {
 {
 "m": "pcivil",
 "lab": "Proc. Civil",
-"nome": "Processo de Execução",
+"nome": "Jurisprudência dos Tribunais Superiores sobre Processo de Execução",
 "n": 3,
 "ciclo": 1
 },
@@ -16315,7 +16315,7 @@ window.CICLOS = {
 {
 "m": "trib",
 "lab": "Tributário",
-"nome": "IPTU",
+"nome": "Jurisprudência dos Tribunais Superiores sobre IPTU",
 "n": 3,
 "ciclo": 1
 },
@@ -16826,7 +16826,7 @@ window.CICLOS = {
 {
 "m": "const",
 "lab": "Constitucional",
-"nome": "Direitos Sociais e dos Trabalhadores",
+"nome": "Jurisprudência dos Tribunais Superiores sobre Direitos Sociais e dos Trabalhadores",
 "n": 2,
 "ciclo": 1
 },
@@ -16854,7 +16854,7 @@ window.CICLOS = {
 {
 "m": "const",
 "lab": "Constitucional",
-"nome": "Políticas Urbana, Agrária e Fundiária",
+"nome": "Jurisprudência dos Tribunais Superiores sobre Políticas Urbana, Agrária e Fundiária",
 "n": 2,
 "ciclo": 1
 },
@@ -17022,7 +17022,7 @@ window.CICLOS = {
 {
 "m": "civesp",
 "lab": "Leis Civis Esp.",
-"nome": "Juizados Especiais Cíveis",
+"nome": "Jurisprudência sobre Juizados Especiais Cíveis (Lei nº 9.099/1995)",
 "n": 2,
 "ciclo": 1
 },
@@ -17379,7 +17379,7 @@ window.CICLOS = {
 {
 "m": "trib",
 "lab": "Tributário",
-"nome": "Lançamento e Constituição do Crédito",
+"nome": "Jurisprudência dos Tribunais Superiores sobre Lançamento e Constituição do Crédito Tributário",
 "n": 2,
 "ciclo": 1
 },
@@ -17393,7 +17393,7 @@ window.CICLOS = {
 {
 "m": "trib",
 "lab": "Tributário",
-"nome": "ITCMD",
+"nome": "Jurisprudência dos Tribunais Superiores sobre ITCMD",
 "n": 2,
 "ciclo": 1
 },
@@ -18023,7 +18023,7 @@ window.CICLOS = {
 {
 "m": "adm",
 "lab": "Administrativo",
-"nome": "Bens Públicos",
+"nome": "Jurisprudência dos Tribunais Superiores sobre Bens Públicos",
 "n": 1,
 "ciclo": 1
 },
@@ -18352,7 +18352,7 @@ window.CICLOS = {
 {
 "m": "civil",
 "lab": "Civil",
-"nome": "Pessoas Naturais",
+"nome": "Jurisprudência dos Tribunais Superiores sobre Pessoas Naturais",
 "n": 1,
 "ciclo": 1
 },
@@ -18758,7 +18758,7 @@ window.CICLOS = {
 {
 "m": "empres",
 "lab": "Empresarial",
-"nome": "Sociedade",
+"nome": "Jurisprudência dos Tribunais Superiores sobre Sociedade",
 "n": 1,
 "ciclo": 1
 },
@@ -18940,7 +18940,7 @@ window.CICLOS = {
 {
 "m": "penesp",
 "lab": "Leis Penais Esp.",
-"nome": "Crimes do ECA",
+"nome": "Jurisprudência sobre a Lei nº 8.069/1990 (Crimes do Estatuto da Criança e do Adolescente)",
 "n": 1,
 "ciclo": 1
 },
@@ -19178,7 +19178,7 @@ window.CICLOS = {
 {
 "m": "penal",
 "lab": "Penal",
-"nome": "Crimes Contra a Fé Pública",
+"nome": "Jurisprudência dos Tribunais Superiores sobre Crimes contra a Fé Pública",
 "n": 1,
 "ciclo": 1
 },
@@ -19570,7 +19570,7 @@ window.CICLOS = {
 {
 "m": "trib",
 "lab": "Tributário",
-"nome": "Fiscalização Tributária",
+"nome": "Jurisprudência dos Tribunais Superiores sobre Fiscalização Tributária",
 "n": 1,
 "ciclo": 1
 },
@@ -19584,14 +19584,14 @@ window.CICLOS = {
 {
 "m": "trib",
 "lab": "Tributário",
-"nome": "Certidão Negativa",
+"nome": "Jurisprudência dos Tribunais Superiores sobre Certidão Negativa",
 "n": 1,
 "ciclo": 1
 },
 {
 "m": "trib",
 "lab": "Tributário",
-"nome": "ISS",
+"nome": "Jurisprudência dos Tribunais Superiores sobre ISS",
 "n": 1,
 "ciclo": 1
 },
