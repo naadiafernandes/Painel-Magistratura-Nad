@@ -76,6 +76,10 @@ function infoUrl(org, num) {
   if (org === "stf") return `https://www.stf.jus.br/arquivo/cms/informativoSTF/anexo/Informativo_PDF/Informativo_stf_${num}.pdf`;
   return `https://processo.stj.jus.br/docs_internet/informativos/PDF/Inf${String(num).padStart(4, "0")}.pdf`;
 }
+// Página oficial de uma Edição Extraordinária do STJ (abre a edição inteira).
+function edExtraUrl(num) {
+  return `https://scon.stj.jus.br/jurisprudencia/externo/informativo/?acao=pesquisarumaedicao&livre=%27${String(num).padStart(4, "0")}E%27.cod.`;
+}
 // Índice oficial dos Informativos do TSE (não têm PDF por número estável).
 const TSE_INFO_URL = "https://www.tse.jus.br/jurisprudencia/informativos";
 function ytUrl(id) { return `https://www.youtube.com/watch?v=${id}`; }
@@ -85,7 +89,7 @@ function ytUrl(id) { return `https://www.youtube.com/watch?v=${id}`; }
 // link do PDF oficial); tse = texto da edição; esp = título de aula especial (sem PDF).
 // Esta lista é atualizada 1x por semana pela tarefa "magisnad-informativos-semanal".
 const MEGE_AULAS = [
-  { id: "_p7VQG_Qg1k", esp: "Ed. Extraordinária 31 — Direito Público (STJ)" },
+  { id: "_p7VQG_Qg1k", esp: "Ed. Extraordinária 31 — Direito Público (STJ)", ed: 31 },
   { id: "y48dtwHtDD0", stf: [1222], tse: "3, 4 e 5/2026" },
   { id: "kzbRSc5zDUE", stj: [894], stf: [1221] },
   { id: "IY0lXQeXt88", stj: [893], stf: [1220] },
@@ -111,9 +115,9 @@ const MEGE_AULAS = [
   { id: "sUUP4TWYZp0", stj: [876] },
   { id: "rStGXI0Q-Sk", stf: [1203, 1204] },
   { id: "ASFKcsFFWU4", stj: [875] },
-  { id: "Z3H5mxFVgBE", esp: "Ed. Extraordinária 30 — Direito Penal (STJ)" },
-  { id: "miaozcatJKA", esp: "Ed. Extraordinária 29 — Direito Privado (STJ)" },
-  { id: "C7NakQyqXQQ", esp: "Ed. Extraordinária 28 — Direito Público (STJ)" },
+  { id: "Z3H5mxFVgBE", esp: "Ed. Extraordinária 30 — Direito Penal (STJ)", ed: 30 },
+  { id: "miaozcatJKA", esp: "Ed. Extraordinária 29 — Direito Privado (STJ)", ed: 29 },
+  { id: "C7NakQyqXQQ", esp: "Ed. Extraordinária 28 — Direito Público (STJ)", ed: 28 },
   { id: "W0c8ULpQvuw", esp: "Ed. Especial — Principais julgados de Constitucional 2025" },
   { id: "VV-EWK3R8hQ", stf: [1202], stj: [874] },
   { id: "Aqf4vLdwq80", stf: [1201], stj: [873] },
@@ -2015,6 +2019,9 @@ function AulaRow({ a, checked, onToggle }) {
           ))}
           {a.tse && (
             <a className="juris-chip" href={TSE_INFO_URL} target="_blank" rel="noopener noreferrer" title="Informativos do TSE">TSE {a.tse} ↗</a>
+          )}
+          {a.ed && (
+            <a className="juris-chip" href={edExtraUrl(a.ed)} target="_blank" rel="noopener noreferrer" title="Edição no site oficial do STJ">STJ Ext. {a.ed} ↗</a>
           )}
         </div>
       </div>
