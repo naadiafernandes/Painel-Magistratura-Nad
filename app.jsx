@@ -3014,20 +3014,24 @@ function EstatSimView({ registros, feitos, sugestoes, onNovo, onEditFeito, onDel
   const q = ac + er; const perc = q ? Math.round((ac / q) * 100) : 0;
   const dias = new Set(registros.map((r) => new Date(r.ts).toDateString())).size;
   const mediaDia = dias ? Math.round(tempo / dias) : 0;
-  const matAgg = {};
+  // desempenho por matéria pros prediozinhos: junta TUDO que tem questão por matéria
+  // (estudos do dia a dia + HISTÓRICO DO TEC + simulados/provas), pra nunca vir vazio
+  const matChart = {};
   for (const r of registros) {
     const k = matNorm(r.materia); if (!k) continue;
-    if (!matAgg[k]) matAgg[k] = { ac: 0, er: 0 };
-    matAgg[k].ac += r.acertos || 0; matAgg[k].er += r.erros || 0;
+    const a = r.acertos || 0, er = r.erros || 0;
+    if (!matChart[k]) matChart[k] = { a: 0, q: 0 };
+    matChart[k].a += a; matChart[k].q += a + er;
   }
-  if (tec) for (const m of (tec.mats || [])) {
+  for (const f of feitos) for (const m of (f.mats || [])) {
     const k = matNorm(m.nome); if (!k) continue;
     const a = parseInt(m.a || 0, 10) || 0, qq = parseInt(m.q || 0, 10) || 0;
-    if (!matAgg[k]) matAgg[k] = { ac: 0, er: 0 };
-    matAgg[k].ac += a; matAgg[k].er += (qq - a);
+    if (!matChart[k]) matChart[k] = { a: 0, q: 0 };
+    matChart[k].a += a; matChart[k].q += qq;
   }
-  const matPerf = Object.keys(matAgg).map((m) => ({ m, ...matAgg[m], q: matAgg[m].ac + matAgg[m].er }))
-    .filter((x) => x.q > 0).map((x) => ({ ...x, p: Math.round((x.ac / x.q) * 100) })).sort((a, b) => b.q - a.q);
+  const matColData = Object.keys(matChart)
+    .map((k) => ({ m: k, ac: matChart[k].a, q: matChart[k].q, p: matChart[k].q ? Math.round((matChart[k].a / matChart[k].q) * 100) : 0 }))
+    .filter((x) => x.q > 0).sort((a, b) => a.p - b.p);
 
   // números e gráficos dos simulados (só as provas registradas)
   const feitosOrd = [...provas].sort((a, b) => b.ts - a.ts);
@@ -3074,8 +3078,7 @@ function EstatSimView({ registros, feitos, sugestoes, onNovo, onEditFeito, onDel
     );
   })();
 
-  // prediozinhos por matéria (dia a dia + TEC), pior → melhor, hover mostra questões e %
-  const matColData = [...matPerf].sort((a, b) => a.p - b.p);
+  // prediozinhos por matéria (dia a dia + TEC + simulados), pior → melhor, hover mostra questões e %
   const matColChart = (() => {
     if (matColData.length === 0) return <div className="sim-chart-empty">Sem desempenho por matéria ainda.</div>;
     const n = matColData.length;
@@ -3165,7 +3168,7 @@ function EstatSimView({ registros, feitos, sugestoes, onNovo, onEditFeito, onDel
         </div>
         <div className="sim-cardbox" onMouseLeave={() => setTip(null)}>
           <div className="sim-cardhead2"><span>Desempenho por matéria</span><span className="sim-cardhead-sub">pior → melhor</span></div>
-          {matPerf.length ? matColChart : <div className="sim-chart-empty">Registre estudos pra ver o desempenho por matéria.</div>}
+          {matColData.length ? matColChart : <div className="sim-chart-empty">Registre estudos pra ver o desempenho por matéria.</div>}
           {tip && tip.card === "col" && (
             <div className="sim-tip" style={{ left: tip.x, top: tip.y }}>
               <b>{tip.lines[0]}</b>{tip.lines.slice(1).map((l, i) => <span key={i}>{l}</span>)}
