@@ -5234,7 +5234,7 @@ export default function App() {
         @media (max-width: 640px){ .reg-fab-tx, .cron-fab-tx { display: none; } .reg-fab { padding: 15px; } .reg-fab-ic { margin: 0; } .cron-fab { padding: 13px; } }
 
         /* ===== Cronômetro ===== */
-        .cron-page { max-width: 680px; margin: 0 auto; }
+        .cron-page { max-width: 780px; margin: 0 auto; }
         .cron-page .eyebrow, .cron-page > h1 { text-align: center; }
         .cron-page .es-sub { text-align: center; max-width: 440px; margin-left: auto; margin-right: auto; }
         .cron-modes { display: flex; width: max-content; gap: 6px; background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 999px; padding: 4px; margin: 8px auto 4px; }
@@ -5261,14 +5261,14 @@ export default function App() {
         .cron-cfg { display: flex; justify-content: center; gap: 18px; margin: 10px 0 4px; }
         .cron-cfg label { font-size: 12.5px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
         .cron-cfg input { width: 56px; padding: 6px 8px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; text-align: center; }
-        .cron-form { margin: 22px auto 6px; max-width: 620px; }
-        .cron-form .reg-2col { margin-top: 14px; }
+        .cron-form { margin: 22px auto 6px; max-width: 820px; }
+        .cron-form .reg-2col { max-width: 560px; margin: 14px auto 0; }
         .cron-fonte-row { display: flex; align-items: center; justify-content: center; gap: 12px; }
         .cron-fonte-lbl { text-align: left; margin: 0; white-space: nowrap; flex: 0 0 auto; }
         .cron-fonte-row .cron-fontes { flex: 0 1 auto; min-width: 0; flex-wrap: nowrap; justify-content: flex-start; gap: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
         .cron-fonte-row .cron-fontes::-webkit-scrollbar { display: none; }
         .cron-fonte-row .cron-fontes .reg-chip { flex: 0 0 auto; white-space: nowrap; padding: 7px 11px; font-size: 12px; }
-        .cron-save { width: 100%; margin-top: 16px; background: var(--gold); color: var(--on-accent); border: none; border-radius: 12px; padding: 14px; font: inherit; font-size: 15px; font-weight: 800; cursor: pointer; }
+        .cron-save { display: block; width: 100%; max-width: 560px; margin: 16px auto 0; background: var(--gold); color: var(--on-accent); border: none; border-radius: 12px; padding: 14px; font: inherit; font-size: 15px; font-weight: 800; cursor: pointer; }
         .cron-save:disabled { opacity: .5; cursor: default; }
         .cron-save b { font-weight: 800; }
         .cron-warn, .cron-hint-sm { text-align: center; font-size: 12px; color: var(--faint); margin: 8px 0 0; }
@@ -5375,7 +5375,7 @@ export default function App() {
         .roscas-pct { font-size: 12px; font-weight: 700; color: var(--muted); margin-top: 3px; font-variant-numeric: tabular-nums; }
         .roscas-box { margin-top: 10px; width: 100%; min-height: 64px; box-sizing: border-box; display: flex;
           flex-direction: column; justify-content: center; background: var(--surface); border: 1px solid var(--line-2);
-          border-radius: 14px; padding: 11px 13px; text-align: left; transition: border-color .15s, box-shadow .15s; }
+          border-radius: 14px; padding: 11px 13px; text-align: center; transition: border-color .15s, box-shadow .15s; }
         .roscas-card:hover .roscas-box { border-color: var(--gold); }
         .roscas-card.on .roscas-box { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold); }
         .roscas-line { font-size: 12.5px; color: var(--text); font-weight: 600; line-height: 1.45; }
