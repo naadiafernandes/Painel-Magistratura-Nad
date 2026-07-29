@@ -5026,13 +5026,13 @@ export default function App() {
           background: conic-gradient(var(--c) calc(var(--p) * 1%), var(--surface-2) 0); display: grid; place-items: center; }
         .ciclo-hole { width: 74px; height: 74px; border-radius: 50%; background: var(--surface); display: grid; place-items: center; }
         .ciclo-hole b { font-size: 15px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+        .ciclo-donut-btn { border: none; padding: 0; cursor: pointer; font: inherit; transition: filter .15s; }
+        .ciclo-donut-btn:hover { filter: brightness(1.04); }
+        .ciclo-ok .ciclo-hole b { color: #4aa873; }
         .ciclo-nm { font-size: 14px; font-weight: 700; margin-top: 11px; }
         .ciclo-mt { font-size: 11.5px; color: var(--faint); margin-top: 3px; }
-        .ciclo-metabtn { margin-top: 4px; border: none; background: transparent; color: var(--muted); font: inherit; font-size: 11.5px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; padding: 3px 6px; border-radius: 7px; }
-        .ciclo-metabtn:hover { background: var(--surface-2); color: var(--text); }
-        .ciclo-pencil { opacity: .5; font-size: 10px; }
-        .ciclo-ok .ciclo-metabtn { color: #5fbf87; font-weight: 700; }
-        .ciclo-metaedit { margin-top: 4px; display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--faint); }
+        .ciclo-check { margin-top: 4px; font-size: 12.5px; font-weight: 800; color: #5fbf87; }
+        .ciclo-metaedit { margin-top: 8px; display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--faint); }
         .ciclo-metaedit input { width: 52px; padding: 4px 6px; border: 1px solid var(--line-2); border-radius: 7px; background: var(--surface); color: var(--text); font: inherit; text-align: center; }
         .ciclo-metaedit button { border: none; background: var(--gold); color: var(--on-accent); font: inherit; font-weight: 700; font-size: 11px; padding: 4px 9px; border-radius: 7px; cursor: pointer; }
 
