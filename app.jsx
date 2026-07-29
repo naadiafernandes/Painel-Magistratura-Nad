@@ -2477,7 +2477,14 @@ function CicloDiaCard({ id, f, meta, feito, pct, ok, onSaveMeta }) {
             onKeyDown={(e) => { if (e.key === "Enter") salvar(); if (e.key === "Escape") setEditing(false); }} />
           <span>min</span><button onClick={salvar}>ok</button>
         </div>
-      ) : (ok && <div className="ciclo-check">✓ feito</div>)}
+      ) : (ok && (
+        <div className="ciclo-check" title="feito">
+          <svg viewBox="0 0 24 24" width="24" height="24" aria-label="feito">
+            <path d="m23 12-2.44-2.79.34-3.69-3.61-.82-1.89-3.2L12 2.96 8.6 1.5 6.71 4.69 3.1 5.5l.34 3.7L1 12l2.44 2.79-.34 3.7 3.61.82 1.89 3.2L12 21.04l3.4 1.46 1.89-3.19 3.61-.82-.34-3.69L23 12z" fill="#3aa864" />
+            <path d="M7.1 12.4l3.2 3.2 6.2-6.2" fill="none" stroke="#fff" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </div>
+      ))}
     </div>
   );
 }
@@ -5031,7 +5038,7 @@ export default function App() {
         .ciclo-ok .ciclo-hole b { color: #4aa873; }
         .ciclo-nm { font-size: 14px; font-weight: 700; margin-top: 11px; }
         .ciclo-mt { font-size: 11.5px; color: var(--faint); margin-top: 3px; }
-        .ciclo-check { margin-top: 4px; font-size: 12.5px; font-weight: 800; color: #5fbf87; }
+        .ciclo-check { margin-top: 6px; line-height: 0; display: flex; justify-content: center; }
         .ciclo-metaedit { margin-top: 8px; display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--faint); }
         .ciclo-metaedit input { width: 52px; padding: 4px 6px; border: 1px solid var(--line-2); border-radius: 7px; background: var(--surface); color: var(--text); font: inherit; text-align: center; }
         .ciclo-metaedit button { border: none; background: var(--gold); color: var(--on-accent); font: inherit; font-weight: 700; font-size: 11px; padding: 4px 9px; border-radius: 7px; cursor: pointer; }
