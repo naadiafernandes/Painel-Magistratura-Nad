@@ -1121,11 +1121,11 @@ const NAV_GROUPS = [
     { key: "caixa", icon: "inbox", label: "Caixa de entrada", kind: "view", view: "caixa" },
   ] },
   { label: "FONTES", items: [
-    { key: "fonte-anki", icon: "book", label: "Anki (EM BREVE!)", kind: "view", view: "fonte-anki" },
-    { key: "fonte-juris", icon: "info", label: "Jurisprudência (EM BREVE!)", kind: "view", view: "fonte-juris" },
-    { key: "fonte-questoes", icon: "clipboard", label: "Questões (EM BREVE!)", kind: "view", view: "fonte-questoes" },
-    { key: "fonte-teoria", icon: "video", label: "Teoria (EM BREVE!)", kind: "view", view: "es-cursos" },
-    { key: "fonte-leiseca", icon: "file", label: "Lei Seca (EM BREVE!)", kind: "view", view: "fonte-leiseca" },
+    { key: "fonte-anki", icon: "book", label: "Anki (🔜)", kind: "view", view: "fonte-anki" },
+    { key: "fonte-juris", icon: "info", label: "Jurisprudência (🔜)", kind: "view", view: "fonte-juris" },
+    { key: "fonte-questoes", icon: "clipboard", label: "Questões (🔜)", kind: "view", view: "fonte-questoes" },
+    { key: "fonte-teoria", icon: "video", label: "Teoria (🔜)", kind: "view", view: "es-cursos" },
+    { key: "fonte-leiseca", icon: "file", label: "Lei Seca (🔜)", kind: "view", view: "fonte-leiseca" },
     { key: "fonte-revisoes", icon: "refresh", label: "Revisões", kind: "view", view: "es-revisoes" },
   ] },
   { label: "Navegação", items: [
