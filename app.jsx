@@ -2466,9 +2466,10 @@ function CicloDiaCard({ id, f, meta, feito, pct, ok, onSaveMeta }) {
   const salvar = () => { onSaveMeta(id, Math.max(0, parseInt(val || 0, 10))); setEditing(false); };
   return (
     <div className={`ciclo-card${ok ? " ciclo-ok" : ""}`}>
-      <div className="ciclo-donut" style={{ "--p": pct, "--c": ok ? "#5fbf87" : f.color }}>
-        <div className="ciclo-hole"><b>{ok ? "✓" : (feito ? fmtTempo(feito) : "—")}</b></div>
-      </div>
+      <button className="ciclo-donut ciclo-donut-btn" style={{ "--p": ok ? 100 : 0, "--c": "#5fbf87" }}
+        onClick={() => setEditing(true)} title="Tocar pra mudar o tempo">
+        <span className="ciclo-hole"><b>{fmtTempo(meta)}</b></span>
+      </button>
       <div className="ciclo-nm" style={{ color: f.color }}>{f.label}</div>
       {editing ? (
         <div className="ciclo-metaedit">
@@ -2476,11 +2477,7 @@ function CicloDiaCard({ id, f, meta, feito, pct, ok, onSaveMeta }) {
             onKeyDown={(e) => { if (e.key === "Enter") salvar(); if (e.key === "Escape") setEditing(false); }} />
           <span>min</span><button onClick={salvar}>ok</button>
         </div>
-      ) : (
-        <button className="ciclo-metabtn" onClick={() => setEditing(true)} title="Definir o tempo desse ciclo">
-          {ok ? "feito! · " : ""}Meta: {fmtTempo(meta)} <span className="ciclo-pencil">✎</span>
-        </button>
-      )}
+      ) : (ok && <div className="ciclo-check">✓ feito</div>)}
     </div>
   );
 }
@@ -3141,22 +3138,33 @@ function EstatSimView({ registros, feitos, sugestoes, onNovo, onEditFeito, onDel
 
       <button className="sim-newbtn" onClick={() => onNovo()}>+ Novo simulado</button>
 
-      <div className="sim-cardbox" onMouseLeave={() => setTip(null)}>
-        <div className="sim-cardhead2">
-          <span>Meu desempenho</span>
-          {todasMats.length > 0 && (
-            <select className="sim-matsel" value={matFiltro} onChange={(e) => setMatFiltro(e.target.value)}>
-              <option value="">Todas as matérias</option>
-              {todasMats.map((m) => <option key={m} value={m}>{m}</option>)}
-            </select>
+      <div className="sim-charts">
+        <div className="sim-cardbox" onMouseLeave={() => setTip(null)}>
+          <div className="sim-cardhead2">
+            <span>Meu desempenho</span>
+            {todasMats.length > 0 && (
+              <select className="sim-matsel" value={matFiltro} onChange={(e) => setMatFiltro(e.target.value)}>
+                <option value="">Todas as matérias</option>
+                {todasMats.map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+            )}
+          </div>
+          {lineChart}
+          {tip && tip.card === "line" && (
+            <div className="sim-tip" style={{ left: tip.x, top: tip.y }}>
+              <b>{tip.lines[0]}</b>{tip.lines.slice(1).map((l, i) => <span key={i}>{l}</span>)}
+            </div>
           )}
         </div>
-        {lineChart}
-        {tip && tip.card === "line" && (
-          <div className="sim-tip" style={{ left: tip.x, top: tip.y }}>
-            <b>{tip.lines[0]}</b>{tip.lines.slice(1).map((l, i) => <span key={i}>{l}</span>)}
-          </div>
-        )}
+        <div className="sim-cardbox" onMouseLeave={() => setTip(null)}>
+          <div className="sim-cardhead2"><span>Desempenho por matéria</span><span className="sim-cardhead-sub">pior → melhor</span></div>
+          {matPerf.length ? matColChart : <div className="sim-chart-empty">Registre estudos pra ver o desempenho por matéria.</div>}
+          {tip && tip.card === "col" && (
+            <div className="sim-tip" style={{ left: tip.x, top: tip.y }}>
+              <b>{tip.lines[0]}</b>{tip.lines.slice(1).map((l, i) => <span key={i}>{l}</span>)}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="painel-2col es-split">
@@ -3164,17 +3172,6 @@ function EstatSimView({ registros, feitos, sugestoes, onNovo, onEditFeito, onDel
           <div className="es-colhead">Do dia a dia</div>
           <div className="sechead-es">Tempo por fonte</div>
           <CiclosPizzas registros={registros} />
-          {matPerf.length ? (
-            <div className="sim-cardbox" onMouseLeave={() => setTip(null)} style={{ marginTop: 16 }}>
-              <div className="sim-cardhead2"><span>Desempenho por matéria</span><span className="sim-cardhead-sub">pior → melhor</span></div>
-              {matColChart}
-              {tip && tip.card === "col" && (
-                <div className="sim-tip" style={{ left: tip.x, top: tip.y }}>
-                  <b>{tip.lines[0]}</b>{tip.lines.slice(1).map((l, i) => <span key={i}>{l}</span>)}
-                </div>
-              )}
-            </div>
-          ) : <div className="es-hint">Registre estudos pra ver o desempenho por matéria.</div>}
         </div>
 
         <div className="es-col">
