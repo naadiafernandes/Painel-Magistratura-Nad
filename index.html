@@ -1227,7 +1227,6 @@ const NAV_GROUPS = [
   ] },
   { label: "Navegação", items: [
     { key: "painel", icon: "home", label: "Painel", kind: "home" },
-    { key: "diario", icon: "book", label: "Diário de estudos", kind: "view", view: "diario" },
     { key: "caixa", icon: "inbox", label: "Caixa de entrada", kind: "view", view: "caixa" },
   ] },
   { label: "Matérias", items: [
@@ -2341,7 +2340,7 @@ function CiclosRoscas({ registros, onRegistrar }) {
               <div className="fila-topo" style={{ "--c": `var(${rosca.tok})` }}>
                 <div className="fila-topo-tag" style={{ "--c": `var(${rosca.tok})` }}>{cicloMatNome(d.topo.m, d.topo.lab)}</div>
                 <div className="fila-topo-nm">{d.topo.nome}</div>
-                <div className="fila-topo-n">{d.topo.n} questões no TEC</div>
+                {rosca.id === "questoes" && <div className="fila-topo-n">{d.topo.n} questões no TEC</div>}
                 <div className="fila-topo-acts">
                   <button className="fila-fin" onClick={() => finalizar(rosca.id, d.topo)}>Finalizei ✓</button>
                   <button className="fila-so" onClick={() => soTempo(rosca.id, d.topo)}>só registrar tempo</button>
@@ -2355,7 +2354,7 @@ function CiclosRoscas({ registros, onRegistrar }) {
                 <li key={cicloItemKey(it)} className="fila-row">
                   <span className="fila-tag">{cicloMatNome(it.m, it.lab)}</span>
                   <span className="fila-nm">{it.nome}</span>
-                  <span className="fila-n">{it.n}q</span>
+                  {rosca.id === "questoes" && <span className="fila-n">{it.n}q</span>}
                 </li>
               ))}
             </ol>
@@ -2439,13 +2438,19 @@ function Constancia({ registros }) {
   const key = (offset) => new Date(today.getTime() - offset * 86400000).toDateString();
   let streak = 0;
   for (let i = dias.has(key(0)) ? 0 : 1; i < 500; i++) { if (dias.has(key(i))) streak++; else break; }
+  const fmtDia = (d) => d.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "short" });
   const cells = [];
-  for (let i = 27; i >= 0; i--) cells.push({ i, on: dias.has(key(i)), hoje: i === 0 });
+  for (let i = 27; i >= 0; i--) {
+    const d = new Date(today.getTime() - i * 86400000);
+    const on = dias.has(key(i));
+    const label = `${i === 0 ? "hoje, " : ""}${fmtDia(d)}${on ? " · estudou" : " · sem registro"}`;
+    cells.push({ i, on, hoje: i === 0, label });
+  }
   return (
     <div className="panel es-consta">
       <div className="consta-head"><span>Constância nos estudos</span><b>{streak} {streak === 1 ? "dia" : "dias"} seguidos</b></div>
       <div className="consta-strip">
-        {cells.map((c) => <span key={c.i} className={`consta-day${c.on ? " on" : ""}${c.hoje ? " today" : ""}`} />)}
+        {cells.map((c) => <span key={c.i} title={c.label} className={`consta-day${c.on ? " on" : ""}${c.hoje ? " today" : ""}`} />)}
       </div>
     </div>
   );
@@ -4870,7 +4875,7 @@ function App() {
           font-size: 13px; font-weight: 600; color: var(--muted); }
         .consta-head b { color: var(--gold2); font-size: 14px; }
         .consta-strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(20px, 1fr)); gap: 6px; }
-        .consta-day { aspect-ratio: 1; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--line-2); }
+        .consta-day { aspect-ratio: 1; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--line-2); cursor: help; }
         .consta-day.on { background: var(--gold); border-color: transparent; }
         .consta-day.today { outline: 2px solid var(--gold); outline-offset: 2px; }
         .sechead-es { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin: 26px 4px 12px; }
@@ -5491,7 +5496,6 @@ function App() {
             <button className="edital-back" onClick={() => setView("es-painel")}>← Voltar ao painel</button>
             <p className="eyebrow">ESTUDEI</p>
             <h1 className="serif" style={{ marginBottom: 10 }}>Ciclos</h1>
-            <p className="es-sub">Seis roscas por fonte. Cada uma tem sua fila (o que mais cai primeiro); clique pra abrir a fila inteira e marcar "Finalizei".</p>
             <CiclosRoscas registros={registros} onRegistrar={abrirRegistro} />
           </section>
         )}
