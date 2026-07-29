@@ -321,17 +321,19 @@ function aulaTitulo(a) {
 // Grupos de subfontes da página Jurisprudência (súmulas e teses ainda vazios).
 const JURIS_SECOES = [
   { grupo: "Súmulas", itens: [
-    { key: "sv",  nome: "Súmulas Vinculantes", link: "https://portal.stf.jus.br/jurisprudencia/sumariosumulas.asp?base=30" },
-    { key: "ssf", nome: "Súmulas do STF", link: "https://portal.stf.jus.br/jurisprudencia/sumariosumulas.asp?base=26" },
-    { key: "ssj", nome: "Súmulas do STJ", link: "https://scon.stj.jus.br/SCON/sumstj/" },
-    { key: "tse", nome: "Súmulas do TSE", link: "https://www.tse.jus.br/jurisprudencia/sumulas" },
+    { key: "sv",  nome: "Súmulas Vinculantes", cor: "#3B82F6", link: "https://portal.stf.jus.br/jurisprudencia/sumariosumulas.asp?base=30" },
+    { key: "ssf", nome: "Súmulas do STF", cor: "#06B6D4", link: "https://portal.stf.jus.br/jurisprudencia/sumariosumulas.asp?base=26" },
+    { key: "ssj", nome: "Súmulas do STJ", cor: "#8B5CF6", link: "https://scon.stj.jus.br/SCON/sumstj/" },
+    { key: "tse", nome: "Súmulas do TSE", cor: "#F59E0B", link: "https://www.tse.jus.br/jurisprudencia/sumulas" },
   ] },
   { grupo: "Teses", itens: [
-    { key: "rg", nome: "Repercussão Geral (RG)", link: "https://portal.stf.jus.br/repercussaogeral/" },
-    { key: "rr", nome: "Recurso Repetitivo (RR)", link: "https://processo.stj.jus.br/repetitivos/temas_repetitivos/" },
-    { key: "jt", nome: "Jurisprudência em Teses (STJ)", link: "https://scon.stj.jus.br/SCON/jt/" },
+    { key: "rg", nome: "Repercussão Geral (RG)", cor: "#22C55E", link: "https://portal.stf.jus.br/repercussaogeral/" },
+    { key: "rr", nome: "Recurso Repetitivo (RR)", cor: "#EF4444", link: "https://processo.stj.jus.br/repetitivos/temas_repetitivos/" },
+    { key: "jt", nome: "Jurisprudência em Teses (STJ)", cor: "#EC4899", link: "https://scon.stj.jus.br/SCON/jt/" },
   ] },
 ];
+// cor do card de Informativos (Mege)
+const MEGE_COR = "#F97316";
 
 // ---------- Teoria (tópicos do edital, por matéria) ----------
 const TEORIA = {
@@ -2252,27 +2254,21 @@ function JurisFonte({ infoData, onToggle, onBack, feitos, total }) {
     <section className="editais-page es-page">
       <button className="edital-back" onClick={onBack}>← Voltar ao painel</button>
       <p className="eyebrow">FONTES</p>
-      <h1 className="serif" style={{ marginBottom: 14 }}>Jurisprudência</h1>
+      <h1 className="serif" style={{ marginBottom: 16 }}>Jurisprudência</h1>
 
-      {JURIS_SECOES.map((sec) => (
-        <div key={sec.grupo}>
-          <div className="juris-grupo">{sec.grupo}</div>
-          <div className="juris-cards">
-            {sec.itens.map((it) => (
-              <button key={it.key} className="juris-card" onClick={() => setSub(it.key)}>
-                <span className="juris-card-nome">{it.nome}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      ))}
-
-      <div className="juris-grupo">Informativos</div>
+      {/* 8 quadradinhos em 2 linhas de 4: linha 1 = Súmulas, linha 2 = Teses + Informativos. Cada um com sua cor. */}
       <div className="juris-cards">
-        <button className="juris-card" onClick={() => setSub("mege")}>
-          <span className="juris-card-nome">Mege Informativos</span>
-          <span className="juris-card-cnt">{feitos}/{total}</span>
-        </button>
+        {[
+          ...JURIS_SECOES.flatMap((sec) => sec.itens),
+          { key: "mege", nome: "Mege Informativos", cor: MEGE_COR, cnt: `${feitos}/${total}` },
+        ].map((c) => (
+          <button key={c.key} className="juris-card" onClick={() => setSub(c.key)}
+            style={{ background: `${c.cor}1f`, borderColor: `${c.cor}b3`, "--cor": c.cor }}>
+            <span className="juris-card-dot" style={{ background: c.cor }} />
+            <span className="juris-card-nome">{c.nome}</span>
+            {c.cnt && <span className="juris-card-cnt" style={{ color: c.cor }}>{c.cnt}</span>}
+          </button>
+        ))}
       </div>
     </section>
   );
@@ -4859,17 +4855,18 @@ function App() {
         /* Jurisprudência: quadradinhos (cards) + subpágina + anotações */
         .juris-grupo { font-size: 11px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase;
           color: var(--gold); margin: 22px 0 10px; }
-        /* todos os cards do MESMO tamanho; só a arrumação por seção muda */
-        .juris-cards { display: flex; flex-wrap: wrap; gap: 13px; margin-bottom: 4px; }
-        .juris-card { flex: 0 0 auto; width: 138px; height: 116px; display: flex; flex-direction: column;
-          align-items: center; justify-content: center; text-align: center; gap: 7px; padding: 12px;
-          border: 1px solid var(--line); border-radius: 16px; background: var(--surface-2); color: var(--text);
-          cursor: pointer; font: inherit; transition: transform .14s, border-color .14s, background .14s; }
-        .juris-card:hover { border-color: var(--gold); background: var(--surface-3); transform: translateY(-2px); }
+        /* 8 cards em 2 linhas de 4, todos do mesmo tamanho, cada um com sua cor */
+        .juris-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 13px; margin-bottom: 4px; max-width: 760px; }
+        .juris-card { position: relative; height: 118px; display: flex; flex-direction: column;
+          align-items: center; justify-content: center; text-align: center; gap: 6px; padding: 12px;
+          border: 1.5px solid var(--line); border-radius: 16px; background: var(--surface-2); color: var(--text);
+          cursor: pointer; font: inherit; transition: transform .14s, box-shadow .14s, filter .14s; }
+        .juris-card:hover { transform: translateY(-3px); filter: brightness(1.08);
+          box-shadow: 0 8px 20px color-mix(in srgb, var(--cor, #888) 32%, transparent); }
+        .juris-card-dot { width: 10px; height: 10px; border-radius: 50%; box-shadow: 0 0 0 4px color-mix(in srgb, var(--cor, #888) 22%, transparent); }
         .juris-card-nome { font-size: 13.5px; font-weight: 700; line-height: 1.3; }
-        .juris-card-cnt { font-size: 12px; font-weight: 700; color: var(--faint); }
-        .juris-card:hover .juris-card-cnt { color: var(--gold); }
-        @media (max-width: 520px) { .juris-card { width: calc(50% - 7px); } }
+        .juris-card-cnt { font-size: 12px; font-weight: 800; }
+        @media (max-width: 560px) { .juris-cards { grid-template-columns: repeat(2, 1fr); } }
         .juris-sub-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; }
         .juris-sub-cnt { font-size: 13px; font-weight: 700; color: var(--faint); }
         .juris-anotar { margin-bottom: 8px; }
@@ -5447,8 +5444,9 @@ function App() {
         .cron-form { margin: 22px auto 6px; max-width: 680px; }
         .cron-form .reg-2col { margin: 14px 0 0; }
         .cron-fonte-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; }
-        .cron-fonte-lbl { margin: 0 2px 0 0; white-space: nowrap; }
-        .cron-fonte-row .cron-chip { flex: 0 0 auto; white-space: nowrap; padding: 7px 12px; font-size: 12.5px; }
+        /* "FONTE" finge ser um chip (sem borda, sem clique) pra alinhar na exata mesma linha/altura dos demais */
+        .cron-fonte-row .cron-fonte-lbl { display: inline-flex; align-items: center; margin: 0; padding: 7px 4px; border: 1px solid transparent; border-radius: 999px; font-size: 12.5px; line-height: 1; white-space: nowrap; }
+        .cron-fonte-row .cron-chip { flex: 0 0 auto; display: inline-flex; align-items: center; white-space: nowrap; padding: 7px 12px; font-size: 12.5px; line-height: 1; }
         .cron-save { display: block; width: 100%; margin: 16px 0 0; background: var(--gold); color: var(--on-accent); border: none; border-radius: 12px; padding: 14px; font: inherit; font-size: 15px; font-weight: 800; cursor: pointer; }
         .cron-save:disabled { opacity: .5; cursor: default; }
         .cron-save b { font-weight: 800; }
