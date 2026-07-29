@@ -2257,20 +2257,19 @@ function JurisFonte({ infoData, onToggle, onBack, feitos, total }) {
       <p className="eyebrow">FONTES</p>
       <h1 className="serif" style={{ marginBottom: 16 }}>Jurisprudência</h1>
 
-      {/* Súmulas: moldura com 4 caixinhas rosa */}
+      {/* Súmulas: moldura com as caixinhas (cor 1 = acento principal do tema) */}
       <div className="juris-secao-lbl">{JURIS_SECOES[0].grupo}</div>
       <div className="juris-panel">
         <div className="juris-cards">
           {JURIS_SECOES[0].itens.map((it) => (
-            <button key={it.key} className="juris-card" onClick={() => setSub(it.key)}
-              style={{ background: JURIS_SECOES[0].cor, color: JURIS_SECOES[0].txt }}>
-              <span className="juris-card-nome">{it.curto}</span>
+            <button key={it.key} className="juris-card jcard-1" onClick={() => setSub(it.key)}>
+              <span className="juris-card-nome">{it.nome}</span>
             </button>
           ))}
         </div>
       </div>
 
-      {/* Teses (roxo) + Informativos (amarelo) na mesma moldura */}
+      {/* Teses (cor 2) + Informativos (cor 3) na mesma moldura */}
       <div className="juris-panel-head">
         <span>{JURIS_SECOES[1].grupo}</span>
         <span>Informativos</span>
@@ -2278,14 +2277,12 @@ function JurisFonte({ infoData, onToggle, onBack, feitos, total }) {
       <div className="juris-panel">
         <div className="juris-cards">
           {JURIS_SECOES[1].itens.map((it) => (
-            <button key={it.key} className="juris-card" onClick={() => setSub(it.key)}
-              style={{ background: JURIS_SECOES[1].cor, color: JURIS_SECOES[1].txt }}>
-              <span className="juris-card-nome">{it.curto}</span>
+            <button key={it.key} className="juris-card jcard-2" onClick={() => setSub(it.key)}>
+              <span className="juris-card-nome">{it.nome}</span>
             </button>
           ))}
-          <button className="juris-card" onClick={() => setSub("mege")}
-            style={{ background: MEGE_COR, color: MEGE_TXT }}>
-            <span className="juris-card-nome">Mege</span>
+          <button className="juris-card jcard-3" onClick={() => setSub("mege")}>
+            <span className="juris-card-nome">Mege Informativos</span>
             <span className="juris-card-cnt">{feitos}/{total}</span>
           </button>
         </div>
@@ -4699,10 +4696,10 @@ function App() {
           --sidebar:#f4f4f5; --nav-active-bg:#ffffff; --hero:#1e293b; --accent-btn:#ca8a04; --on-accent:#ffffff;
         }
         /* cor do app por humor (sobrepõe o dourado, em qualquer tema) */
-        :root[data-cor="amarelo"] { --gold:#EAA92E; --accent-btn:#EAA92E; --gold2:#E07A54; --coral:#2B5A82; --on-accent:#3a2c08; }
-        :root[data-cor="rosa"] { --gold:#E85D9A; --accent-btn:#E85D9A; --gold2:#F2B23A; --coral:#2F6FE4; --on-accent:#ffffff; }
-        :root[data-cor="azul"] { --gold:#2F6FE4; --accent-btn:#2F6FE4; --gold2:#EE3B34; --coral:#F2B23A; --on-accent:#ffffff; }
-        :root[data-cor="roxo"] { --gold:#7C4DE0; --accent-btn:#7C4DE0; --gold2:#F2B23A; --coral:#17B8A6; --on-accent:#ffffff; }
+        :root[data-cor="amarelo"] { --gold:#EAA92E; --accent-btn:#EAA92E; --gold2:#E07A54; --coral:#2B5A82; --on-accent:#3a2c08; --js1t:#241a02; --js2t:#241a02; --js3t:#ffffff; }
+        :root[data-cor="rosa"] { --gold:#E85D9A; --accent-btn:#E85D9A; --gold2:#F2B23A; --coral:#2F6FE4; --on-accent:#ffffff; --js1t:#ffffff; --js2t:#241a02; --js3t:#ffffff; }
+        :root[data-cor="azul"] { --gold:#2F6FE4; --accent-btn:#2F6FE4; --gold2:#EE3B34; --coral:#F2B23A; --on-accent:#ffffff; --js1t:#ffffff; --js2t:#ffffff; --js3t:#241a02; }
+        :root[data-cor="roxo"] { --gold:#7C4DE0; --accent-btn:#7C4DE0; --gold2:#F2B23A; --coral:#17B8A6; --on-accent:#ffffff; --js1t:#ffffff; --js2t:#241a02; --js3t:#241a02; }
         * { box-sizing: border-box; }
         .root {
           font-family: ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
@@ -4875,18 +4872,28 @@ function App() {
         /* Jurisprudência: molduras por grupo + caixinhas coloridas + subpágina + anotações */
         .juris-grupo { font-size: 11px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase;
           color: var(--gold); margin: 22px 0 10px; }
-        .juris-secao-lbl { font-size: 16px; font-weight: 700; color: var(--text); margin: 6px 0 8px; }
-        .juris-panel-head { display: flex; justify-content: space-between; align-items: baseline; max-width: 792px; margin: 20px 0 8px; }
+        .juris-secao-lbl { font-size: 16px; font-weight: 700; color: var(--text); margin: 6px 0 8px; padding-left: 16px; }
+        .juris-panel-head { display: flex; justify-content: space-between; align-items: baseline; max-width: 792px; margin: 20px 0 8px; padding: 0 16px; }
         .juris-panel-head span { font-size: 16px; font-weight: 700; color: var(--text); }
         .juris-panel { max-width: 792px; border: 1px solid var(--line); border-radius: 18px; padding: 16px; background: var(--surface); }
         .juris-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
-        .juris-card { height: 128px; display: flex; flex-direction: column;
-          align-items: center; justify-content: center; text-align: center; gap: 6px; padding: 12px;
+        .juris-card { position: relative; overflow: hidden; height: 128px; display: flex; flex-direction: column;
+          align-items: center; justify-content: center; text-align: center; gap: 5px; padding: 12px;
           border: none; border-radius: 16px; cursor: pointer; font: inherit;
-          box-shadow: 0 2px 8px rgba(0,0,0,.10); transition: transform .14s, box-shadow .14s, filter .14s; }
-        .juris-card:hover { transform: translateY(-3px); filter: brightness(1.05); box-shadow: 0 8px 20px rgba(0,0,0,.20); }
-        .juris-card-nome { font-size: 16px; font-weight: 800; line-height: 1.25; }
-        .juris-card-cnt { font-size: 13px; font-weight: 800; opacity: .8; }
+          box-shadow: 0 5px 14px rgba(0,0,0,.20), inset 0 1px 0 rgba(255,255,255,.28), inset 0 -3px 8px rgba(0,0,0,.14);
+          transition: transform .14s, box-shadow .14s, filter .14s; }
+        /* brilho suave no topo pra dar profundidade (funciona em qualquer cor) */
+        .juris-card::before { content: ""; position: absolute; inset: 0; pointer-events: none;
+          background: linear-gradient(180deg, rgba(255,255,255,.26), rgba(255,255,255,0) 46%, rgba(0,0,0,.10)); }
+        .juris-card:hover { transform: translateY(-3px); filter: brightness(1.06) saturate(1.05);
+          box-shadow: 0 12px 26px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.30); }
+        .juris-card-nome, .juris-card-cnt { position: relative; z-index: 1; }
+        .juris-card-nome { font-size: 14.5px; font-weight: 800; line-height: 1.22; letter-spacing: -.1px; text-shadow: 0 1px 2px rgba(0,0,0,.14); }
+        .juris-card-cnt { font-size: 13px; font-weight: 800; opacity: .85; }
+        /* cores das 3 seções seguem a paleta do cabeçalho (--gold/--gold2/--coral), com degradê pra ter volume */
+        .jcard-1 { background: var(--gold); background: linear-gradient(152deg, color-mix(in srgb, var(--gold) 82%, #fff), var(--gold) 50%, color-mix(in srgb, var(--gold) 86%, #000)); color: var(--js1t, #fff); }
+        .jcard-2 { background: var(--gold2); background: linear-gradient(152deg, color-mix(in srgb, var(--gold2) 82%, #fff), var(--gold2) 50%, color-mix(in srgb, var(--gold2) 86%, #000)); color: var(--js2t, #fff); }
+        .jcard-3 { background: var(--coral); background: linear-gradient(152deg, color-mix(in srgb, var(--coral) 82%, #fff), var(--coral) 50%, color-mix(in srgb, var(--coral) 86%, #000)); color: var(--js3t, #fff); }
         @media (max-width: 560px) { .juris-cards { grid-template-columns: repeat(2, 1fr); } }
         .juris-sub-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; }
         .juris-sub-cnt { font-size: 13px; font-weight: 700; color: var(--faint); }
