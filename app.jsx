@@ -904,6 +904,7 @@ const SIM_HIDDEN_KEY = "tjsc-simulados-ocultas:list";
 const SIM_FEITOS_KEY = "tjsc-simulados-feitos:v1";     // simulados que ela registrou (nota)
 const SIM_SUG_KEY = "tjsc-simulados-sugestoes:v1";      // lista ordenável de próximos simulados
 const SIM_TEC_SEED_KEY = "tjsc-simulados-tec-seed:v1";  // marca que o HISTÓRICO DO TEC já foi semeado (roda 1x)
+const TEC_NOME = "HISTÓRICO DO TEC";  // essa base entra no "dia a dia", não conta como simulado/prova
 // base do histórico do TEC (só matérias com 30+ questões resolvidas, mapeadas pras matérias dela)
 const TEC_HIST_MATS = [
   { nome: "Direito Constitucional", a: "406", q: "543" },
@@ -1093,10 +1094,10 @@ const NAV_GROUPS = [
     { key: "es-historico", icon: "clock", label: "Histórico", kind: "view", view: "es-historico" },
     { key: "es-estatisticas", icon: "chart", label: "Estatísticas", kind: "view", view: "es-estatisticas" },
     { key: "es-simulados", icon: "clipboard", label: "Simulados e Provas Anteriores", kind: "view", view: "es-simulados" },
+    { key: "caixa", icon: "inbox", label: "Caixa de entrada", kind: "view", view: "caixa" },
   ] },
   { label: "Navegação", items: [
     { key: "painel", icon: "home", label: "Painel", kind: "home" },
-    { key: "caixa", icon: "inbox", label: "Caixa de entrada", kind: "view", view: "caixa" },
   ] },
   { label: "Matérias", items: [
     { key: "sec-base", n: "1", label: "Matérias-base", kind: "anchor" },
