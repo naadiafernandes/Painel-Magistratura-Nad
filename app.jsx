@@ -1098,14 +1098,8 @@ const NAV_GROUPS = [
   { label: "Navegação", items: [
     { key: "painel", icon: "home", label: "Painel", kind: "home" },
   ] },
-  { label: "Matérias", items: [
-    { key: "sec-base", n: "1", label: "Matérias-base", kind: "anchor" },
-    { key: "sec-altamedia", n: "2", label: "Importância média-alta", kind: "anchor" },
-    { key: "sec-baixamedia", n: "3", label: "Importância média-baixa", kind: "anchor" },
-  ] },
   { label: "Acervo", items: [
     { key: "sec-informativos", icon: "info", label: "Informativos", kind: "anchor" },
-    { key: "sec-cursos", icon: "video", label: "Cursos isolados", kind: "anchor" },
   ] },
 ];
 
@@ -5528,103 +5522,6 @@ export default function App() {
           </div>
         </aside>
 
-        {/* ---------- MATRIZ ---------- */}
-        {SECTIONS.map((section) => {
-          const meta = TIER_META[section.tier];
-          const stats = sectionStats(section);
-          return (
-            <section key={section.tier} id={`sec-${section.tier}`} className="tier">
-              <div className="tier-head">
-                <div className="tier-badge" style={{ background: meta.color }}>{meta.n}</div>
-                <div>
-                  <h2 className="tier-title" style={{ color: meta.color }}>{meta.label}</h2>
-                  <div className="tier-sub">{meta.sub}</div>
-                </div>
-                <div className="tier-count">
-                  <div>{stats.done}/{stats.total} completos</div>
-                  <div style={{ width: 120, marginTop: 6 }}><Bar done={stats.done} total={stats.total} color={meta.color} /></div>
-                </div>
-              </div>
-
-              {section.subjects.map((s) => {
-                const dims = DIM_ORDER.filter((d) => s.dims[d]);
-                return (
-                  <div key={s.id} className="subj">
-                    <div className="subj-head">
-                      <span className="subj-name">{s.name}</span>
-                      <span className="bloco">{s.bloco}</span>
-                    </div>
-                    <div className="cells" style={{ "--n": dims.length }}>
-                      {dims.map((dim) => {
-                        const items = s.dims[dim];
-                        const isCurso = dim === "teoria" && items && items.curso;
-                        const f = getFrac(s, dim);
-                        const ratio = f.total ? f.done / f.total : 0;
-                        const state = ratio === 1 ? "done" : ratio > 0 ? "partial" : "empty";
-                        const barColor = ratio === 1 ? "var(--green)" : "var(--gold)";
-                        const key = `${s.id}:${dim}`;
-                        const showNote = dim === "leiSeca";
-                        const showScore = dim === "questoes";
-                        if (isCurso) {
-                          return (
-                            <div key={dim} style={{ position: "relative" }}>
-                              <button className="cell cell-link" data-state={state} onClick={() => scrollToCurso(items.curso)} title="Ver o curso em vídeo nos Cursos Isolados">
-                                <div className="cell-label">
-                                  {DIM_LABEL[dim]}
-                                  {state === "done" ? <span className="check">✓</span> : <span className="link-arrow">ver curso ↓</span>}
-                                </div>
-                                <div className="cell-frac mono">{f.done}<small> /{f.total}</small></div>
-                                <Bar done={f.done} total={f.total} color={barColor} />
-                              </button>
-                            </div>
-                          );
-                        }
-                        return (
-                          <div key={dim} style={{ position: "relative" }}>
-                            <button className="cell" data-state={state} onClick={() => setOpen(open === key ? null : key)}>
-                              <div className="cell-label">
-                                {DIM_LABEL[dim]}
-                                {state === "done" && <span className="check">✓</span>}
-                              </div>
-                              <div className="cell-frac mono">{f.done}<small> /{f.total}</small></div>
-                              <Bar done={f.done} total={f.total} color={barColor} />
-                            </button>
-                            {open === key && (
-                              <div className="pop">
-                                <div className="pop-head">
-                                  <b>{DIM_LABEL[dim]}</b>
-                                  <span className="mono">{f.done}/{f.total}</span>
-                                </div>
-                                {items.map((label, idx) => {
-                                  const v = (data[key] || {})[idx] || {};
-                                  return (
-                                    <div key={idx} className={`pop-item${v.checked ? " checked" : ""}`}>
-                                      <label>
-                                        <input type="checkbox" checked={!!v.checked} onChange={() => toggleItem(s.id, dim, idx)} style={{ marginTop: 1 }} />
-                                        <span>{label}</span>
-                                        {showScore && (
-                                          <input className="score mono" placeholder="%" value={v.score || ""} onClick={(e) => e.stopPropagation()} onChange={(e) => toggleItem(s.id, dim, idx, { score: e.target.value })} />
-                                        )}
-                                      </label>
-                                      {showNote && (
-                                        <input className="field" placeholder="até qual artigo li..." value={v.note || ""} onClick={(e) => e.stopPropagation()} onChange={(e) => toggleItem(s.id, dim, idx, { note: e.target.value })} />
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })}
-            </section>
-          );
-        })}
-
         {/* ---------- INFORMATIVOS ---------- */}
         <section id="sec-informativos" className="panel">
           <div className="panel-head">
@@ -5654,73 +5551,6 @@ export default function App() {
         {/* ---------- SIMULADOS ---------- */}
         {secSimulados}
 
-        {/* ---------- CURSOS ISOLADOS ---------- */}
-        <section id="sec-cursos" className="panel">
-          <div className="panel-head">
-            <span className="panel-dot" style={{ background: "#7f96c4", boxShadow: "0 0 12px #7f96c4" }} />
-            <h2>CURSOS ISOLADOS</h2>
-          </div>
-          {CURSOS_ISOLADOS.map((c) => {
-            if (c.sublistas) {
-              return (
-                <div key={c.id} id={`curso-${c.id}`} className={`curso-anchor${flash === c.id ? " flash" : ""}`} style={{ marginBottom: 20 }}>
-                  <div className="subj-name" style={{ marginBottom: 10 }}>{c.nome}</div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-                    {c.sublistas.map((sub) => {
-                      const storeKey = `${c.id}:${sub.nome}`;
-                      const v = cursoData[storeKey] || {};
-                      const done = sub.itens.filter((_, i) => v[i]).length;
-                      return (
-                        <div key={sub.nome}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8, gap: 8 }}>
-                            <span className="col-label" style={{ marginBottom: 0 }}>{sub.nome}</span>
-                            <span className="mono" style={{ fontSize: 11, color: "var(--faint)" }}>{done}/{sub.itens.length}</span>
-                          </div>
-                          <div style={{ marginBottom: 10 }}><Bar done={done} total={sub.itens.length} color="#7f96c4" /></div>
-                          <div className="curso-box">
-                            {sub.itens.map((item, idx) => (
-                              <label key={idx} className={`curso-item${v[idx] ? " checked" : ""}`}>
-                                <input type="checkbox" checked={!!v[idx]} onChange={() => toggleCurso(c.id, sub.nome, idx)} style={{ marginTop: 2 }} />
-                                <span className="idx mono">{idx + 1}.</span>
-                                <span>{item}</span>
-                              </label>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            }
-            const v = cursoData[c.id] || {};
-            const total = c.itens.filter((it) => !(it && it.h)).length;
-            const done = c.itens.filter((it, i) => !(it && it.h) && v[i]).length;
-            return (
-              <div key={c.id} id={`curso-${c.id}`} className={`curso-anchor${flash === c.id ? " flash" : ""}`} style={{ marginBottom: 20 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8, gap: 8 }}>
-                  <span className="subj-name">{c.nome}</span>
-                  <span className="mono" style={{ fontSize: 11, color: "var(--faint)" }}>{done}/{total}</span>
-                </div>
-                <div style={{ marginBottom: 10 }}><Bar done={done} total={total} color="#7f96c4" /></div>
-                <div className="curso-box">
-                  {c.itens.map((item, idx) => {
-                    if (item && item.h) return <div key={idx} className="curso-head">{item.h}</div>;
-                    const label = typeof item === "string" ? item : item.t;
-                    const dur = typeof item === "object" ? item.d : null;
-                    return (
-                      <label key={idx} className={`curso-item${v[idx] ? " checked" : ""}`}>
-                        <input type="checkbox" checked={!!v[idx]} onChange={() => toggleCurso(c.id, null, idx)} style={{ marginTop: 2 }} />
-                        <span>{label}</span>
-                        {dur && <span className="dur mono">{dur}</span>}
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-        </section>
         </>)}
 
         {!loaded && <div style={{ textAlign: "center", color: "var(--faint)", fontSize: 12, marginTop: 24 }}>carregando progresso salvo...</div>}
