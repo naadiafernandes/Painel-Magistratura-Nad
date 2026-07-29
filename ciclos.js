@@ -19962,7 +19962,7 @@ window.CICLOS = {
 {
 "m": "digital",
 "lab": "Digital",
-"nome": "Marco Civil da Internet",
+"nome": "Tópicos Mesclados da Lei nº 12.965/2014",
 "n": 1,
 "ciclo": 2
 },
@@ -20200,7 +20200,7 @@ window.CICLOS = {
 {
 "m": "eleit",
 "lab": "Eleitoral",
-"nome": "Partidos Políticos",
+"nome": "Criação e Registro dos Partidos Políticos (arts. 8 a 11-A da 9.096; art. 17, § 2º da CF)",
 "n": 1,
 "ciclo": 2
 },
