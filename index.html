@@ -2642,6 +2642,7 @@ const cicloMatNome = (m, lab) => (SUBJ_BY_ID[m] && SUBJ_BY_ID[m].name) || lab ||
 // vinculados a informativos" já é o padrão do buscador.
 const CICLOS_DOD = (typeof window !== "undefined" && window.CICLOS_DOD) || { CAT_BY_M: {}, MAP: {} };
 const BUSCADOR_URL = "https://buscadordizerodireito.com.br/jurisprudencia?";
+const QUESTOES_CADERNO_URL = "https://www.tecconcursos.com.br/questoes/cadernos/95973879";
 const buscadorDoD = (item) => {
   const nome = (item && item.nome) || "";
   const rota = CICLOS_DOD.MAP[(item && item.m) + "|" + nome];
@@ -2780,6 +2781,7 @@ function CiclosRoscas({ registros, onRegistrar }) {
                 <div className="fila-topo-acts">
                   <button className="fila-fin" onClick={() => finalizar(rosca.id, d.topo)}>Finalizei ✓</button>
                   {rosca.id === "juris" && <a className="fila-dod" href={buscadorDoD(d.topo)} target="_blank" rel="noopener noreferrer">🔎 Buscar no Dizer o Direito ↗</a>}
+                  {rosca.id === "questoes" && <a className="fila-dod" href={QUESTOES_CADERNO_URL} target="_blank" rel="noopener noreferrer">📖 Abrir no TEC ↗</a>}
                   <button className="fila-so" onClick={() => soTempo(rosca.id, d.topo)}>só registrar tempo</button>
                 </div>
               </div>
@@ -2792,6 +2794,8 @@ function CiclosRoscas({ registros, onRegistrar }) {
                   <span className="fila-tag">{cicloMatNome(it.m, it.lab)}</span>
                   {rosca.id === "juris"
                     ? <a className="fila-nm fila-nm-link" href={buscadorDoD(it)} target="_blank" rel="noopener noreferrer" title="Buscar no Dizer o Direito">{it.nome} <span className="fila-nm-ext">🔎</span></a>
+                    : rosca.id === "questoes"
+                    ? <a className="fila-nm fila-nm-link" href={QUESTOES_CADERNO_URL} target="_blank" rel="noopener noreferrer" title="Abrir o caderno no TEC">{it.nome} <span className="fila-nm-ext">↗</span></a>
                     : <span className="fila-nm">{it.nome}</span>}
                   {rosca.id === "questoes" && <span className="fila-n">{it.n}q</span>}
                 </li>
