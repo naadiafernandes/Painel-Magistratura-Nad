@@ -2404,8 +2404,8 @@ function cicloEditalAddr(matId, topico) {
 // as 6 roscas — cores sempre em tokens do tema (--gold/--gold2/--coral), nunca cor fixa
 // Ciclos do dia (Painel): metas de tempo por fonte + quanto já fiz hoje
 const CICLO_METAS_KEY = "tjsc-ciclo-metas:v1";
-const CICLO_DIA_FONTES = ["teoria", "leiseca", "juris", "questoes", "revisao", "anki"];
-const CICLO_METAS_DEFAULT = { teoria: 60, leiseca: 30, juris: 60, questoes: 60, revisao: 20, anki: 15 };
+const CICLO_DIA_FONTES = ["anki", "juris", "questoes", "teoria", "leiseca", "revisao"];
+const CICLO_METAS_DEFAULT = { anki: 30, juris: 60, questoes: 60, teoria: 60, leiseca: 30, revisao: 30 };
 const CICLO_ROSCAS = [
   { id: "anki",     label: "Anki",     tok: "--gold2", kind: "rot"  },
   { id: "juris",    label: "Juris",    tok: "--gold",  kind: "fila" },
@@ -2610,7 +2610,7 @@ function CicloDiaCard({ id, f, meta, feito, pct, ok, onSaveMeta }) {
         </div>
       ) : (
         <button className="ciclo-metabtn" onClick={() => setEditing(true)} title="Definir o tempo desse ciclo">
-          {ok ? "feito!" : "meta"} {fmtTempo(meta)} <span className="ciclo-pencil">✎</span>
+          {ok ? "feito! · " : ""}Meta: {fmtTempo(meta)} <span className="ciclo-pencil">✎</span>
         </button>
       )}
     </div>
