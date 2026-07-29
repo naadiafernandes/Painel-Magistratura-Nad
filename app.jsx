@@ -890,7 +890,7 @@ const REVSTATUS_KEY = "tjsc-revstatus:v1";
 // fontes de estudo do "Registrar estudo" (categorias do ESTUDEI, adaptadas)
 const REG_FONTES = [
   { id: "teoria",   label: "Teoria",         color: "#7fa8e6" },
-  { id: "leiseca",  label: "Lei seca",       color: "#5fbf87" },
+  { id: "leiseca",  label: "Lei Seca",       color: "#5fbf87" },
   { id: "juris",    label: "Jurisprudência", color: "#b48ee6" },
   { id: "questoes", label: "Questões",       color: "#e6c060" },
   { id: "revisao",  label: "Revisão",        color: "#e68a8a" },
@@ -1087,19 +1087,22 @@ const NAV_GROUPS = [
   { label: "ESTUDEI", items: [
     { key: "es-painel", icon: "home", label: "Painel", kind: "view", view: "es-painel" },
     { key: "es-materias", icon: "layers", label: "Matérias", kind: "view", view: "es-materias" },
-    { key: "es-cursos", icon: "video", label: "Cursos", kind: "view", view: "es-cursos" },
     { key: "es-editais", icon: "file", label: "Editais Verticalizados", kind: "view", view: "editais" },
     { key: "es-ciclos", icon: "pie", label: "Ciclos", kind: "view", view: "es-ciclos" },
-    { key: "es-revisoes", icon: "refresh", label: "Revisões", kind: "view", view: "es-revisoes" },
     { key: "es-historico", icon: "clock", label: "Histórico", kind: "view", view: "es-historico" },
     { key: "es-estatisticas", icon: "chart", label: "Estatísticas e Simulados", kind: "view", view: "es-estatisticas" },
     { key: "caixa", icon: "inbox", label: "Caixa de entrada", kind: "view", view: "caixa" },
   ] },
+  { label: "FONTES", items: [
+    { key: "fonte-anki", icon: "book", label: "Anki (EM BREVE!)", kind: "view", view: "fonte-anki" },
+    { key: "fonte-juris", icon: "info", label: "Jurisprudência (EM BREVE!)", kind: "view", view: "fonte-juris" },
+    { key: "fonte-questoes", icon: "clipboard", label: "Questões (EM BREVE!)", kind: "view", view: "fonte-questoes" },
+    { key: "fonte-teoria", icon: "video", label: "Teoria (EM BREVE!)", kind: "view", view: "es-cursos" },
+    { key: "fonte-leiseca", icon: "file", label: "Lei Seca (EM BREVE!)", kind: "view", view: "fonte-leiseca" },
+    { key: "fonte-revisoes", icon: "refresh", label: "Revisões", kind: "view", view: "es-revisoes" },
+  ] },
   { label: "Navegação", items: [
     { key: "painel", icon: "home", label: "Painel", kind: "home" },
-  ] },
-  { label: "Acervo", items: [
-    { key: "sec-informativos", icon: "info", label: "Informativos", kind: "anchor" },
   ] },
 ];
 
@@ -1851,6 +1854,18 @@ function TopicNotes({ label, materia, initial, onBack, onSave }) {
 }
 
 // ===== ESTUDEI: telas de estrutura (ainda sem conteúdo) =====
+// página "em breve" das fontes ainda não construídas
+function EmBreve({ title, sub, onBack }) {
+  return (
+    <section className="editais-page es-page">
+      <button className="edital-back" onClick={onBack}>← Voltar ao painel</button>
+      <p className="eyebrow">FONTES</p>
+      <h1 className="serif" style={{ marginBottom: 10 }}>{title}</h1>
+      {sub && <p className="es-sub">{sub}</p>}
+      <div className="es-hint" style={{ marginTop: 18 }}>🚧 Em breve — esta fonte ainda está em construção.</div>
+    </section>
+  );
+}
 function EsStub({ title, sub, blocks, onBack }) {
   return (
     <section className="editais-page es-page">
@@ -2133,7 +2148,7 @@ const CICLO_ROSCAS = [
   { id: "juris",    label: "Juris",    tok: "--gold",  kind: "fila" },
   { id: "questoes", label: "Questões", tok: "--coral", kind: "fila" },
   { id: "teoria",   label: "Teoria",   tok: "--gold",  kind: "fila" },
-  { id: "leiseca",  label: "Lei seca", tok: "--gold2", kind: "fila" },
+  { id: "leiseca",  label: "Lei Seca", tok: "--gold2", kind: "fila" },
   { id: "revisao",  label: "Revisão",  tok: "--coral", kind: "rot"  },
 ];
 
@@ -5355,6 +5370,39 @@ export default function App() {
         {view === "es-cursos" && (
           <CursosView cursoData={cursoData} onToggle={toggleCurso} onBack={() => setView("es-painel")} />
         )}
+        {view === "fonte-anki" && (
+          <EmBreve title="Anki" sub="Seus baralhos e o estudo por repetição espaçada." onBack={() => setView("es-painel")} />
+        )}
+        {view === "fonte-questoes" && (
+          <EmBreve title="Questões" sub="Bancos de questões por matéria e por tema." onBack={() => setView("es-painel")} />
+        )}
+        {view === "fonte-leiseca" && (
+          <EmBreve title="Lei Seca" sub="Seu vade mécum — a lei que importa, do jeitinho que você gosta." onBack={() => setView("es-painel")} />
+        )}
+        {view === "fonte-juris" && (
+          <section className="editais-page es-page">
+            <button className="edital-back" onClick={() => setView("es-painel")}>← Voltar ao painel</button>
+            <p className="eyebrow">FONTES</p>
+            <h1 className="serif" style={{ marginBottom: 10 }}>Jurisprudência</h1>
+            <p className="es-sub">Informativos de jurisprudência do STF e do STJ. {infoDone}/{infoTotal} lidos.</p>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 22, marginTop: 8 }}>
+              {["stf", "stj"].map((org) => (
+                <div key={org}>
+                  <div className="col-label" style={{ color: "var(--coral)" }}>{org.toUpperCase()}</div>
+                  {INFORMATIVOS[org].map((ed) => (
+                    <div key={ed.num} className="info-row" onClick={() => toggleInfo(org, ed.num)}>
+                      <input type="checkbox" checked={!!infoData[`${org}-${ed.num}`]} onChange={() => {}} />
+                      <a className="info-link" href={infoUrl(org, ed.num)} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} title="Abrir o PDF desta edição">
+                        Informativo {ed.num} ↗
+                      </a>
+                      <span className="date mono" style={{ marginLeft: "auto", fontSize: 11, color: "var(--faint)" }}>{ed.date}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
         {view === "es-revisoes" && (
           <RevisoesView registros={registros} revStatus={revStatus} onMark={marcarRevisao} onBack={() => setView("es-painel")} />
         )}
@@ -5481,32 +5529,6 @@ export default function App() {
             ))}
           </div>
         </aside>
-
-        {/* ---------- INFORMATIVOS ---------- */}
-        <section id="sec-informativos" className="panel">
-          <div className="panel-head">
-            <span className="panel-dot" />
-            <h2>INFORMATIVOS DE JURISPRUDÊNCIA</h2>
-            <span className="panel-count mono">{infoDone}/{infoTotal} lidos</span>
-          </div>
-          <p className="desc">Informativos Semanais</p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 22 }}>
-            {["stf", "stj"].map((org) => (
-              <div key={org}>
-                <div className="col-label" style={{ color: "var(--coral)" }}>{org.toUpperCase()}</div>
-                {INFORMATIVOS[org].map((ed) => (
-                  <div key={ed.num} className="info-row" onClick={() => toggleInfo(org, ed.num)}>
-                    <input type="checkbox" checked={!!infoData[`${org}-${ed.num}`]} onChange={() => {}} />
-                    <a className="info-link" href={infoUrl(org, ed.num)} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} title="Abrir o PDF desta edição">
-                      Informativo {ed.num} ↗
-                    </a>
-                    <span className="date mono" style={{ marginLeft: "auto", fontSize: 11, color: "var(--faint)" }}>{ed.date}</span>
-                  </div>
-                ))}
-              </div>
-            ))}
-          </div>
-        </section>
 
         {/* ---------- SIMULADOS ---------- */}
         {secSimulados}
