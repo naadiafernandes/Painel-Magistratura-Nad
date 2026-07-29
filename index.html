@@ -38,6 +38,29 @@
   #toolbar .cor-sw:hover{transform:scale(1.12);}
   #toolbar .cor-sw.on{border-color:#fafafa;}
   html[data-theme="light"] #toolbar .cor-sw.on{border-color:#18181b;}
+  /* sininho de avisos (informativos) */
+  #bellWrap{position:relative;display:inline-flex;}
+  #btnBell{position:relative;}
+  #bellDot{display:none;position:absolute;top:5px;right:5px;width:8px;height:8px;border-radius:50%;
+    background:#ef4444;border:1.5px solid #161619;}
+  html[data-theme="light"] #bellDot{border-color:#fff;}
+  #bellPanel{display:none;position:absolute;top:40px;right:0;z-index:600;width:290px;
+    background:#1c1c20;border:1px solid #3f3f46;border-radius:14px;padding:14px;
+    box-shadow:0 12px 30px rgba(0,0,0,.4);color:#fafafa;cursor:default;}
+  html[data-theme="light"] #bellPanel{background:#fff;border-color:#e4e4e7;color:#18181b;box-shadow:0 12px 30px rgba(0,0,0,.14);}
+  #bellPanel .bell-head{font-size:12px;font-weight:800;letter-spacing:.2px;margin-bottom:8px;color:#facc15;}
+  html[data-theme="light"] #bellPanel .bell-head{color:#ca8a04;}
+  #bellPanel .bell-title{font-size:13.5px;font-weight:600;line-height:1.4;margin-bottom:11px;}
+  #bellPanel .bell-actions{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:9px;}
+  #bellPanel .bell-go,#bellPanel .bell-open{font:inherit;font-size:12px;font-weight:700;text-decoration:none;
+    padding:7px 11px;border-radius:9px;cursor:pointer;border:1px solid #3f3f46;}
+  #bellPanel .bell-go{background:#E85D9A;color:#fff;border-color:#E85D9A;}
+  #bellPanel .bell-open{background:#27272a;color:#fafafa;}
+  html[data-theme="light"] #bellPanel .bell-open{background:#f4f4f5;color:#18181b;border-color:#d4d4d8;}
+  #bellPanel .bell-mark{font:inherit;font-size:11.5px;font-weight:600;background:none;border:none;cursor:pointer;
+    color:#a1a1aa;padding:4px 0 0;}
+  #bellPanel .bell-mark:hover{color:#facc15;}
+  #bellPanel .bell-empty{font-size:13px;color:#a1a1aa;}
   /* o logo mora no menu lateral no desktop; na barra só aparece em telas estreitas */
   @media (min-width:1025px){ #toolbar .brand{display:none;} }
   /* ---- tema claro ---- */
@@ -84,6 +107,10 @@
   </span>
   <button id="btnLight" class="theme-btn" title="Tema claro">&#9728;</button>
   <button id="btnDark" class="theme-btn" title="Tema escuro">&#9789;</button>
+  <span id="bellWrap">
+    <button id="btnBell" class="theme-btn" title="Avisos de informativos">&#128276;<span id="bellDot"></span></button>
+    <div id="bellPanel"></div>
+  </span>
   <button id="btnRestore" title="Restaurar uma versão anterior salva automaticamente">&#8635; Restaurar</button>
   <button id="btnExport" title="Baixar um backup .json com todo o seu progresso">Exportar backup</button>
   <button id="btnImport" title="Restaurar/mesclar um backup em outro aparelho ou navegador">Importar</button>
@@ -208,6 +235,72 @@ function infoUrl(org, num) {
   if (org === "stf") return `https://www.stf.jus.br/arquivo/cms/informativoSTF/anexo/Informativo_PDF/Informativo_stf_${num}.pdf`;
   return `https://processo.stj.jus.br/docs_internet/informativos/PDF/Inf${String(num).padStart(4, "0")}.pdf`;
 }
+// Índice oficial dos Informativos do TSE (não têm PDF por número estável).
+const TSE_INFO_URL = "https://www.tse.jus.br/jurisprudencia/informativos";
+function ytUrl(id) { return `https://www.youtube.com/watch?v=${id}`; }
+
+// ---------- Informativos: aulas do Mege (playlist "MEGE INFORMATIVOS") ----------
+// Da mais NOVA para a mais antiga. stj/stf = números das edições cobertas (viram
+// link do PDF oficial); tse = texto da edição; esp = título de aula especial (sem PDF).
+// Esta lista é atualizada 1x por semana pela tarefa "magisnad-informativos-semanal".
+const MEGE_AULAS = [
+  { id: "_p7VQG_Qg1k", esp: "Ed. Extraordinária 31 — Direito Público (STJ)" },
+  { id: "y48dtwHtDD0", stf: [1222], tse: "3, 4 e 5/2026" },
+  { id: "kzbRSc5zDUE", stj: [894], stf: [1221] },
+  { id: "IY0lXQeXt88", stj: [893], stf: [1220] },
+  { id: "6ehEAjOFaz0", stj: [892], stf: [1219] },
+  { id: "duCObDq-1Co", esp: "Principais julgados 1º sem/2026 — Civil e Processo Civil" },
+  { id: "zE90UsAjHmA", esp: "Principais julgados 1º sem/2026 — Constitucional e Administrativo" },
+  { id: "P1JlfcU68CI", stj: [891] },
+  { id: "v0Jw3eonYrc", stf: [1218] },
+  { id: "nurTMHxF-D4", stj: [890], stf: [1217] },
+  { id: "Ma853T0lwUY", stj: [889], stf: [1216] },
+  { id: "7l8CO7v0VRo", stj: [888], stf: [1215] },
+  { id: "qQCAJeuitD4", stj: [887], stf: [1214] },
+  { id: "Tt44ODdCtXM", stj: [886], stf: [1213] },
+  { id: "ZF_JZ-eZs0E", stj: [885], stf: [1212] },
+  { id: "HpN-aK-bk0E", tse: "1 e 2", stj: [884] },
+  { id: "ruP9diJPeEM", stj: [883], stf: [1210] },
+  { id: "VpfeHPtq71E", stj: [882], stf: [1209] },
+  { id: "MQOCTknvtlc", stj: [881], stf: [1208] },
+  { id: "R3bFNuoTpD0", stj: [880], stf: [1207] },
+  { id: "4p02aoDDUtw", stj: [879], stf: [1206] },
+  { id: "Pb4KIBBvM7A", stj: [878] },
+  { id: "38no5OM3dGw", stj: [877], stf: [1205] },
+  { id: "sUUP4TWYZp0", stj: [876] },
+  { id: "rStGXI0Q-Sk", stf: [1203, 1204] },
+  { id: "ASFKcsFFWU4", stj: [875] },
+  { id: "Z3H5mxFVgBE", esp: "Ed. Extraordinária 30 — Direito Penal (STJ)" },
+  { id: "miaozcatJKA", esp: "Ed. Extraordinária 29 — Direito Privado (STJ)" },
+  { id: "C7NakQyqXQQ", esp: "Ed. Extraordinária 28 — Direito Público (STJ)" },
+  { id: "W0c8ULpQvuw", esp: "Ed. Especial — Principais julgados de Constitucional 2025" },
+  { id: "VV-EWK3R8hQ", stf: [1202], stj: [874] },
+  { id: "Aqf4vLdwq80", stf: [1201], stj: [873] },
+  { id: "EYcWA4PyWig", stj: [872], tse: "17/2025" },
+  { id: "GxEb-fPCjfc", esp: "Aula de abertura — Domine os Tribunais Superiores" },
+];
+// Título curto de uma aula (o que aparece na linha e no sininho).
+function aulaTitulo(a) {
+  const p = [];
+  if (a.stj && a.stj.length) p.push("STJ " + a.stj.join(", "));
+  if (a.stf && a.stf.length) p.push("STF " + a.stf.join(", "));
+  if (a.tse) p.push("TSE " + a.tse);
+  return p.join(" · ") || a.esp || "Aula Mege";
+}
+// Grupos de subfontes da página Jurisprudência (súmulas e teses ainda vazios).
+const JURIS_SECOES = [
+  { grupo: "Súmulas", itens: [
+    { key: "sv",  nome: "Súmulas Vinculantes", link: "https://portal.stf.jus.br/jurisprudencia/sumariosumulas.asp?base=30" },
+    { key: "ssf", nome: "Súmulas do STF", link: "https://portal.stf.jus.br/jurisprudencia/sumariosumulas.asp?base=26" },
+    { key: "ssj", nome: "Súmulas do STJ", link: "https://scon.stj.jus.br/SCON/sumstj/" },
+    { key: "tse", nome: "Súmulas do TSE", link: "https://www.tse.jus.br/jurisprudencia/sumulas" },
+  ] },
+  { grupo: "Teses", itens: [
+    { key: "rg", nome: "Repercussão Geral (RG)", link: "https://portal.stf.jus.br/repercussaogeral/" },
+    { key: "rr", nome: "Recurso Repetitivo (RR)", link: "https://processo.stj.jus.br/repetitivos/temas_repetitivos/" },
+    { key: "jt", nome: "Jurisprudência em Teses (STJ)", link: "https://scon.stj.jus.br/SCON/jt/" },
+  ] },
+];
 
 // ---------- Teoria (tópicos do edital, por matéria) ----------
 const TEORIA = {
@@ -1254,7 +1347,7 @@ const NAV_GROUPS = [
   ] },
   { label: "FONTES", items: [
     { key: "fonte-anki", icon: "book", label: "Anki (🔜)", kind: "view", view: "fonte-anki" },
-    { key: "fonte-juris", icon: "info", label: "Jurisprudência (🔜)", kind: "view", view: "fonte-juris" },
+    { key: "fonte-juris", icon: "info", label: "Jurisprudência", kind: "view", view: "fonte-juris" },
     { key: "fonte-questoes", icon: "clipboard", label: "Questões (🔜)", kind: "view", view: "fonte-questoes" },
     { key: "fonte-teoria", icon: "video", label: "Teoria (🔜)", kind: "view", view: "es-cursos" },
     { key: "fonte-leiseca", icon: "file", label: "Lei Seca (🔜)", kind: "view", view: "fonte-leiseca" },
@@ -2025,6 +2118,70 @@ function EmBreve({ title, sub, onBack }) {
     </section>
   );
 }
+// Uma "gaveta" que abre e fecha (título fixo; conteúdo só aparece no clique).
+function Gaveta({ titulo, cnt, aberta, onToggle, children }) {
+  return (
+    <div className="juris-gav">
+      <button className="juris-gav-head" onClick={onToggle}>
+        <span className="chev" style={{ transform: aberta ? "rotate(90deg)" : "none" }}>▶</span>
+        <span>{titulo}</span>
+        {cnt != null && <span className="cnt">{cnt}</span>}
+      </button>
+      {aberta && <div className="juris-gav-body">{children}</div>}
+    </div>
+  );
+}
+// Página FONTES › Jurisprudência: Súmulas, Teses e Informativos (aulas do Mege).
+function JurisFonte({ infoData, onToggle, onBack, feitos, total }) {
+  const [aberto, setAberto] = useState({ informativos: true });
+  const flip = (k) => setAberto((o) => ({ ...o, [k]: !o[k] }));
+  return (
+    <section className="editais-page es-page">
+      <button className="edital-back" onClick={onBack}>← Voltar ao painel</button>
+      <p className="eyebrow">FONTES</p>
+      <h1 className="serif" style={{ marginBottom: 10 }}>Jurisprudência</h1>
+      <p className="es-sub">Súmulas, teses e informativos — cada fonte abre no clique. Você acompanha os informativos pelas aulas do Mege.</p>
+
+      {JURIS_SECOES.map((sec) => (
+        <div key={sec.grupo}>
+          <div className="juris-grupo">{sec.grupo}</div>
+          {sec.itens.map((it) => (
+            <Gaveta key={it.key} titulo={it.nome} aberta={!!aberto[it.key]} onToggle={() => flip(it.key)}>
+              <div className="juris-vazio">
+                Ainda vazio — a gente vai preencher juntas. Enquanto isso, a fonte oficial:{" "}
+                <a href={it.link} target="_blank" rel="noopener noreferrer">abrir {it.nome} ↗</a>
+              </div>
+            </Gaveta>
+          ))}
+        </div>
+      ))}
+
+      <div className="juris-grupo">Informativos</div>
+      <Gaveta titulo="Aulas do Mege (Informativos)" cnt={`${feitos}/${total} vistas`} aberta={!!aberto.informativos} onToggle={() => flip("informativos")}>
+        {MEGE_AULAS.map((a) => (
+          <div key={a.id} className="info-row juris-aula" onClick={() => onToggle("mege", a.id)}>
+            <input type="checkbox" checked={!!infoData[`mege-${a.id}`]} onChange={() => {}} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, marginRight: "auto" }}>
+              <span className="aula-t">{aulaTitulo(a)}</span>
+              <div className="juris-chips" onClick={(e) => e.stopPropagation()}>
+                <a className="juris-chip yt" href={ytUrl(a.id)} target="_blank" rel="noopener noreferrer" title="Assistir a aula no YouTube">▶ assistir</a>
+                {(a.stj || []).map((n) => (
+                  <a key={`j${n}`} className="juris-chip" href={infoUrl("stj", n)} target="_blank" rel="noopener noreferrer" title="PDF oficial do STJ">STJ {n} ↗</a>
+                ))}
+                {(a.stf || []).map((n) => (
+                  <a key={`f${n}`} className="juris-chip" href={infoUrl("stf", n)} target="_blank" rel="noopener noreferrer" title="PDF oficial do STF">STF {n} ↗</a>
+                ))}
+                {a.tse && (
+                  <a className="juris-chip" href={TSE_INFO_URL} target="_blank" rel="noopener noreferrer" title="Informativos do TSE">TSE {a.tse} ↗</a>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+      </Gaveta>
+    </section>
+  );
+}
 function EsStub({ title, sub, blocks, onBack }) {
   return (
     <section className="editais-page es-page">
@@ -2123,7 +2280,7 @@ function CronometroView({ crono, now, onPlay, onPause, onReset, onMode, onField,
       <button className="edital-back" onClick={onBack}>← Voltar ao painel</button>
       <p className="eyebrow">ESTUDEI</p>
       <h1 className="serif" style={{ marginBottom: 10 }}>Cronômetro</h1>
-      <p className="es-sub">Escolha a matéria, dê o play e estude. Quando parar, o tempo já vai pro seu registro.</p>
+      <p className="es-sub">Escolha a matéria, dê o play e estude!</p>
 
       <div className="cron-modes">
         {[["livre", "Cronômetro"], ["pomo", "Pomodoro"]].map(([k, l]) => (
@@ -3120,7 +3277,7 @@ function SimMats({ mats, onChange }) {
   );
 }
 
-function EstatSimView({ registros, feitos, sugestoes, onNovo, onEditFeito, onDeleteFeito, onUpdateMats, onRegistrarSug, onReorder, onAddSug, onDeleteSug, onBack }) {
+function EstatSimView({ registros, feitos, sugestoes, onNovo, onEditFeito, onDeleteFeito, onUpdateMats, onRegistrarSug, onReorder, onAddSug, onDeleteSug, onRegistrarQuestoes, onEditReg, onDeleteReg, onBack }) {
   const [novoSug, setNovoSug] = useState("");
   const [over, setOver] = useState(null);
   const [openSim, setOpenSim] = useState(null);
@@ -3146,6 +3303,15 @@ function EstatSimView({ registros, feitos, sugestoes, onNovo, onEditFeito, onDel
   const q = ac + er; const perc = q ? Math.round((ac / q) * 100) : 0;
   const dias = new Set(registros.map((r) => new Date(r.ts).toDateString())).size;
   const mediaDia = dias ? Math.round(tempo / dias) : 0;
+  // historicozinho da semana (puxado do histórico), agrupado por dia — só desta semana
+  const weekStart = (() => { const dt = new Date(); dt.setHours(0, 0, 0, 0); dt.setDate(dt.getDate() - dt.getDay()); return dt.getTime(); })();
+  const semGrupos = []; const semByDay = {};
+  for (const r of [...registros].filter((r) => r.ts >= weekStart).sort((a, b) => b.ts - a.ts)) {
+    const key = new Date(r.ts).toISOString().slice(0, 10);
+    if (!semByDay[key]) { semByDay[key] = { key, ts: r.ts, itens: [] }; semGrupos.push(semByDay[key]); }
+    semByDay[key].itens.push(r);
+  }
+  const fmtDiaSem = (ts) => new Date(ts).toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "short" });
   // desempenho por matéria pros prediozinhos: junta TUDO que tem questão por matéria
   // (estudos do dia a dia + HISTÓRICO DO TEC + simulados/provas), pra nunca vir vazio
   const matChart = {};
@@ -3257,7 +3423,7 @@ function EstatSimView({ registros, feitos, sugestoes, onNovo, onEditFeito, onDel
       <h1 className="serif" style={{ marginBottom: 10 }}>Estatísticas e Simulados</h1>
       <p className="es-sub">Todos os seus números e gráficos num lugar só</p>
 
-      <div className="sechead-es" style={{ marginTop: 8 }}>Do dia a dia</div>
+      <div className="sechead-es" style={{ marginTop: 8 }}>Questões Diárias</div>
       <div className="stat-grid">
         <div className="panel stat-desemp">
           <div className="dp-lbl">Desempenho</div>
@@ -3269,7 +3435,7 @@ function EstatSimView({ registros, feitos, sugestoes, onNovo, onEditFeito, onDel
         <div className="panel"><div className="dp-lbl">Média por dia</div><div className="dp-big mat-big">{fmtTempo(mediaDia)}</div></div>
       </div>
 
-      <div className="sechead-es">Simulados e provas</div>
+      <div className="sechead-es">Simulados e Provas</div>
       <div className="mat-topcards">
         <div className="panel"><div className="dp-lbl">Simulados/Provas feitos</div><div className="dp-big mat-big">{provas.length}</div></div>
         <div className="panel"><div className="dp-lbl">Último simulado/Prova</div>
@@ -3311,13 +3477,21 @@ function EstatSimView({ registros, feitos, sugestoes, onNovo, onEditFeito, onDel
 
       <div className="painel-2col es-split">
         <div className="es-col">
-          <div className="es-colhead">Do dia a dia</div>
-          <div className="sechead-es">Tempo por fonte</div>
-          <CiclosPizzas registros={registros} />
+          <div className="es-colhead">Questões Diárias</div>
+          <button className="sim-newbtn" onClick={onRegistrarQuestoes} style={{ marginTop: 4 }}>+ Registrar questões</button>
+          <div className="sechead-es">Histórico da semana</div>
+          {semGrupos.length === 0
+            ? <div className="es-hint">Nada registrado esta semana ainda.</div>
+            : semGrupos.map((g) => (
+                <div className="hist-day" key={g.key}>
+                  <div className="hist-dayhead"><span>{fmtDiaSem(g.ts)}</span><span className="hist-daytot">{fmtTempo(g.itens.reduce((s, r) => s + (r.tempo || 0), 0))}</span></div>
+                  {g.itens.map((r) => <RegRow key={r.id} r={r} onEdit={onEditReg} onDelete={onDeleteReg} />)}
+                </div>
+              ))}
         </div>
 
         <div className="es-col">
-          <div className="es-colhead">Simulados e provas</div>
+          <div className="es-colhead">Simulados e Provas</div>
           <div className="sechead-es">Meus simulados e provas</div>
       {feitosOrd.length === 0 ? <div className="es-hint">Nenhum simulado ainda. Toque em “+ Novo simulado” pra registrar o primeiro.</div>
         : feitosOrd.map((s) => {
@@ -3515,6 +3689,15 @@ function App() {
           } catch {
             info[k] = false;
           }
+        }
+      }
+      for (const a of MEGE_AULAS) {
+        const k = `mege-${a.id}`;
+        try {
+          const r = await window.storage.get(INFO_KEY_PREFIX + k);
+          info[k] = r ? JSON.parse(r.value) : false;
+        } catch {
+          info[k] = false;
         }
       }
       const cursos = {};
@@ -4074,6 +4257,25 @@ function App() {
     } catch {}
   };
 
+  // Avisa o sininho da barra qual é a aula mais nova de informativos.
+  useEffect(() => {
+    try {
+      const a = MEGE_AULAS[0];
+      if (!a) return;
+      localStorage.setItem("magisnad-info-latest", JSON.stringify({ id: a.id, label: aulaTitulo(a), url: ytUrl(a.id) }));
+      if (localStorage.getItem("magisnad-info-seen") == null) localStorage.setItem("magisnad-info-seen", a.id);
+      window.dispatchEvent(new Event("magisnad-info-latest"));
+    } catch {}
+  }, []);
+
+  // Ponte: o sininho pode pedir pra abrir a página Jurisprudência.
+  useEffect(() => {
+    try {
+      const g = localStorage.getItem("magisnad-goto");
+      if (g) { localStorage.removeItem("magisnad-goto"); setView(g); }
+    } catch {}
+  }, []);
+
   // marca/desmarca UMA caixinha (Teoria, Lei Seca, Questões, 1ª/2ª/3ª revisão) de um tópico
   const toggleEditalCell = async (editalId, pathKey, field) => {
     const cur = editaisData[editalId] || {};
@@ -4264,8 +4466,8 @@ function App() {
     (a, sec) => { const st = sectionStats(sec); return { done: a.done + st.done, total: a.total + st.total }; },
     { done: 0, total: 0 }
   );
-  const infoTotal = INFORMATIVOS.stf.length + INFORMATIVOS.stj.length;
-  const infoDone = Object.values(infoData).filter(Boolean).length;
+  const infoTotal = MEGE_AULAS.length;
+  const infoDone = MEGE_AULAS.filter((a) => infoData[`mege-${a.id}`]).length;
   const pct = (d, t) => (t ? Math.round((d / t) * 100) : 0);
 
   const Bar = ({ done, total, color }) => (
@@ -4547,6 +4749,29 @@ function App() {
         .info-row .date { margin-left: auto; }
         .info-link { color: var(--text); text-decoration: none; font-weight: 500; }
         .info-link:hover { color: var(--gold); text-decoration: underline; }
+
+        /* Jurisprudência: gavetas (abre/fecha) + chips das fontes */
+        .juris-grupo { font-size: 11px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase;
+          color: var(--gold); margin: 22px 0 10px; }
+        .juris-gav { border: 1px solid var(--line); border-radius: 13px; background: var(--surface-2); margin-bottom: 9px; overflow: hidden; }
+        .juris-gav-head { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+          font: inherit; font-size: 14px; font-weight: 600; color: var(--text); background: none; border: none;
+          padding: 13px 15px; cursor: pointer; }
+        .juris-gav-head:hover { background: var(--surface-3); }
+        .juris-gav-head .chev { color: var(--muted); font-size: 12px; transition: transform .18s; }
+        .juris-gav-head .cnt { margin-left: auto; font-size: 11.5px; color: var(--faint); font-weight: 500; }
+        .juris-gav-body { padding: 6px 13px 15px; }
+        .juris-vazio { font-size: 13px; color: var(--muted); line-height: 1.6; }
+        .juris-vazio a { color: var(--gold); text-decoration: none; font-weight: 600; }
+        .juris-vazio a:hover { text-decoration: underline; }
+        .juris-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+        .juris-chip { font-size: 11px; font-weight: 600; text-decoration: none; padding: 3px 9px; border-radius: 999px;
+          border: 1px solid var(--line); color: var(--muted); background: var(--surface); white-space: nowrap; }
+        .juris-chip:hover { border-color: var(--gold); color: var(--gold); }
+        .juris-chip.yt { border-color: var(--coral); color: var(--coral); }
+        .juris-chip.yt:hover { background: var(--coral); color: #fff; }
+        .juris-aula { align-items: flex-start; }
+        .juris-aula .aula-t { font-weight: 600; }
 
         /* Simulados: acordeão por ano + % por matéria */
         .sim-year { border: 1px solid var(--line); border-radius: 12px; margin-bottom: 8px; overflow: hidden; background: var(--surface-2); }
@@ -5092,13 +5317,12 @@ function App() {
         .cron-cfg { display: flex; justify-content: center; gap: 18px; margin: 10px 0 4px; }
         .cron-cfg label { font-size: 12.5px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
         .cron-cfg input { width: 56px; padding: 6px 8px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; text-align: center; }
-        .cron-form { margin: 22px auto 6px; }
-        .cron-form .reg-2col { max-width: 560px; margin: 12px auto 0; }
-        .cron-fonte-lbl { text-align: center; }
-        .cron-fontes { flex-wrap: nowrap; justify-content: center; gap: 7px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+        .cron-form { margin: 22px auto 6px; max-width: 620px; }
+        .cron-form .reg-2col { margin-top: 14px; }
+        .cron-fonte-lbl { text-align: left; }
+        .cron-fontes { flex-wrap: nowrap; justify-content: flex-start; gap: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
         .cron-fontes::-webkit-scrollbar { display: none; }
-        .cron-fontes .reg-chip { flex: 0 0 auto; white-space: nowrap; padding: 8px 13px; font-size: 12.5px; }
-        .cron-save { max-width: 560px; margin-left: auto; margin-right: auto; }
+        .cron-fontes .reg-chip { flex: 0 0 auto; white-space: nowrap; padding: 7px 11px; font-size: 12px; }
         .cron-save { width: 100%; margin-top: 16px; background: var(--gold); color: var(--on-accent); border: none; border-radius: 12px; padding: 14px; font: inherit; font-size: 15px; font-weight: 800; cursor: pointer; }
         .cron-save:disabled { opacity: .5; cursor: default; }
         .cron-save b { font-weight: 800; }
@@ -5883,28 +6107,7 @@ function App() {
           <EmBreve title="Lei Seca" sub="Seu vade mécum — a lei que importa, do jeitinho que você gosta." onBack={() => setView("es-painel")} />
         )}
         {view === "fonte-juris" && (
-          <section className="editais-page es-page">
-            <button className="edital-back" onClick={() => setView("es-painel")}>← Voltar ao painel</button>
-            <p className="eyebrow">FONTES</p>
-            <h1 className="serif" style={{ marginBottom: 10 }}>Jurisprudência</h1>
-            <p className="es-sub">Informativos de jurisprudência do STF e do STJ. {infoDone}/{infoTotal} lidos.</p>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 22, marginTop: 8 }}>
-              {["stf", "stj"].map((org) => (
-                <div key={org}>
-                  <div className="col-label" style={{ color: "var(--coral)" }}>{org.toUpperCase()}</div>
-                  {INFORMATIVOS[org].map((ed) => (
-                    <div key={ed.num} className="info-row" onClick={() => toggleInfo(org, ed.num)}>
-                      <input type="checkbox" checked={!!infoData[`${org}-${ed.num}`]} onChange={() => {}} />
-                      <a className="info-link" href={infoUrl(org, ed.num)} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} title="Abrir o PDF desta edição">
-                        Informativo {ed.num} ↗
-                      </a>
-                      <span className="date mono" style={{ marginLeft: "auto", fontSize: 11, color: "var(--faint)" }}>{ed.date}</span>
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </div>
-          </section>
+          <JurisFonte infoData={infoData} onToggle={toggleInfo} feitos={infoDone} total={infoTotal} onBack={() => setView("es-painel")} />
         )}
         {view === "es-revisoes" && (
           <RevisoesView registros={registros} revStatus={revStatus} onMark={marcarRevisao} onBack={() => setView("es-painel")} />
@@ -5922,6 +6125,9 @@ function App() {
             onReorder={saveSimSug}
             onAddSug={addSimSug}
             onDeleteSug={removeSimSug}
+            onRegistrarQuestoes={() => abrirRegistro({ fonte: "questoes" })}
+            onEditReg={abrirRegistro}
+            onDeleteReg={removeRegistro}
             onBack={() => setView("es-painel")}
           />
         )}
@@ -6129,6 +6335,43 @@ function setTheme(t){ document.documentElement.setAttribute('data-theme', t); lo
 document.getElementById('btnLight').onclick = function(){ setTheme('light'); };
 document.getElementById('btnDark').onclick = function(){ setTheme('dark'); };
 syncThemeBtns();
+
+// sininho: avisa quando entra aula nova de informativos
+(function(){
+  var btn = document.getElementById('btnBell');
+  var dot = document.getElementById('bellDot');
+  var panel = document.getElementById('bellPanel');
+  if (!btn || !panel) return;
+  function latest(){ try { return JSON.parse(localStorage.getItem('magisnad-info-latest') || 'null'); } catch(e){ return null; } }
+  function seen(){ return localStorage.getItem('magisnad-info-seen'); }
+  function refresh(){ var l = latest(); dot.style.display = (l && l.id && l.id !== seen()) ? 'block' : 'none'; }
+  function esc(s){ var d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
+  function hide(){ panel.style.display = 'none'; }
+  function render(){
+    var l = latest();
+    if (!l){ panel.innerHTML = '<div class="bell-empty">Sem aulas ainda.</div>'; return; }
+    var isNew = l.id !== seen();
+    panel.innerHTML =
+      '<div class="bell-head">' + (isNew ? '🔔 Aula nova de informativos' : 'Informativos — última aula') + '</div>' +
+      '<div class="bell-title">' + esc(l.label) + '</div>' +
+      '<div class="bell-actions">' +
+        '<a class="bell-go" target="_blank" rel="noopener noreferrer" href="' + esc(l.url) + '">▶ Assistir</a>' +
+        '<button class="bell-open" id="bellOpenJuris">Ver na Jurisprudência</button>' +
+      '</div>' +
+      '<button class="bell-mark" id="bellMark">Marcar como visto</button>';
+    document.getElementById('bellMark').onclick = function(){ localStorage.setItem('magisnad-info-seen', l.id); refresh(); hide(); };
+    document.getElementById('bellOpenJuris').onclick = function(){
+      localStorage.setItem('magisnad-info-seen', l.id);
+      localStorage.setItem('magisnad-goto', 'fonte-juris');
+      location.reload();
+    };
+  }
+  btn.onclick = function(e){ e.stopPropagation(); if (panel.style.display === 'block'){ hide(); } else { render(); panel.style.display = 'block'; } };
+  document.addEventListener('click', function(e){ if (panel.style.display === 'block' && !panel.contains(e.target) && e.target !== btn && !btn.contains(e.target)) hide(); });
+  window.addEventListener('magisnad-info-latest', refresh);
+  window.addEventListener('storage', refresh);
+  refresh();
+})();
 
 (function(){
   var sws = document.querySelectorAll('#corGroup .cor-sw');
