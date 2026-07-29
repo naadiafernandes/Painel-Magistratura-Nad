@@ -12,6 +12,8 @@
 <link rel="icon" type="image/png" sizes="512x512" href="icon-512-v2.png" />
 <link rel="apple-touch-icon" href="icon-192-v2.png" />
 <link rel="manifest" href="manifest.webmanifest" />
+<!-- Cofre de sincronização entre aparelhos. Preenchido depois de criar a conta grátis (uma vez). Vazio = sincronização desligada; o app funciona normal. -->
+<script>window.__SUPA = { url: "", key: "" };</script>
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js" crossorigin></script>
@@ -72,9 +74,20 @@
   html[data-theme="light"] #toolbar .brand{color:#ca8a04;}
   html[data-theme="light"] #toolbar .theme-btn.on{border-color:#ca8a04;color:#ca8a04;}
   html[data-theme="light"] #toolbar #status{color:#15803d;}
-  #restoreModal{display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.55);
+  #restoreModal,#syncModal{display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.55);
     align-items:flex-start;justify-content:center;padding:70px 16px;font-family:-apple-system,'Segoe UI',sans-serif;}
-  #restoreModal.on{display:flex;}
+  #restoreModal.on,#syncModal.on{display:flex;}
+  #btnSync{position:relative;}
+  #syncDot{display:none;width:7px;height:7px;border-radius:50%;background:#4ade80;margin-right:5px;vertical-align:middle;}
+  #syncDot.on{display:inline-block;}
+  #syncInput{width:100%;box-sizing:border-box;font:inherit;font-size:14px;padding:10px 12px;border-radius:10px;
+    border:1px solid #3f3f46;background:#0f0f12;color:#fafafa;margin-bottom:10px;}
+  html[data-theme="light"] #syncInput{background:#fff;color:#18181b;border-color:#d4d4d8;}
+  #syncModal .rm-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:4px;}
+  #syncModal .rm-actions button{font:inherit;font-size:13px;font-weight:700;cursor:pointer;border-radius:9px;padding:9px 15px;border:1px solid #3f3f46;background:#27272a;color:#fafafa;}
+  #syncModal .rm-actions .primary{background:#facc15;color:#1a1206;border-color:#facc15;}
+  html[data-theme="light"] #syncModal .rm-actions button{background:#fff;color:#18181b;border-color:#d4d4d8;}
+  html[data-theme="light"] #syncModal .rm-actions .primary{background:#ca8a04;color:#fff;border-color:#ca8a04;}
   .rm-card{background:#18181b;color:#fafafa;border:1px solid #27272a;border-radius:16px;
     width:460px;max-width:100%;max-height:80vh;overflow:auto;padding:18px 20px;box-shadow:0 20px 50px rgba(0,0,0,.5);}
   html[data-theme="light"] .rm-card{background:#fff;color:#15161a;border-color:#e9e9ee;}
@@ -111,6 +124,7 @@
     <button id="btnBell" class="theme-btn" title="Avisos de informativos"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg><span id="bellDot"></span></button>
     <div id="bellPanel"></div>
   </span>
+  <button id="btnSync" title="Sincronizar seus dados entre iPhone, iPad e Mac"><span id="syncDot"></span>&#9729; Sincronizar</button>
   <button id="btnRestore" title="Restaurar uma versão anterior salva automaticamente">&#8635; Restaurar</button>
   <button id="btnExport" title="Baixar um backup .json com todo o seu progresso">Exportar backup</button>
   <button id="btnImport" title="Restaurar/mesclar um backup em outro aparelho ou navegador">Importar</button>
@@ -125,6 +139,22 @@
     </div>
     <p class="rm-sub">O app salva uma "foto" do seu progresso automaticamente. Escolha uma versão para voltar (o estado atual é salvo antes, por segurança).</p>
     <div id="rmList"></div>
+  </div>
+</div>
+
+<div id="syncModal">
+  <div class="rm-card">
+    <div class="rm-head">
+      <b>&#9729; Sincronizar entre aparelhos</b>
+      <button id="syncClose" title="Fechar">&times;</button>
+    </div>
+    <p class="rm-sub">Digite a <b>mesma frase secreta</b> em todos os seus aparelhos (iPhone, iPad e Mac). É ela que liga os seus dados entre eles — escolha algo que só você saiba e use igual nos três. Depois, o que você fizer num aparelho aparece nos outros sozinho.</p>
+    <input id="syncInput" type="text" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="sua frase secreta" />
+    <div id="syncState" class="rm-sub" style="margin-bottom:12px;"></div>
+    <div class="rm-actions">
+      <button id="syncOff">Desligar aqui</button>
+      <button id="syncSave" class="primary">Ligar sincronização</button>
+    </div>
   </div>
 </div>
 
@@ -147,6 +177,7 @@ window.storage = {
     if (String(k).indexOf('tjsc-') === 0) {
       var s = document.getElementById('status');
       if (s){ s.style.opacity = 1; clearTimeout(window.__st); window.__st = setTimeout(function(){ s.style.opacity = 0; }, 1200); }
+      if (window.__syncOnWrite) window.__syncOnWrite(String(k));
     }
   };
 })();
@@ -303,6 +334,153 @@ document.getElementById('file').onchange = function(e){
   };
   r.readAsText(f);
 };
+</script>
+
+<!-- ================= Sincronização entre aparelhos (cofre online) ================= -->
+<script>
+(function(){
+  var SUPA = window.__SUPA || { url:"", key:"" };
+  var PHRASE_KEY = 'magisnad-sync-space';   // a frase secreta, em claro (só neste aparelho) p/ reexibir
+  var ID_KEY     = 'magisnad-sync-id';      // identificador derivado (hash) usado no cofre
+  var TS_KEY     = 'magisnad-sync-ts';      // { chave: ms } quando soubemos do valor pela última vez
+  var PUSHED_KEY = 'magisnad-sync-pushed';  // { chave: ms } última vez que enviamos ao cofre
+
+  function isProg(k){ return k && k.indexOf('tjsc-')===0 && k.indexOf('tjsc-snapshot:')!==0; }
+  function jget(k){ try{ return JSON.parse(localStorage.getItem(k) || '{}'); }catch(e){ return {}; } }
+  function jset(k,o){ try{ localStorage.setItem(k, JSON.stringify(o)); }catch(e){} }
+  function spaceId(){ try{ return localStorage.getItem(ID_KEY) || ''; }catch(e){ return ''; } }
+  function configured(){ return !!(SUPA.url && SUPA.key); }
+  function on(){ return configured() && !!spaceId(); }
+
+  function sha(s){
+    return crypto.subtle.digest('SHA-256', new TextEncoder().encode('magisnad::'+s))
+      .then(function(b){ return Array.from(new Uint8Array(b)).map(function(x){ return x.toString(16).padStart(2,'0'); }).join(''); });
+  }
+  function headers(extra){
+    var h = { apikey: SUPA.key, Authorization: 'Bearer ' + SUPA.key };
+    if (extra) for (var x in extra) h[x] = extra[x];
+    return h;
+  }
+
+  var applying = false, lastWrite = 0, pushTimer = null, dirty = {};
+
+  window.__syncOnWrite = function(k){
+    if (applying) return;
+    lastWrite = Date.now();
+    if (!isProg(k) || !on()) return;
+    var ts = jget(TS_KEY); ts[k] = Date.now(); jset(TS_KEY, ts);
+    dirty[k] = true;
+    clearTimeout(pushTimer); pushTimer = setTimeout(pushDirty, 1500);
+  };
+
+  function pushDirty(){
+    if (!on()) return;
+    var ks = Object.keys(dirty); if (!ks.length) return;
+    var id = spaceId(), ts = jget(TS_KEY), rows = [];
+    ks.forEach(function(k){ rows.push({ space:id, k:k, v: localStorage.getItem(k), ts: ts[k] || Date.now() }); });
+    dirty = {};
+    fetch(SUPA.url + '/rest/v1/kv', {
+      method:'POST',
+      headers: headers({ 'Content-Type':'application/json', 'Prefer':'resolution=merge-duplicates,return=minimal' }),
+      body: JSON.stringify(rows)
+    }).then(function(r){
+      if (r.ok){ var p = jget(PUSHED_KEY); rows.forEach(function(row){ p[row.k] = row.ts; }); jset(PUSHED_KEY, p); }
+      else { ks.forEach(function(k){ dirty[k] = true; }); }
+    }).catch(function(){ ks.forEach(function(k){ dirty[k] = true; }); });
+  }
+
+  function pushAll(){
+    if (!on()) return;
+    var ts = jget(TS_KEY), touched = false;
+    for (var i=0;i<localStorage.length;i++){
+      var k = localStorage.key(i);
+      if (isProg(k)){ if (ts[k]==null){ ts[k]=Date.now(); touched=true; } dirty[k]=true; }
+    }
+    if (touched) jset(TS_KEY, ts);
+    pushDirty();
+  }
+
+  function pull(cb){
+    if (!on()){ if (cb) cb(false); return; }
+    fetch(SUPA.url + '/rest/v1/kv?select=k,v,ts&space=eq.' + encodeURIComponent(spaceId()), { headers: headers() })
+      .then(function(r){ return r.ok ? r.json() : []; })
+      .then(function(rows){
+        var ts = jget(TS_KEY), changed = false;
+        applying = true;
+        rows.forEach(function(row){
+          if (row.ts > (ts[row.k] || 0)){
+            var cur = localStorage.getItem(row.k);
+            var val = row.v == null ? '' : row.v;
+            if (cur !== val){ localStorage.setItem(row.k, val); changed = true; }
+            ts[row.k] = row.ts;
+          }
+        });
+        applying = false;
+        jset(TS_KEY, ts);
+        if (cb) cb(changed);
+      })
+      .catch(function(){ applying = false; if (cb) cb(false); });
+  }
+
+  function maybeReload(changed){
+    if (!changed) return;
+    if (Date.now() - lastWrite < 8000){ setTimeout(function(){ pull(maybeReload); }, 8000); return; }
+    location.reload();
+  }
+
+  // ---- API usada pela janelinha de sincronização ----
+  window.MagisSync = {
+    configured: configured,
+    isOn: on,
+    phrase: function(){ try{ return localStorage.getItem(PHRASE_KEY) || ''; }catch(e){ return ''; } },
+    enable: function(phrase, done){
+      var p = (phrase||'').trim();
+      if (!p || !configured()){ if (done) done(false); return; }
+      sha(p).then(function(id){
+        localStorage.setItem(PHRASE_KEY, p);
+        localStorage.setItem(ID_KEY, id);
+        pull(function(){ pushAll(); if (done) done(true); });
+      }).catch(function(){ if (done) done(false); });
+    },
+    disable: function(){ try{ localStorage.removeItem(ID_KEY); }catch(e){} }
+  };
+
+  // ---- liga sozinho no boot + fica de olho em mudanças dos outros aparelhos ----
+  if (on()){
+    pull(maybeReload);
+    setInterval(function(){ if (document.visibilityState === 'visible') pull(maybeReload); }, 15000);
+    window.addEventListener('focus', function(){ pull(maybeReload); });
+    document.addEventListener('visibilitychange', function(){ if (document.visibilityState === 'visible') pull(maybeReload); });
+  }
+
+  // ---- janelinha de sincronização (botão da barra) ----
+  (function(){
+    var btn = document.getElementById('btnSync');
+    var m   = document.getElementById('syncModal');
+    if (!btn || !m) return;
+    var inp = document.getElementById('syncInput');
+    var st  = document.getElementById('syncState');
+    var dot = document.getElementById('syncDot');
+    function paint(){
+      if (dot) dot.classList.toggle('on', on());
+      if (!configured()){ st.textContent = '⏳ O cofre ainda não foi configurado.'; st.style.color = '#a1a1aa'; }
+      else if (on()){ st.textContent = '✓ Ligada neste aparelho.'; st.style.color = '#4ade80'; }
+      else { st.textContent = 'Desligada neste aparelho.'; st.style.color = '#a1a1aa'; }
+    }
+    paint();
+    btn.onclick = function(){ inp.value = window.MagisSync.phrase(); paint(); m.classList.add('on'); setTimeout(function(){ inp.focus(); }, 60); };
+    document.getElementById('syncClose').onclick = function(){ m.classList.remove('on'); };
+    m.onclick = function(e){ if (e.target === this) m.classList.remove('on'); };
+    document.getElementById('syncSave').onclick = function(){
+      var v = (inp.value||'').trim();
+      if (!configured()){ st.textContent = 'O cofre ainda não foi configurado.'; st.style.color = '#f87171'; return; }
+      if (!v){ st.textContent = 'Digite a frase primeiro.'; st.style.color = '#f87171'; return; }
+      st.textContent = 'Sincronizando…'; st.style.color = '#a1a1aa';
+      window.MagisSync.enable(v, function(ok){ if (ok) location.reload(); else { st.textContent = 'Não consegui ligar. Confira a conexão.'; st.style.color = '#f87171'; } });
+    };
+    document.getElementById('syncOff').onclick = function(){ window.MagisSync.disable(); location.reload(); };
+  })();
+})();
 </script>
 </body>
 </html>

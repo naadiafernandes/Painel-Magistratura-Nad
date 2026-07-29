@@ -2062,16 +2062,15 @@ function JurisFonte({ infoData, onToggle, onBack, feitos, total }) {
     <section className="editais-page es-page">
       <button className="edital-back" onClick={onBack}>← Voltar ao painel</button>
       <p className="eyebrow">FONTES</p>
-      <h1 className="serif" style={{ marginBottom: 18 }}>Jurisprudência</h1>
+      <h1 className="serif" style={{ marginBottom: 14 }}>Jurisprudência</h1>
 
       {JURIS_SECOES.map((sec) => (
         <div key={sec.grupo}>
           <div className="juris-grupo">{sec.grupo}</div>
-          <div className={`juris-cards c${sec.itens.length}`}>
+          <div className="juris-cards">
             {sec.itens.map((it) => (
               <button key={it.key} className="juris-card" onClick={() => setSub(it.key)}>
                 <span className="juris-card-nome">{it.nome}</span>
-                <span className="juris-card-go">abrir ›</span>
               </button>
             ))}
           </div>
@@ -2079,10 +2078,10 @@ function JurisFonte({ infoData, onToggle, onBack, feitos, total }) {
       ))}
 
       <div className="juris-grupo">Informativos</div>
-      <div className="juris-cards c1">
+      <div className="juris-cards">
         <button className="juris-card" onClick={() => setSub("mege")}>
           <span className="juris-card-nome">Mege Informativos</span>
-          <span className="juris-card-go">{feitos}/{total} · abrir ›</span>
+          <span className="juris-card-cnt">{feitos}/{total}</span>
         </button>
       </div>
     </section>
@@ -4670,21 +4669,17 @@ export default function App() {
         /* Jurisprudência: quadradinhos (cards) + subpágina + anotações */
         .juris-grupo { font-size: 11px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase;
           color: var(--gold); margin: 22px 0 10px; }
-        .juris-cards { display: grid; gap: 12px; margin-bottom: 4px; }
-        .juris-cards.c4 { grid-template-columns: repeat(4, 1fr); }
-        .juris-cards.c3 { grid-template-columns: repeat(3, 1fr); }
-        .juris-cards.c1 { grid-template-columns: repeat(4, 1fr); }
-        @media (max-width: 640px) {
-          .juris-cards.c4, .juris-cards.c3, .juris-cards.c1 { grid-template-columns: repeat(2, 1fr); }
-        }
-        .juris-card { aspect-ratio: 1 / 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
-          text-align: center; gap: 8px; padding: 14px; border: 1px solid var(--line); border-radius: 18px;
-          background: var(--surface-2); color: var(--text); cursor: pointer; font: inherit;
-          transition: transform .14s, border-color .14s, background .14s; }
+        /* todos os cards do MESMO tamanho; só a arrumação por seção muda */
+        .juris-cards { display: flex; flex-wrap: wrap; gap: 13px; margin-bottom: 4px; }
+        .juris-card { flex: 0 0 auto; width: 138px; height: 116px; display: flex; flex-direction: column;
+          align-items: center; justify-content: center; text-align: center; gap: 7px; padding: 12px;
+          border: 1px solid var(--line); border-radius: 16px; background: var(--surface-2); color: var(--text);
+          cursor: pointer; font: inherit; transition: transform .14s, border-color .14s, background .14s; }
         .juris-card:hover { border-color: var(--gold); background: var(--surface-3); transform: translateY(-2px); }
-        .juris-card-nome { font-size: 14px; font-weight: 700; line-height: 1.3; }
-        .juris-card-go { font-size: 11px; font-weight: 600; color: var(--faint); }
-        .juris-card:hover .juris-card-go { color: var(--gold); }
+        .juris-card-nome { font-size: 13.5px; font-weight: 700; line-height: 1.3; }
+        .juris-card-cnt { font-size: 12px; font-weight: 700; color: var(--faint); }
+        .juris-card:hover .juris-card-cnt { color: var(--gold); }
+        @media (max-width: 520px) { .juris-card { width: calc(50% - 7px); } }
         .juris-sub-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; }
         .juris-sub-cnt { font-size: 13px; font-weight: 700; color: var(--faint); }
         .juris-anotar { margin-bottom: 8px; }
