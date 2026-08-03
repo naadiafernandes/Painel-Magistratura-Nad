@@ -1,0 +1,589 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<meta name="theme-color" content="#121215" />
+<title>AgendaNAD</title>
+<link rel="apple-touch-icon" href="../icon-192-v2.png" />
+<link rel="manifest" href="manifest.webmanifest" />
+<!-- Cofre de sincronizacao entre aparelhos (mesmo do MagisNAD; chaves publicas por design). -->
+<script>window.__SUPA = { url: "https://domkdqwnywsrnvhdrbom.supabase.co", key: "sb_publishable_ze3hp33ggw7f_BBstBVoeg_0BMQYC3R" };</script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js" crossorigin></script>
+<style>
+  :root{
+    --bg:#121215; --surface:#18181b; --surface2:#161619; --sidebar:#161619;
+    --border:#27272a; --border2:#3f3f46; --text:#fafafa; --muted:#a1a1aa; --faint:#71717a;
+    --input:#0f0f12; --accent:#facc15; --on-accent:#1a1206;
+    --azul:#2F6FE4; --amber:#f59e0b; --rosa:#E85D9A;
+  }
+  :root[data-cor="amarelo"]{--accent:#facc15;--on-accent:#1a1206;}
+  :root[data-cor="rosa"]{--accent:#E85D9A;--on-accent:#fff;}
+  :root[data-cor="azul"]{--accent:#2F6FE4;--on-accent:#fff;}
+  :root[data-cor="roxo"]{--accent:#7C4DE0;--on-accent:#fff;}
+  :root[data-theme="light"]{
+    --bg:#fafafa; --surface:#fff; --surface2:#f4f4f5; --sidebar:#f4f4f5;
+    --border:#e4e4e7; --border2:#d4d4d8; --text:#18181b; --muted:#71717a; --faint:#a1a1aa;
+    --input:#fff;
+  }
+  :root[data-theme="light"][data-cor="amarelo"]{--accent:#ca8a04;--on-accent:#fff;}
+  *{box-sizing:border-box;}
+  html,body{margin:0;background:var(--bg);color:var(--text);min-height:100%;
+    font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;-webkit-font-smoothing:antialiased;}
+  button{font:inherit;cursor:pointer;}
+  #boot{position:fixed;inset:0;display:grid;place-items:center;color:var(--muted);z-index:9999;background:var(--bg);}
+  #boot.hide{display:none;}
+</style>
+</head>
+<body>
+<div id="boot">carregando a agenda...</div>
+<div id="root"></div>
+
+<script>
+(function(){ document.documentElement.setAttribute('data-theme', localStorage.getItem('agenda-theme') || 'dark'); })();
+(function(){ document.documentElement.setAttribute('data-cor', localStorage.getItem('agenda-cor') || 'amarelo'); })();
+// indicador "salvo" + gancho de sincronizacao
+(function(){
+  var orig = Storage.prototype.setItem;
+  Storage.prototype.setItem = function(k, v){
+    orig.apply(this, arguments);
+    if (String(k).indexOf('agenda-') === 0 && window.__syncOnWrite) window.__syncOnWrite(String(k));
+  };
+})();
+</script>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef } = React;
+
+/* ---------- datas (sempre em horario local, sem fuso) ---------- */
+const pad = n => String(n).padStart(2,'0');
+const ymd = d => d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+const parseYmd = s => { const [y,m,d] = s.split('-').map(Number); return new Date(y, m-1, d); };
+const todayStr = () => ymd(new Date());
+const MESES = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+const DIAS = ['dom','seg','ter','qua','qui','sex','sáb'];
+const DIAS_LONGO = ['domingo','segunda','terça','quarta','quinta','sexta','sábado'];
+const cap = t => t ? t.charAt(0).toUpperCase()+t.slice(1) : t;
+const fmtLongo = s => { const d = parseYmd(s); return cap(DIAS_LONGO[d.getDay()])+', '+d.getDate()+' de '+MESES[d.getMonth()]; };
+
+const TIPOS = {
+  audiencia:   { nome:'Audiência',   cor:'#2F6FE4' },
+  compromisso: { nome:'Compromisso', cor:'#f59e0b' },
+  aniversario: { nome:'Aniversário', cor:'#E85D9A' },
+};
+const REPETE = [
+  { v:'none',    nome:'Não repete' },
+  { v:'weekly',  nome:'Toda semana' },
+  { v:'monthly', nome:'Todo mês' },
+  { v:'yearly',  nome:'Todo ano' },
+  { v:'custom',  nome:'Personalizado' },
+];
+
+/* ---------- ocorrencias de um evento dentro de um intervalo [rs, re] (strings YYYY-MM-DD) ---------- */
+function occurrences(ev, rs, re){
+  const rep = ev.repeat || { freq:'none' };
+  const start = parseYmd(ev.date);
+  const reD = parseYmd(re);
+  const out = [];
+  if (rep.freq === 'none'){ if (ev.date >= rs && ev.date <= re) out.push(ev.date); return out; }
+  const interval = Math.max(1, rep.interval || 1);
+  const sy = start.getFullYear(), sm = start.getMonth(), sd = start.getDate();
+  let unit = rep.freq, step = interval;
+  if (rep.freq === 'custom'){ unit = rep.unit || 'week'; }
+  for (let n = 0, guard = 0; guard < 4000; n++, guard++){
+    let d;
+    if (unit === 'weekly' || unit === 'week'){ d = new Date(sy, sm, sd + 7 * step * n); }
+    else if (unit === 'day'){ d = new Date(sy, sm, sd + step * n); }
+    else if (unit === 'monthly' || unit === 'month'){ d = new Date(sy, sm + step * n, sd); if (d.getDate() !== sd) continue; }
+    else if (unit === 'yearly' || unit === 'year'){ d = new Date(sy + step * n, sm, sd); if (d.getDate() !== sd || d.getMonth() !== sm) continue; }
+    else { d = new Date(sy, sm, sd); }
+    if (d > reD) break;
+    const s = ymd(d);
+    if (s >= rs && s <= re) out.push(s);
+  }
+  return out;
+}
+function repeatLabel(ev){
+  const r = ev.repeat || { freq:'none' };
+  if (r.freq === 'none') return '';
+  if (r.freq === 'weekly') return 'toda semana';
+  if (r.freq === 'monthly') return 'todo mês';
+  if (r.freq === 'yearly') return 'todo ano';
+  const u = { day:'dia', week:'semana', month:'mês', year:'ano' }[r.unit || 'week'];
+  const i = Math.max(1, r.interval || 1);
+  return i === 1 ? ('todo '+u) : ('a cada '+i+' '+u+(i>1 && r.unit!=='month'?'s':''));
+}
+
+/* ---------- armazenamento ---------- */
+const KEY = 'agenda-events';
+function loadEvents(){ try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch(e){ return []; } }
+function saveEvents(list){ localStorage.setItem(KEY, JSON.stringify(list)); }
+let _id = Date.now();
+const newId = () => 'e' + (_id++).toString(36) + Math.floor(Math.random()*1e6).toString(36);
+
+/* ================= App ================= */
+function App(){
+  const [events, setEvents] = useState(loadEvents);
+  const [view, setView] = useState('mes');          // 'mes' | 'lista'
+  const [cursor, setCursor] = useState(() => { const d = new Date(); return { y:d.getFullYear(), m:d.getMonth() }; });
+  const [editing, setEditing] = useState(null);      // evento em edicao ou null
+  const first = useRef(true);
+
+  useEffect(() => { if (first.current){ first.current = false; return; } saveEvents(events); }, [events]);
+  // recarrega a lista quando a sincronizacao trouxer mudanca de outro aparelho
+  useEffect(() => {
+    const h = () => setEvents(loadEvents());
+    window.addEventListener('agenda-pulled', h);
+    return () => window.removeEventListener('agenda-pulled', h);
+  }, []);
+
+  const upsert = ev => setEvents(list => {
+    const i = list.findIndex(e => e.id === ev.id);
+    if (i === -1) return [...list, ev];
+    const c = list.slice(); c[i] = ev; return c;
+  });
+  const remove = id => setEvents(list => list.filter(e => e.id !== id));
+
+  const openNew = (dateStr) => setEditing({ id:newId(), title:'', type:'compromisso', date: dateStr || todayStr(), time:'', note:'', repeat:{ freq:'none', interval:1, unit:'week' }, _new:true });
+
+  return (
+    <div style={{minHeight:'100vh'}}>
+      <Toolbar />
+      <div className="shell">
+        <Sidebar view={view} setView={setView} onNew={()=>openNew()} events={events} />
+        <main className="main">
+          {view === 'mes'
+            ? <MonthView cursor={cursor} setCursor={setCursor} events={events} onNew={openNew} onOpen={setEditing} />
+            : <AgendaView events={events} onOpen={setEditing} onNew={()=>openNew()} />}
+        </main>
+      </div>
+      {editing && <Editor ev={editing} onClose={()=>setEditing(null)} onSave={ev=>{ upsert(ev); setEditing(null); }} onDelete={id=>{ remove(id); setEditing(null); }} />}
+      <style>{CSS}</style>
+    </div>
+  );
+}
+
+/* ---------- menu lateral ---------- */
+function Sidebar({ view, setView, onNew, events }){
+  const item = (id, icon, label) => (
+    <button className={'navitem'+(view===id?' on':'')} onClick={()=>setView(id)}>
+      <span className="ico">{icon}</span>{label}
+    </button>
+  );
+  return (
+    <aside className="sidebar">
+      <div className="brand">◷ AgendaNAD</div>
+      <button className="btnNovo" onClick={onNew}>+ Novo compromisso</button>
+      <div className="navgroup">Agenda</div>
+      {item('mes','▦','Mês')}
+      {item('lista','☰','Lista')}
+      <div className="navgroup">Tipos</div>
+      {Object.entries(TIPOS).map(([k,t]) => (
+        <div key={k} className="legend"><span className="dot" style={{background:t.cor}}></span>{t.nome}</div>
+      ))}
+    </aside>
+  );
+}
+
+/* ---------- visao de mes ---------- */
+function MonthView({ cursor, setCursor, events, onNew, onOpen }){
+  const { y, m } = cursor;
+  const primeiro = new Date(y, m, 1);
+  const inicioGrade = new Date(y, m, 1 - primeiro.getDay());          // volta ate domingo
+  const cells = Array.from({length:42}, (_,i) => new Date(y, m, 1 - primeiro.getDay() + i));
+  const rs = ymd(cells[0]), re = ymd(cells[41]);
+  const hoje = todayStr();
+
+  // mapa: dataStr -> [ {ev, occ} ]
+  const porDia = {};
+  events.forEach(ev => occurrences(ev, rs, re).forEach(s => { (porDia[s] = porDia[s] || []).push(ev); }));
+
+  const go = delta => setCursor(c => { const d = new Date(c.y, c.m + delta, 1); return { y:d.getFullYear(), m:d.getMonth() }; });
+  const irHoje = () => { const d = new Date(); setCursor({ y:d.getFullYear(), m:d.getMonth() }); };
+
+  return (
+    <div>
+      <div className="head">
+        <div className="titulo">{MESES[m].charAt(0).toUpperCase()+MESES[m].slice(1)} {y}</div>
+        <div className="headbtns">
+          <button className="navbtn" onClick={()=>go(-1)} aria-label="Mês anterior">‹</button>
+          <button className="navbtn" onClick={irHoje}>Hoje</button>
+          <button className="navbtn" onClick={()=>go(1)} aria-label="Próximo mês">›</button>
+        </div>
+      </div>
+      <div className="weekhead">{DIAS.map(d => <div key={d}>{d}</div>)}</div>
+      <div className="grid">
+        {cells.map((d, i) => {
+          const s = ymd(d);
+          const foraDoMes = d.getMonth() !== m;
+          const isHoje = s === hoje;
+          const evs = porDia[s] || [];
+          return (
+            <div key={i} className={'cell'+(foraDoMes?' fora':'')+(isHoje?' hoje':'')} onClick={()=>onNew(s)}>
+              <div className="cellnum">{d.getDate()}</div>
+              {evs.slice(0,3).map((ev,j) => (
+                <div key={j} className="pill" style={{'--c':TIPOS[ev.type].cor}}
+                     onClick={e=>{ e.stopPropagation(); onOpen(ev); }}>
+                  {ev.repeat && ev.repeat.freq!=='none' ? '↻ ' : ''}{ev.time ? ev.time+' ' : ''}{ev.title || '(sem título)'}
+                </div>
+              ))}
+              {evs.length > 3 && <div className="mais">+{evs.length-3}</div>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- visao de lista (proximos 90 dias) ---------- */
+function AgendaView({ events, onOpen, onNew }){
+  const hoje = todayStr();
+  const fim = ymd(new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate() + 90));
+  const linhas = [];
+  events.forEach(ev => occurrences(ev, hoje, fim).forEach(s => linhas.push({ s, ev })));
+  linhas.sort((a,b) => a.s === b.s ? (a.ev.time||'').localeCompare(b.ev.time||'') : a.s.localeCompare(b.s));
+  const grupos = [];
+  linhas.forEach(l => {
+    let g = grupos[grupos.length-1];
+    if (!g || g.s !== l.s){ g = { s:l.s, itens:[] }; grupos.push(g); }
+    g.itens.push(l.ev);
+  });
+  return (
+    <div>
+      <div className="head">
+        <div className="titulo">Próximos compromissos</div>
+        <div className="headbtns"><button className="navbtn" onClick={onNew}>+ Novo</button></div>
+      </div>
+      {grupos.length === 0 && <div className="vazio">Nada marcado para os próximos 3 meses. Toque em <b>+ Novo compromisso</b> pra começar.</div>}
+      {grupos.map(g => (
+        <div key={g.s} className="diagrp">
+          <div className={'diahead'+(g.s===hoje?' ehoje':'')}>{g.s===hoje?'Hoje — ':''}{fmtLongo(g.s)}</div>
+          {g.itens.map((ev,i) => (
+            <div key={i} className="linha" style={{'--c':TIPOS[ev.type].cor}} onClick={()=>onOpen(ev)}>
+              <span className="ltempo">{ev.time || '—'}</span>
+              <span className="ltit">{ev.title || '(sem título)'}</span>
+              {ev.repeat && ev.repeat.freq!=='none' && <span className="lrep">↻ {repeatLabel(ev)}</span>}
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ---------- editor de evento ---------- */
+function Editor({ ev, onClose, onSave, onDelete }){
+  const [f, setF] = useState(ev);
+  const set = (k,v) => setF(o => ({ ...o, [k]:v }));
+  const setRep = (k,v) => setF(o => ({ ...o, repeat:{ ...o.repeat, [k]:v } }));
+  const escolherTipo = t => setF(o => ({ ...o, type:t, repeat: t==='aniversario' && o.repeat.freq==='none' ? { ...o.repeat, freq:'yearly' } : o.repeat }));
+
+  return (
+    <div className="modal" onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
+      <div className="card">
+        <div className="cardhead">
+          <b>{ev._new ? 'Novo compromisso' : 'Editar'}</b>
+          <button className="x" onClick={onClose} aria-label="Fechar">×</button>
+        </div>
+
+        <input className="inp" autoFocus placeholder="Título (ex.: Audiência 5001234-00)" value={f.title} onChange={e=>set('title', e.target.value)} />
+
+        <div className="tipos">
+          {Object.entries(TIPOS).map(([k,t]) => (
+            <button key={k} className={'tipopill'+(f.type===k?' on':'')}
+              style={f.type===k?{background:t.cor,borderColor:t.cor,color:'#fff'}:{}}
+              onClick={()=>escolherTipo(k)}>{t.nome}</button>
+          ))}
+        </div>
+
+        <div className="linha2">
+          <label className="campo"><span>Data</span><input className="inp" type="date" value={f.date} onChange={e=>set('date', e.target.value)} /></label>
+          <label className="campo"><span>Hora</span><input className="inp" type="time" value={f.time} onChange={e=>set('time', e.target.value)} /></label>
+        </div>
+
+        <label className="campo"><span>Repetir</span>
+          <select className="inp" value={f.repeat.freq} onChange={e=>setRep('freq', e.target.value)}>
+            {REPETE.map(r => <option key={r.v} value={r.v}>{r.nome}</option>)}
+          </select>
+        </label>
+        {f.repeat.freq === 'custom' && (
+          <div className="linha2">
+            <label className="campo"><span>A cada</span><input className="inp" type="number" min="1" value={f.repeat.interval} onChange={e=>setRep('interval', Math.max(1, +e.target.value||1))} /></label>
+            <label className="campo"><span>&nbsp;</span>
+              <select className="inp" value={f.repeat.unit} onChange={e=>setRep('unit', e.target.value)}>
+                <option value="day">dia(s)</option><option value="week">semana(s)</option><option value="month">mês(es)</option><option value="year">ano(s)</option>
+              </select>
+            </label>
+          </div>
+        )}
+
+        <textarea className="inp" rows="2" placeholder="Anotação (opcional)" value={f.note} onChange={e=>set('note', e.target.value)} />
+
+        <div className="cardacts">
+          {!ev._new && <button className="del" onClick={()=>{ if(confirm('Apagar este compromisso?')) onDelete(f.id); }}>Apagar</button>}
+          <span style={{flex:1}}></span>
+          <button className="ghost" onClick={onClose}>Cancelar</button>
+          <button className="primary" onClick={()=>onSave(f)}>Salvar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- barra de cima (tema, cor, sincronizar, backup) ---------- */
+function Toolbar(){
+  const [theme, setTheme] = useState(document.documentElement.getAttribute('data-theme'));
+  const [cor, setCor] = useState(document.documentElement.getAttribute('data-cor'));
+  const [syncOpen, setSyncOpen] = useState(false);
+  const setT = t => { document.documentElement.setAttribute('data-theme', t); localStorage.setItem('agenda-theme', t); setTheme(t); };
+  const setC = c => { document.documentElement.setAttribute('data-cor', c); localStorage.setItem('agenda-cor', c); setCor(c); };
+  const cores = [['amarelo','#facc15'],['rosa','#E85D9A'],['azul','#2F6FE4'],['roxo','#7C4DE0']];
+
+  const exportar = () => {
+    const dados = {}; for (let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); if(k.indexOf('agenda-')===0 && k.indexOf('agenda-snap:')!==0) dados[k]=localStorage.getItem(k); }
+    const blob = new Blob([JSON.stringify({ _app:'agendanad', em:new Date().toISOString(), dados }, null, 2)], { type:'application/json' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'agendanad-backup-'+todayStr()+'.json'; a.click(); URL.revokeObjectURL(a.href);
+  };
+  const importar = () => {
+    const inp = document.createElement('input'); inp.type='file'; inp.accept='application/json,.json';
+    inp.onchange = e => { const file=e.target.files[0]; if(!file) return; const r=new FileReader();
+      r.onload = () => { try { const p=JSON.parse(r.result); const d=p.dados||p; Object.keys(d).forEach(k=>{ if(k.indexOf('agenda-')===0) localStorage.setItem(k,d[k]); }); alert('Backup importado. A página vai recarregar.'); location.reload(); } catch(err){ alert('Arquivo inválido.'); } };
+      r.readAsText(file); };
+    inp.click();
+  };
+
+  return (
+    <div className="toolbar">
+      <span className="tbrand">◷ AgendaNAD</span>
+      <span style={{flex:1}}></span>
+      <span className="corsw-group">{cores.map(([k,c]) => <button key={k} className={'corsw'+(cor===k?' on':'')} style={{background:c}} onClick={()=>setC(k)} title={k}></button>)}</span>
+      <button className={'tbtn'+(theme==='light'?' on':'')} onClick={()=>setT('light')} title="Claro">☀</button>
+      <button className={'tbtn'+(theme!=='light'?' on':'')} onClick={()=>setT('dark')} title="Escuro">☾</button>
+      <button className="tbtn wide" onClick={()=>setSyncOpen(true)} title="Sincronizar entre aparelhos">☁ Sincronizar</button>
+      <button className="tbtn wide" onClick={exportar}>Backup</button>
+      <button className="tbtn wide" onClick={importar}>Importar</button>
+      {syncOpen && <SyncModal onClose={()=>setSyncOpen(false)} />}
+    </div>
+  );
+}
+
+function SyncModal({ onClose }){
+  const S = window.AgendaSync || {};
+  const [phrase, setPhrase] = useState(S.phrase ? S.phrase() : '');
+  const [msg, setMsg] = useState('');
+  const configured = S.configured ? S.configured() : false;
+  const on = S.isOn ? S.isOn() : false;
+  const ligar = () => {
+    const p = (phrase||'').trim();
+    if (!configured){ setMsg('O cofre ainda não foi configurado.'); return; }
+    if (!p){ setMsg('Digite a frase primeiro.'); return; }
+    setMsg('Sincronizando…');
+    S.enable(p, ok => ok ? location.reload() : setMsg('Não consegui ligar. Confira a conexão.'));
+  };
+  return (
+    <div className="modal" onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
+      <div className="card">
+        <div className="cardhead"><b>☁ Sincronizar entre aparelhos</b><button className="x" onClick={onClose}>×</button></div>
+        <p className="sub">Digite a <b>mesma frase secreta</b> no iPhone, iPad e Mac. É ela que liga a sua agenda entre eles. Pode ser a mesma que você usa no MagisNAD.</p>
+        <input className="inp" autoCapitalize="off" autoCorrect="off" spellCheck="false" placeholder="sua frase secreta" value={phrase} onChange={e=>setPhrase(e.target.value)} />
+        <div className="sub" style={{marginTop:8}}>{on ? '✓ Ligada neste aparelho.' : (configured ? 'Desligada neste aparelho.' : '⏳ Cofre não configurado.')}</div>
+        {msg && <div className="sub" style={{color:'var(--accent)'}}>{msg}</div>}
+        <div className="cardacts">
+          <button className="del" onClick={()=>{ if(S.disable) S.disable(); location.reload(); }}>Desligar aqui</button>
+          <span style={{flex:1}}></span>
+          <button className="primary" onClick={ligar}>Ligar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const CSS = `
+.toolbar{position:sticky;top:0;z-index:500;display:flex;align-items:center;gap:8px;padding:8px 14px;
+  background:color-mix(in srgb, var(--bg) 88%, transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);
+  padding-top:max(8px, env(safe-area-inset-top));}
+.tbrand{font-weight:500;color:var(--accent);letter-spacing:-.2px;}
+@media(min-width:820px){ .tbrand{display:none;} }
+.tbtn{background:var(--surface);border:1px solid var(--border2);color:var(--text);border-radius:9px;padding:6px 10px;font-size:12px;font-weight:500;}
+.tbtn:hover{background:var(--surface2);}
+.tbtn.on{border-color:var(--accent);color:var(--accent);}
+.tbtn.wide{white-space:nowrap;}
+@media(max-width:640px){ .tbtn.wide{padding:6px 8px;font-size:11px;} }
+@media(max-width:560px){ .toolbar{flex-wrap:wrap;justify-content:flex-end;} .tbrand{flex:1 0 100%;} }
+.corsw-group{display:inline-flex;gap:6px;margin-right:2px;}
+.corsw{width:20px;height:20px;border-radius:50%;border:2px solid transparent;padding:0;}
+.corsw.on{border-color:var(--text);}
+.corsw:hover{transform:scale(1.12);}
+
+.shell{display:flex;gap:16px;max-width:1120px;margin:0 auto;padding:16px;}
+.sidebar{width:190px;flex:none;position:sticky;top:64px;align-self:flex-start;
+  background:var(--sidebar);border:1px solid var(--border);border-radius:16px;padding:14px 12px;}
+.sidebar .brand{font-weight:500;color:var(--accent);font-size:16px;letter-spacing:-.3px;margin:2px 4px 12px;}
+.btnNovo{width:100%;background:var(--accent);color:var(--on-accent);border:none;border-radius:10px;padding:9px;font-weight:500;font-size:13px;margin-bottom:14px;}
+.btnNovo:hover{filter:brightness(1.05);}
+.navgroup{font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--faint);margin:10px 6px 6px;}
+.navitem{display:flex;align-items:center;gap:9px;width:100%;text-align:left;background:none;border:none;color:var(--muted);
+  padding:8px 10px;border-radius:9px;font-size:13.5px;border-left:3px solid transparent;}
+.navitem:hover{background:var(--surface2);color:var(--text);}
+.navitem.on{background:var(--surface2);color:var(--text);border-left-color:var(--accent);font-weight:500;}
+.navitem .ico{width:18px;display:inline-grid;place-items:center;opacity:.9;}
+.legend{display:flex;align-items:center;gap:9px;color:var(--muted);font-size:12.5px;padding:5px 10px;}
+.legend .dot{width:9px;height:9px;border-radius:50%;flex:none;}
+.main{flex:1;min-width:0;}
+@media(max-width:760px){
+  .shell{flex-direction:column;padding:10px;gap:10px;}
+  .sidebar{width:auto;position:static;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px;}
+  .sidebar .brand,.sidebar .navgroup{display:none;}
+  .btnNovo{width:auto;margin:0;order:9;flex:1;}
+  .navitem{width:auto;border-left:none;border:1px solid var(--border);}
+  .navitem.on{border-color:var(--accent);}
+  .legend{padding:4px 6px;font-size:11px;}
+}
+
+.head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:10px;}
+.titulo{font-size:20px;font-weight:500;letter-spacing:-.3px;}
+.headbtns{display:flex;gap:6px;}
+.navbtn{background:var(--surface);border:1px solid var(--border2);color:var(--text);border-radius:9px;padding:6px 12px;font-size:13px;font-weight:500;min-width:34px;}
+.navbtn:hover{background:var(--surface2);}
+.weekhead{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;font-size:11px;color:var(--faint);text-align:center;margin-bottom:5px;}
+.grid{display:grid;grid-template-columns:repeat(7,1fr);grid-auto-rows:1fr;gap:5px;}
+.cell{min-height:88px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:5px;overflow:hidden;cursor:pointer;transition:background .12s;}
+.cell:hover{background:var(--surface);}
+.cell.fora{opacity:.45;}
+.cell.hoje{border-color:var(--accent);background:color-mix(in srgb, var(--accent) 12%, var(--surface2));}
+.cellnum{font-size:12px;color:var(--muted);margin-bottom:3px;font-weight:500;}
+.cell.hoje .cellnum{color:var(--accent);}
+.pill{font-size:11px;line-height:1.25;background:color-mix(in srgb, var(--c) 16%, transparent);color:var(--c);
+  border-left:2px solid var(--c);border-radius:4px;padding:2px 4px;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.mais{font-size:10px;color:var(--faint);padding-left:3px;}
+@media(max-width:760px){ .cell{min-height:62px;} .pill{font-size:10px;} }
+
+.diagrp{margin-bottom:16px;}
+.diahead{font-size:13px;font-weight:500;color:var(--muted);padding:6px 0;border-bottom:1px solid var(--border);margin-bottom:6px;}
+.diahead.ehoje{color:var(--accent);}
+.linha{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:10px;background:var(--surface2);border:1px solid var(--border);
+  border-left:3px solid var(--c);margin-bottom:6px;cursor:pointer;}
+.linha:hover{background:var(--surface);}
+.ltempo{font-size:12px;color:var(--muted);min-width:44px;font-variant-numeric:tabular-nums;}
+.ltit{flex:1;font-size:14px;}
+.lrep{font-size:11px;color:var(--faint);white-space:nowrap;}
+.vazio{color:var(--muted);font-size:14px;line-height:1.6;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:22px;}
+
+.modal{position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.55);display:flex;align-items:flex-start;justify-content:center;
+  padding:60px 14px;padding-top:max(60px, env(safe-area-inset-top));overflow:auto;}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:16px;width:440px;max-width:100%;padding:18px 20px;box-shadow:0 20px 50px rgba(0,0,0,.5);}
+.cardhead{display:flex;align-items:center;justify-content:space-between;font-size:15px;margin-bottom:12px;}
+.x{background:none;border:none;color:var(--text);font-size:24px;line-height:1;}
+.sub{font-size:12.5px;color:var(--muted);line-height:1.55;margin:0 0 6px;}
+.inp{width:100%;box-sizing:border-box;font:inherit;font-size:14px;padding:10px 12px;border-radius:10px;border:1px solid var(--border2);background:var(--input);color:var(--text);margin-bottom:11px;}
+.inp:focus{outline:none;border-color:var(--accent);}
+textarea.inp{resize:vertical;}
+.tipos{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:11px;}
+.tipopill{font-size:12.5px;padding:7px 13px;border-radius:20px;background:var(--surface2);border:1px solid var(--border2);color:var(--muted);}
+.linha2{display:flex;gap:10px;}
+.campo{flex:1;display:flex;flex-direction:column;}
+.campo>span{font-size:11px;color:var(--muted);margin-bottom:4px;}
+.cardacts{display:flex;align-items:center;gap:8px;margin-top:4px;}
+.primary{background:var(--accent);color:var(--on-accent);border:none;border-radius:10px;padding:9px 18px;font-weight:500;font-size:13px;}
+.ghost{background:var(--surface2);color:var(--text);border:1px solid var(--border2);border-radius:10px;padding:9px 15px;font-weight:500;font-size:13px;}
+.del{background:none;color:#ef4444;border:1px solid transparent;border-radius:10px;padding:9px 12px;font-weight:500;font-size:13px;}
+.del:hover{border-color:#ef4444;}
+`;
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+document.getElementById('boot').classList.add('hide');
+</script>
+
+<!-- ================= Sincronizacao entre aparelhos (cofre online) ================= -->
+<script>
+(function(){
+  var SUPA = window.__SUPA || { url:"", key:"" };
+  var PHRASE_KEY = 'agenda-sync-space';
+  var ID_KEY     = 'agenda-sync-id';
+  var TS_KEY     = 'agenda-sync-ts';
+  var PREFIX     = 'agenda-';
+  function isProg(k){ return k && k.indexOf(PREFIX)===0 && k.indexOf('agenda-sync-')!==0 && k.indexOf('agenda-snap:')!==0 && k!=='agenda-theme' && k!=='agenda-cor'; }
+  function jget(k){ try{ return JSON.parse(localStorage.getItem(k) || '{}'); }catch(e){ return {}; } }
+  function jset(k,o){ try{ localStorage.setItem(k, JSON.stringify(o)); }catch(e){} }
+  function spaceId(){ try{ return localStorage.getItem(ID_KEY) || ''; }catch(e){ return ''; } }
+  function configured(){ return !!(SUPA.url && SUPA.key); }
+  function on(){ return configured() && !!spaceId(); }
+  function sha(s){
+    return crypto.subtle.digest('SHA-256', new TextEncoder().encode('agendanad::'+s))
+      .then(function(b){ return Array.from(new Uint8Array(b)).map(function(x){ return x.toString(16).padStart(2,'0'); }).join(''); });
+  }
+  function headers(extra){ var h = { apikey:SUPA.key, Authorization:'Bearer '+SUPA.key }; if(extra) for(var x in extra) h[x]=extra[x]; return h; }
+
+  var applying=false, lastWrite=0, pushTimer=null, dirty={};
+  window.__syncOnWrite = function(k){
+    if (applying) return;
+    lastWrite = Date.now();
+    if (!isProg(k) || !on()) return;
+    var ts = jget(TS_KEY); ts[k]=Date.now(); jset(TS_KEY, ts);
+    dirty[k]=true;
+    clearTimeout(pushTimer); pushTimer=setTimeout(pushDirty, 1200);
+  };
+  function pushDirty(){
+    if (!on()) return;
+    var ks=Object.keys(dirty); if(!ks.length) return;
+    var id=spaceId(), ts=jget(TS_KEY), rows=[];
+    ks.forEach(function(k){ rows.push({ space:id, k:k, v:localStorage.getItem(k), ts:ts[k]||Date.now() }); });
+    dirty={};
+    fetch(SUPA.url+'/rest/v1/kv', { method:'POST', headers:headers({ 'Content-Type':'application/json', 'Prefer':'resolution=merge-duplicates,return=minimal' }), body:JSON.stringify(rows) })
+      .then(function(r){ if(!r.ok){ ks.forEach(function(k){ dirty[k]=true; }); } })
+      .catch(function(){ ks.forEach(function(k){ dirty[k]=true; }); });
+  }
+  function pushAll(){
+    if(!on()) return;
+    var ts=jget(TS_KEY), touched=false;
+    for(var i=0;i<localStorage.length;i++){ var k=localStorage.key(i); if(isProg(k)){ if(ts[k]==null){ ts[k]=Date.now(); touched=true; } dirty[k]=true; } }
+    if(touched) jset(TS_KEY, ts);
+    pushDirty();
+  }
+  function pull(cb){
+    if(!on()){ if(cb) cb(false); return; }
+    fetch(SUPA.url+'/rest/v1/kv?select=k,v,ts&space=eq.'+encodeURIComponent(spaceId()), { headers:headers() })
+      .then(function(r){ return r.ok ? r.json() : []; })
+      .then(function(rows){
+        var ts=jget(TS_KEY), changed=false; applying=true;
+        rows.forEach(function(row){
+          if(row.ts > (ts[row.k]||0)){
+            var cur=localStorage.getItem(row.k); var val=row.v==null?'':row.v;
+            if(cur!==val){ localStorage.setItem(row.k, val); changed=true; }
+            ts[row.k]=row.ts;
+          }
+        });
+        applying=false; jset(TS_KEY, ts);
+        if(changed){ try{ window.dispatchEvent(new Event('agenda-pulled')); }catch(e){} }
+        if(cb) cb(changed);
+      })
+      .catch(function(){ applying=false; if(cb) cb(false); });
+  }
+
+  window.AgendaSync = {
+    configured: configured,
+    isOn: on,
+    phrase: function(){ try{ return localStorage.getItem(PHRASE_KEY) || ''; }catch(e){ return ''; } },
+    enable: function(phrase, done){
+      var p=(phrase||'').trim();
+      if(!p || !configured()){ if(done) done(false); return; }
+      sha(p).then(function(id){ localStorage.setItem(PHRASE_KEY, p); localStorage.setItem(ID_KEY, id); pull(function(){ pushAll(); if(done) done(true); }); })
+        .catch(function(){ if(done) done(false); });
+    },
+    disable: function(){ try{ localStorage.removeItem(ID_KEY); }catch(e){} }
+  };
+
+  if(on()){
+    pull();
+    setInterval(function(){ if(document.visibilityState==='visible') pull(); }, 15000);
+    window.addEventListener('focus', function(){ pull(); });
+    document.addEventListener('visibilitychange', function(){ if(document.visibilityState==='visible') pull(); });
+  }
+})();
+</script>
+</body>
+</html>
