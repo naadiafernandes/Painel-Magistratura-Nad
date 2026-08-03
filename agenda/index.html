@@ -139,6 +139,18 @@ function saveEvents(list){ localStorage.setItem(KEY, JSON.stringify(list)); }
 let _id = Date.now();
 const newId = () => 'e' + (_id++).toString(36) + Math.floor(Math.random()*1e6).toString(36);
 
+/* ---------- notas (processos) ---------- */
+const NKEY = 'agenda-notes';
+function loadNotes(){ try { return JSON.parse(localStorage.getItem(NKEY) || '[]'); } catch(e){ return []; } }
+function saveNotes(list){ localStorage.setItem(NKEY, JSON.stringify(list)); }
+const NOTE_CORES = [
+  { key:'verde',    nome:'Verde',    cor:'#10b981' },
+  { key:'amarelo',  nome:'Amarelo',  cor:'#eab308' },
+  { key:'vermelho', nome:'Vermelho', cor:'#ef4444' },
+];
+const corNota = k => (NOTE_CORES.find(c => c.key === k) || NOTE_CORES[1]);
+const soDigitos = s => (s || '').replace(/\D/g, '');
+
 /* ================= App ================= */
 function App(){
   const [events, setEvents] = useState(loadEvents);
@@ -149,18 +161,23 @@ function App(){
   const [syncOpen, setSyncOpen] = useState(false);
   const [navHidden, setNavHidden] = useState(() => localStorage.getItem('agenda-nav') === 'hide');
   const [userTipos, setUserTipos] = useState(loadUserTipos);
+  const [notes, setNotes] = useState(loadNotes);
+  const [noteView, setNoteView] = useState(null);   // nota aberta so pra ver
+  const [noteEdit, setNoteEdit] = useState(null);    // nota em edicao/criacao
   const toggleNav = () => setNavHidden(v => { const n = !v; localStorage.setItem('agenda-nav', n ? 'hide' : 'show'); return n; });
   const first = useRef(true);
   const firstT = useRef(true);
+  const firstN = useRef(true);
 
   const tipos = [...DEFAULT_TIPOS, ...userTipos];
   const tipoMap = mapa(tipos);
 
   useEffect(() => { if (first.current){ first.current = false; return; } saveEvents(events); }, [events]);
   useEffect(() => { if (firstT.current){ firstT.current = false; return; } saveUserTipos(userTipos); }, [userTipos]);
+  useEffect(() => { if (firstN.current){ firstN.current = false; return; } saveNotes(notes); }, [notes]);
   // recarrega quando a sincronizacao trouxer mudanca de outro aparelho
   useEffect(() => {
-    const h = () => { setEvents(loadEvents()); setUserTipos(loadUserTipos()); };
+    const h = () => { setEvents(loadEvents()); setUserTipos(loadUserTipos()); setNotes(loadNotes()); };
     window.addEventListener('agenda-pulled', h);
     return () => window.removeEventListener('agenda-pulled', h);
   }, []);
@@ -175,25 +192,33 @@ function App(){
   });
   const remove = id => setEvents(list => list.filter(e => e.id !== id));
 
+  const upsertNote = n => setNotes(list => { const i = list.findIndex(x => x.id === n.id); if (i === -1) return [...list, n]; const c = list.slice(); c[i] = n; return c; });
+  const removeNote = id => setNotes(list => list.filter(x => x.id !== id));
+  const openNewNote = () => setNoteEdit({ id:newId(), num:'', color:'amarelo', obs:'', _new:true });
+
   const openNew = (dateStr) => setEditing({ id:newId(), title:'', type:'compromisso', date: dateStr || todayStr(), time:'', note:'', repeat:{ freq:'none', interval:1, unit:'week' }, _new:true });
 
   const irPara = (dateStr) => { setRefStr(dateStr); setView('mes'); };
+  const onNewGlobal = () => { if (view === 'notas') openNewNote(); else openNew(); };
 
   return (
     <div style={{minHeight:'100vh'}}>
       <Toolbar onSync={()=>setSyncOpen(true)} onToggleNav={toggleNav} />
       <div className={'shell'+(navHidden?' nonav':'')}>
-        <Sidebar view={view} setView={setView} onNew={()=>openNew()} tipos={tipos} onDelTipo={delTipo} />
+        <Sidebar view={view} setView={setView} onNew={onNewGlobal} tipos={tipos} onDelTipo={delTipo} />
         <main className="main">
-          {navHidden && <CompactNav view={view} setView={setView} onNew={()=>openNew()} />}
+          {navHidden && <CompactNav view={view} setView={setView} onNew={onNewGlobal} />}
           {view === 'mes'   && <MonthView refStr={refStr} setRefStr={setRefStr} events={events} tipoMap={tipoMap} onNew={openNew} onOpen={setViewing} />}
           {view === 'semana'&& <WeekView  refStr={refStr} setRefStr={setRefStr} events={events} tipoMap={tipoMap} onNew={openNew} onOpen={setViewing} />}
           {view === 'ano'   && <YearView  refStr={refStr} setRefStr={setRefStr} events={events} tipoMap={tipoMap} onPick={irPara} />}
           {view === 'lista' && <AgendaView events={events} tipoMap={tipoMap} onOpen={setViewing} onNew={()=>openNew()} />}
+          {view === 'notas' && <NotesView notes={notes} onOpen={setNoteView} onNew={openNewNote} />}
         </main>
       </div>
       {viewing && <EventView ev={viewing} tipoMap={tipoMap} onClose={()=>setViewing(null)} onEdit={()=>{ setEditing(viewing); setViewing(null); }} />}
       {editing && <Editor ev={editing} tipos={tipos} onAddTipo={addTipo} onClose={()=>setEditing(null)} onSave={ev=>{ upsert(ev); setEditing(null); }} onDelete={id=>{ remove(id); setEditing(null); }} />}
+      {noteView && <NoteView n={noteView} onClose={()=>setNoteView(null)} onEdit={()=>{ setNoteEdit(noteView); setNoteView(null); }} />}
+      {noteEdit && <NoteEditor n={noteEdit} onClose={()=>setNoteEdit(null)} onSave={n=>{ upsertNote(n); setNoteEdit(null); }} onDelete={id=>{ removeNote(id); setNoteEdit(null); }} />}
       {syncOpen && <SyncModal onClose={()=>setSyncOpen(false)} />}
       <style>{CSS}</style>
     </div>
@@ -210,14 +235,16 @@ function Sidebar({ view, setView, onNew, tipos, onDelTipo }){
   return (
     <aside className="sidebar">
       <div className="brand">◷ AgendaNAD</div>
-      <button className="btnNovo" onClick={onNew}>+ Novo compromisso</button>
+      <button className="btnNovo" onClick={onNew}>{view==='notas' ? '+ Nova nota' : '+ Novo compromisso'}</button>
       <div className="navgroup">Agenda</div>
       {item('mes','▦','Mês')}
       {item('semana','▤','Semana')}
       {item('ano','▦','Ano')}
       {item('lista','☰','Lista')}
-      <div className="navgroup">Tipos</div>
-      {tipos.map(t => (
+      <div className="navgroup">Notas</div>
+      {item('notas','❏','Processos')}
+      {view!=='notas' && <div className="navgroup">Tipos</div>}
+      {view!=='notas' && tipos.map(t => (
         <div key={t.key} className="legend"><span className="dot" style={{background:t.cor}}></span><span className="legend-nome">{t.nome}</span>
           {!t.fixo && <button className="legend-x" title="Apagar tipo" onClick={()=>{ if(confirm('Apagar o tipo "'+t.nome+'"? Os compromissos já marcados com ele continuam na agenda.')) onDelTipo(t.key); }}>×</button>}
         </div>
@@ -231,9 +258,9 @@ function CompactNav({ view, setView, onNew }){
   const tab = (id,label) => <button className={'ctab'+(view===id?' on':'')} onClick={()=>setView(id)}>{label}</button>;
   return (
     <div className="compactnav">
-      {tab('mes','Mês')}{tab('semana','Semana')}{tab('ano','Ano')}{tab('lista','Lista')}
+      {tab('mes','Mês')}{tab('semana','Semana')}{tab('ano','Ano')}{tab('lista','Lista')}{tab('notas','Processos')}
       <span style={{flex:1}}></span>
-      <button className="ctab novo" onClick={onNew}>+ Novo</button>
+      <button className="ctab novo" onClick={onNew}>{view==='notas' ? '+ Nova nota' : '+ Novo'}</button>
     </div>
   );
 }
@@ -404,6 +431,90 @@ function AgendaView({ events, tipoMap, onOpen, onNew }){
           ))}
         </div>
       ))}
+    </div>
+  );
+}
+
+/* ---------- NOTAS: lista de processos com busca ---------- */
+function NotesView({ notes, onOpen, onNew }){
+  const [q, setQ] = useState('');
+  const qd = soDigitos(q), ql = q.trim().toLowerCase();
+  const filtradas = notes.filter(n => {
+    if (!ql) return true;
+    const num = (n.num||'');
+    return (qd && soDigitos(num).includes(qd)) || num.toLowerCase().includes(ql);
+  });
+  return (
+    <div>
+      <ViewHeader title="Processos" />
+      <div className="buscaWrap">
+        <span className="buscaIco">⌕</span>
+        <input className="busca" placeholder="Buscar número do processo…" value={q} onChange={e=>setQ(e.target.value)} autoCapitalize="off" autoCorrect="off" spellCheck="false" />
+        {q && <button className="buscaX" onClick={()=>setQ('')} aria-label="Limpar">×</button>}
+      </div>
+      {notes.length === 0 && <div className="vazio">Nenhum processo ainda. Toque em <b>+ Nova nota</b> pra guardar o primeiro, com o número e suas observações.</div>}
+      {notes.length > 0 && filtradas.length === 0 && <div className="vazio">Nada encontrado para "{q}".</div>}
+      <div className="notesgrid">
+        {filtradas.map(n => {
+          const c = corNota(n.color).cor;
+          return (
+            <button key={n.id} className="notecard" style={{'--c':c}} onClick={()=>onOpen(n)}>
+              <span className="note-num">{n.num || '(sem número)'}</span>
+              {n.obs && <span className="note-prev">{n.obs}</span>}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- NOTAS: caixinha de ver (so leitura + lapis) ---------- */
+function NoteView({ n, onClose, onEdit }){
+  const c = corNota(n.color);
+  return (
+    <div className="modal" onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
+      <div className="card vcard" style={{borderTop:'4px solid '+c.cor}}>
+        <div className="vhead">
+          <span className="vtipo" style={{background:c.cor}}>Processo</span>
+          <button className="lapis" onClick={onEdit} title="Editar" aria-label="Editar">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+          </button>
+        </div>
+        <div className="vtitulo">{n.num || '(sem número)'}</div>
+        <div className="vnote">{n.obs ? n.obs : 'Sem observações ainda. Toque no lápis pra escrever.'}</div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- NOTAS: editor ---------- */
+function NoteEditor({ n, onClose, onSave, onDelete }){
+  const [f, setF] = useState(n);
+  const set = (k,v) => setF(o => ({ ...o, [k]:v }));
+  return (
+    <div className="modal" onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
+      <div className="card">
+        <div className="cardhead">
+          <b>{n._new ? 'Nova nota' : 'Editar'}</b>
+          <button className="x" onClick={onClose} aria-label="Fechar">×</button>
+        </div>
+        <input className="inp" autoFocus placeholder="Número do processo (ex.: 5003734-12.2024.8.24.0000)" value={f.num} onChange={e=>set('num', e.target.value)} />
+        <div className="tipos">
+          {NOTE_CORES.map(c => (
+            <button key={c.key} className={'tipopill'+(f.color===c.key?' on':'')}
+              style={f.color===c.key?{background:c.cor,borderColor:c.cor,color:'#fff'}:{}}
+              onClick={()=>set('color', c.key)}>{c.nome}</button>
+          ))}
+        </div>
+        <textarea className="inp" rows="6" placeholder="Observações / histórico do processo" value={f.obs} onChange={e=>set('obs', e.target.value)} />
+        <div className="cardacts">
+          {!n._new && <button className="del" onClick={()=>{ if(confirm('Apagar esta nota?')) onDelete(f.id); }}>Apagar</button>}
+          <span style={{flex:1}}></span>
+          <button className="ghost" onClick={onClose}>Cancelar</button>
+          <button className="primary" onClick={()=>onSave(f)}>Salvar</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -684,6 +795,18 @@ textarea.inp{resize:vertical;}
 .vlinha{display:flex;align-items:center;gap:9px;font-size:14px;color:var(--text);margin-bottom:7px;}
 .vico{width:18px;text-align:center;color:var(--muted);}
 .vnote{margin-top:8px;padding-top:10px;border-top:1px solid var(--border);font-size:13.5px;color:var(--muted);line-height:1.55;white-space:pre-wrap;}
+
+.buscaWrap{position:relative;margin-bottom:14px;max-width:460px;}
+.buscaIco{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--faint);font-size:16px;}
+.busca{width:100%;box-sizing:border-box;font:inherit;font-size:14px;padding:10px 34px;border-radius:11px;border:1px solid var(--border2);background:var(--input);color:var(--text);}
+.busca:focus{outline:none;border-color:var(--accent);}
+.buscaX{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--faint);font-size:18px;line-height:1;padding:2px 6px;}
+.buscaX:hover{color:var(--text);}
+.notesgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;}
+.notecard{text-align:left;background:color-mix(in srgb, var(--c) 10%, var(--surface2));border:1px solid var(--border);border-left:4px solid var(--c);border-radius:12px;padding:12px 14px;cursor:pointer;display:flex;flex-direction:column;gap:5px;min-height:64px;}
+.notecard:hover{background:color-mix(in srgb, var(--c) 16%, var(--surface2));}
+.note-num{font-size:14px;font-weight:500;color:var(--text);font-variant-numeric:tabular-nums;word-break:break-word;}
+.note-prev{font-size:12px;color:var(--muted);line-height:1.45;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;}
 
 .tbtn.hamb{font-size:15px;padding:6px 9px;line-height:1;}
 .shell.nonav .sidebar{display:none;}
