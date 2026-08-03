@@ -141,15 +141,25 @@ const newId = () => 'e' + (_id++).toString(36) + Math.floor(Math.random()*1e6).t
 
 /* ---------- notas (processos) ---------- */
 const NKEY = 'agenda-notes';
-function loadNotes(){ try { return JSON.parse(localStorage.getItem(NKEY) || '[]'); } catch(e){ return []; } }
-function saveNotes(list){ localStorage.setItem(NKEY, JSON.stringify(list)); }
-const NOTE_CORES = [
+const CATKEY = 'agenda-notecats';
+const DEFAULT_NOTECATS = [
   { key:'verde',    nome:'Verde',    cor:'#10b981' },
   { key:'amarelo',  nome:'Amarelo',  cor:'#eab308' },
   { key:'vermelho', nome:'Vermelho', cor:'#ef4444' },
 ];
-const corNota = k => (NOTE_CORES.find(c => c.key === k) || NOTE_CORES[1]);
+const CAT_CORES = ['#10b981','#eab308','#ef4444','#2F6FE4','#7C4DE0','#E85D9A','#14b8a6','#f97316','#6366f1','#64748b'];
+function loadNoteCats(){ try { const s = JSON.parse(localStorage.getItem(CATKEY) || 'null'); return (s && s.length) ? s : DEFAULT_NOTECATS.slice(); } catch(e){ return DEFAULT_NOTECATS.slice(); } }
+function saveNoteCats(l){ localStorage.setItem(CATKEY, JSON.stringify(l)); }
+const catNota = (cats, k) => (cats.find(c => c.key === k) || { nome:'Sem categoria', cor:'#a1a1aa' });
+const catNewKey = () => 'c' + (_id++).toString(36) + Math.floor(Math.random()*1e6).toString(36);
 const soDigitos = s => (s || '').replace(/\D/g, '');
+const fmtData = s => { const d = parseYmd(s); return pad(d.getDate())+'/'+pad(d.getMonth()+1)+'/'+d.getFullYear(); };
+// histórico: mais recente primeiro
+const cmpEntry = (a,b) => a.date === b.date ? (a.id < b.id ? 1 : -1) : (a.date < b.date ? 1 : -1);
+// converte nota antiga (um campo 'obs') para o formato novo (lista de anotações com data)
+function normNote(n){ if (Array.isArray(n.entries)) return n; const e = []; if (n.obs) e.push({ id:(n.id||'n')+'-0', date: n.date || todayStr(), text:n.obs }); const c = { ...n, entries:e }; delete c.obs; return c; }
+function loadNotes(){ try { return (JSON.parse(localStorage.getItem(NKEY) || '[]')).map(normNote); } catch(e){ return []; } }
+function saveNotes(list){ localStorage.setItem(NKEY, JSON.stringify(list)); }
 
 /* ================= App ================= */
 function App(){
@@ -162,12 +172,15 @@ function App(){
   const [navHidden, setNavHidden] = useState(() => localStorage.getItem('agenda-nav') === 'hide');
   const [userTipos, setUserTipos] = useState(loadUserTipos);
   const [notes, setNotes] = useState(loadNotes);
+  const [noteCats, setNoteCats] = useState(loadNoteCats);
+  const [catsOpen, setCatsOpen] = useState(false);
   const [noteView, setNoteView] = useState(null);   // nota aberta so pra ver
   const [noteEdit, setNoteEdit] = useState(null);    // nota em edicao/criacao
   const toggleNav = () => setNavHidden(v => { const n = !v; localStorage.setItem('agenda-nav', n ? 'hide' : 'show'); return n; });
   const first = useRef(true);
   const firstT = useRef(true);
   const firstN = useRef(true);
+  const firstC = useRef(true);
 
   const tipos = [...DEFAULT_TIPOS, ...userTipos];
   const tipoMap = mapa(tipos);
@@ -175,9 +188,10 @@ function App(){
   useEffect(() => { if (first.current){ first.current = false; return; } saveEvents(events); }, [events]);
   useEffect(() => { if (firstT.current){ firstT.current = false; return; } saveUserTipos(userTipos); }, [userTipos]);
   useEffect(() => { if (firstN.current){ firstN.current = false; return; } saveNotes(notes); }, [notes]);
+  useEffect(() => { if (firstC.current){ firstC.current = false; return; } saveNoteCats(noteCats); }, [noteCats]);
   // recarrega quando a sincronizacao trouxer mudanca de outro aparelho
   useEffect(() => {
-    const h = () => { setEvents(loadEvents()); setUserTipos(loadUserTipos()); setNotes(loadNotes()); };
+    const h = () => { setEvents(loadEvents()); setUserTipos(loadUserTipos()); setNotes(loadNotes()); setNoteCats(loadNoteCats()); };
     window.addEventListener('agenda-pulled', h);
     return () => window.removeEventListener('agenda-pulled', h);
   }, []);
@@ -194,7 +208,16 @@ function App(){
 
   const upsertNote = n => setNotes(list => { const i = list.findIndex(x => x.id === n.id); if (i === -1) return [...list, n]; const c = list.slice(); c[i] = n; return c; });
   const removeNote = id => setNotes(list => list.filter(x => x.id !== id));
-  const openNewNote = () => setNoteEdit({ id:newId(), num:'', color:'amarelo', obs:'', _new:true });
+  const openNewNote = () => setNoteEdit({ id:newId(), num:'', color:(noteCats[0] && noteCats[0].key) || 'verde', entries:[], _new:true });
+  const addEntry = (id, text) => {
+    const entry = { id:newId(), date:todayStr(), text };
+    setNotes(list => list.map(x => x.id === id ? { ...x, entries:[entry, ...(x.entries||[])] } : x));
+    setNoteView(v => v && v.id === id ? { ...v, entries:[entry, ...(v.entries||[])] } : v);
+  };
+  const delEntry = (id, eid) => {
+    setNotes(list => list.map(x => x.id === id ? { ...x, entries:(x.entries||[]).filter(e => e.id !== eid) } : x));
+    setNoteView(v => v && v.id === id ? { ...v, entries:(v.entries||[]).filter(e => e.id !== eid) } : v);
+  };
 
   const openNew = (dateStr) => setEditing({ id:newId(), title:'', type:'compromisso', date: dateStr || todayStr(), time:'', note:'', repeat:{ freq:'none', interval:1, unit:'week' }, _new:true });
 
@@ -212,13 +235,14 @@ function App(){
           {view === 'semana'&& <WeekView  refStr={refStr} setRefStr={setRefStr} events={events} tipoMap={tipoMap} onNew={openNew} onOpen={setViewing} />}
           {view === 'ano'   && <YearView  refStr={refStr} setRefStr={setRefStr} events={events} tipoMap={tipoMap} onPick={irPara} />}
           {view === 'lista' && <AgendaView events={events} tipoMap={tipoMap} onOpen={setViewing} onNew={()=>openNew()} />}
-          {view === 'notas' && <NotesView notes={notes} onOpen={setNoteView} onNew={openNewNote} />}
+          {view === 'notas' && <NotesView notes={notes} cats={noteCats} onOpen={setNoteView} onNew={openNewNote} onCats={()=>setCatsOpen(true)} />}
         </main>
       </div>
       {viewing && <EventView ev={viewing} tipoMap={tipoMap} onClose={()=>setViewing(null)} onEdit={()=>{ setEditing(viewing); setViewing(null); }} />}
       {editing && <Editor ev={editing} tipos={tipos} onAddTipo={addTipo} onClose={()=>setEditing(null)} onSave={ev=>{ upsert(ev); setEditing(null); }} onDelete={id=>{ remove(id); setEditing(null); }} />}
-      {noteView && <NoteView n={noteView} onClose={()=>setNoteView(null)} onEdit={()=>{ setNoteEdit(noteView); setNoteView(null); }} />}
-      {noteEdit && <NoteEditor n={noteEdit} onClose={()=>setNoteEdit(null)} onSave={n=>{ upsertNote(n); setNoteEdit(null); }} onDelete={id=>{ removeNote(id); setNoteEdit(null); }} />}
+      {noteView && <NoteView n={noteView} cats={noteCats} onClose={()=>setNoteView(null)} onEdit={()=>{ setNoteEdit(noteView); setNoteView(null); }} onAddEntry={addEntry} onDelEntry={delEntry} />}
+      {noteEdit && <NoteEditor n={noteEdit} cats={noteCats} onOpenCats={()=>setCatsOpen(true)} onClose={()=>setNoteEdit(null)} onSave={n=>{ upsertNote(n); setNoteEdit(null); }} onDelete={id=>{ removeNote(id); setNoteEdit(null); }} />}
+      {catsOpen && <CatManager cats={noteCats} onSave={list=>setNoteCats(list)} onClose={()=>setCatsOpen(false)} />}
       {syncOpen && <SyncModal onClose={()=>setSyncOpen(false)} />}
       <style>{CSS}</style>
     </div>
@@ -435,85 +459,148 @@ function AgendaView({ events, tipoMap, onOpen, onNew }){
   );
 }
 
-/* ---------- NOTAS: lista de processos com busca ---------- */
-function NotesView({ notes, onOpen, onNew }){
+/* ---------- NOTAS: lista de processos, agrupada por cor, com busca ---------- */
+function NotesView({ notes, cats, onOpen, onNew, onCats }){
   const [q, setQ] = useState('');
   const qd = soDigitos(q), ql = q.trim().toLowerCase();
   const filtradas = notes.filter(n => {
     if (!ql) return true;
     const num = (n.num||'');
-    return (qd && soDigitos(num).includes(qd)) || num.toLowerCase().includes(ql);
+    return (qd && soDigitos(num).includes(qd)) || num.toLowerCase().includes(ql) || (n.entries||[]).some(e => (e.text||'').toLowerCase().includes(ql));
   });
+  const ultimo = n => { const e = (n.entries||[]); return e.length ? e.slice().sort(cmpEntry)[0] : null; };
+  const grupos = cats.map(c => ({ cat:c, itens: filtradas.filter(n => n.color === c.key) })).filter(g => g.itens.length);
+  const semCat = filtradas.filter(n => !cats.some(c => c.key === n.color));
+  if (semCat.length) grupos.push({ cat:{ key:'__sem', nome:'Sem categoria', cor:'#a1a1aa' }, itens:semCat });
+
   return (
     <div>
-      <ViewHeader title="Processos" />
+      <div className="head">
+        <div className="titulo">Processos</div>
+        <div className="headbtns"><button className="navbtn" onClick={onCats}>Cores</button></div>
+      </div>
       <div className="buscaWrap">
         <span className="buscaIco">⌕</span>
         <input className="busca" placeholder="Buscar número do processo…" value={q} onChange={e=>setQ(e.target.value)} autoCapitalize="off" autoCorrect="off" spellCheck="false" />
         {q && <button className="buscaX" onClick={()=>setQ('')} aria-label="Limpar">×</button>}
       </div>
-      {notes.length === 0 && <div className="vazio">Nenhum processo ainda. Toque em <b>+ Nova nota</b> pra guardar o primeiro, com o número e suas observações.</div>}
+      {notes.length === 0 && <div className="vazio">Nenhum processo ainda. Toque em <b>+ Nova nota</b> pra guardar o primeiro, com o número e a primeira anotação.</div>}
       {notes.length > 0 && filtradas.length === 0 && <div className="vazio">Nada encontrado para "{q}".</div>}
-      <div className="notesgrid">
-        {filtradas.map(n => {
-          const c = corNota(n.color).cor;
-          return (
-            <button key={n.id} className="notecard" style={{'--c':c}} onClick={()=>onOpen(n)}>
-              <span className="note-num">{n.num || '(sem número)'}</span>
-              {n.obs && <span className="note-prev">{n.obs}</span>}
-            </button>
-          );
-        })}
-      </div>
+      {grupos.map(g => (
+        <div key={g.cat.key} className="notegrupo">
+          <div className="grupohead"><span className="dot" style={{background:g.cat.cor}}></span>{g.cat.nome}<span className="grupocount">{g.itens.length}</span></div>
+          <div className="notesgrid">
+            {g.itens.map(n => { const u = ultimo(n); return (
+              <button key={n.id} className="notecard" style={{'--c':g.cat.cor}} onClick={()=>onOpen(n)}>
+                <span className="note-num">{n.num || '(sem número)'}</span>
+                {u && <span className="note-data">{fmtData(u.date)}</span>}
+                {u ? <span className="note-prev">{u.text}</span> : <span className="note-prev" style={{fontStyle:'italic'}}>sem anotações</span>}
+              </button>
+            );})}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
 
-/* ---------- NOTAS: caixinha de ver (so leitura + lapis) ---------- */
-function NoteView({ n, onClose, onEdit }){
-  const c = corNota(n.color);
+/* ---------- NOTAS: caixinha do processo (histórico + anotar) ---------- */
+function NoteView({ n, cats, onClose, onEdit, onAddEntry, onDelEntry }){
+  const c = catNota(cats, n.color);
+  const [txt, setTxt] = useState('');
+  const entries = (n.entries||[]).slice().sort(cmpEntry);
+  const add = () => { const t = txt.trim(); if (t){ onAddEntry(n.id, t); setTxt(''); } };
   return (
     <div className="modal" onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
       <div className="card vcard" style={{borderTop:'4px solid '+c.cor}}>
         <div className="vhead">
-          <span className="vtipo" style={{background:c.cor}}>Processo</span>
-          <button className="lapis" onClick={onEdit} title="Editar" aria-label="Editar">
+          <span className="vtipo" style={{background:c.cor}}>{c.nome}</span>
+          <button className="lapis" onClick={onEdit} title="Editar processo" aria-label="Editar">
             <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
           </button>
         </div>
         <div className="vtitulo">{n.num || '(sem número)'}</div>
-        <div className="vnote">{n.obs ? n.obs : 'Sem observações ainda. Toque no lápis pra escrever.'}</div>
+        <div className="hist">
+          {entries.length === 0 && <div className="hist-vazio">Sem anotações ainda. Escreva a primeira embaixo.</div>}
+          {entries.map(e => (
+            <div key={e.id} className="hist-item">
+              <div className="hist-top"><span className="hist-data">{fmtData(e.date)}</span>
+                <button className="hist-x" title="Apagar anotação" onClick={()=>{ if(confirm('Apagar esta anotação?')) onDelEntry(n.id, e.id); }}>×</button>
+              </div>
+              <div className="hist-text">{e.text}</div>
+            </div>
+          ))}
+        </div>
+        <div className="addbox">
+          <textarea className="inp" style={{margin:0}} rows="2" placeholder="Escreva uma anotação de hoje…" value={txt} onChange={e=>setTxt(e.target.value)} />
+          <button className="primary" onClick={add}>Adicionar</button>
+        </div>
       </div>
     </div>
   );
 }
 
-/* ---------- NOTAS: editor ---------- */
-function NoteEditor({ n, onClose, onSave, onDelete }){
-  const [f, setF] = useState(n);
-  const set = (k,v) => setF(o => ({ ...o, [k]:v }));
+/* ---------- NOTAS: editor do processo (número + cor + 1ª anotação) ---------- */
+function NoteEditor({ n, cats, onOpenCats, onClose, onSave, onDelete }){
+  const [num, setNum] = useState(n.num);
+  const [color, setColor] = useState(n.color || (cats[0] && cats[0].key));
+  const [firstText, setFirstText] = useState('');
+  const salvar = () => {
+    const entries = (n.entries||[]).slice();
+    if (n._new && firstText.trim()) entries.unshift({ id:newId(), date:todayStr(), text:firstText.trim() });
+    onSave({ ...n, num, color, entries });
+  };
   return (
     <div className="modal" onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
       <div className="card">
         <div className="cardhead">
-          <b>{n._new ? 'Nova nota' : 'Editar'}</b>
+          <b>{n._new ? 'Nova nota' : 'Editar processo'}</b>
           <button className="x" onClick={onClose} aria-label="Fechar">×</button>
         </div>
-        <input className="inp" autoFocus placeholder="Número do processo (ex.: 5003734-12.2024.8.24.0000)" value={f.num} onChange={e=>set('num', e.target.value)} />
+        <input className="inp" autoFocus placeholder="Número do processo (ex.: 5003734-12.2024.8.24.0000)" value={num} onChange={e=>setNum(e.target.value)} />
         <div className="tipos">
-          {NOTE_CORES.map(c => (
-            <button key={c.key} className={'tipopill'+(f.color===c.key?' on':'')}
-              style={f.color===c.key?{background:c.cor,borderColor:c.cor,color:'#fff'}:{}}
-              onClick={()=>set('color', c.key)}>{c.nome}</button>
+          {cats.map(c => (
+            <button key={c.key} className={'tipopill'+(color===c.key?' on':'')}
+              style={color===c.key?{background:c.cor,borderColor:c.cor,color:'#fff'}:{}}
+              onClick={()=>setColor(c.key)}>{c.nome}</button>
           ))}
+          <button className="tipopill novo" onClick={onOpenCats}>editar cores</button>
         </div>
-        <textarea className="inp" rows="6" placeholder="Observações / histórico do processo" value={f.obs} onChange={e=>set('obs', e.target.value)} />
+        {n._new && <textarea className="inp" rows="4" placeholder="Primeira anotação (fica com a data de hoje)" value={firstText} onChange={e=>setFirstText(e.target.value)} />}
         <div className="cardacts">
-          {!n._new && <button className="del" onClick={()=>{ if(confirm('Apagar esta nota?')) onDelete(f.id); }}>Apagar</button>}
+          {!n._new && <button className="del" onClick={()=>{ if(confirm('Apagar este processo e todas as anotações dele?')) onDelete(n.id); }}>Apagar</button>}
           <span style={{flex:1}}></span>
           <button className="ghost" onClick={onClose}>Cancelar</button>
-          <button className="primary" onClick={()=>onSave(f)}>Salvar</button>
+          <button className="primary" onClick={salvar}>Salvar</button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- NOTAS: gerenciar as cores (renomear / criar / apagar) ---------- */
+function CatManager({ cats, onSave, onClose }){
+  const [list, setList] = useState(cats.length ? cats : DEFAULT_NOTECATS.slice());
+  const setName = (i,v) => setList(l => l.map((c,j) => j===i ? { ...c, nome:v } : c));
+  const setCor  = (i,v) => setList(l => l.map((c,j) => j===i ? { ...c, cor:v } : c));
+  const del     = i => setList(l => l.filter((_,j) => j!==i));
+  const add     = () => setList(l => [...l, { key:catNewKey(), nome:'Nova cor', cor:CAT_CORES[l.length % CAT_CORES.length] }]);
+  const salvar  = () => { onSave(list.filter(c => (c.nome||'').trim())); onClose(); };
+  return (
+    <div className="modal" onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
+      <div className="card">
+        <div className="cardhead"><b>Cores das notas</b><button className="x" onClick={onClose} aria-label="Fechar">×</button></div>
+        <p className="sub">Renomeie, mude a cor ou crie novas. Os processos ficam agrupados por elas.</p>
+        {list.map((c,i) => (
+          <div key={c.key} className="catrow">
+            <span className="catdot" style={{background:c.cor}}></span>
+            <input className="inp" style={{margin:0,flex:1,minWidth:120}} value={c.nome} onChange={e=>setName(i, e.target.value)} />
+            <div className="cores">{CAT_CORES.map(cc => <button key={cc} className={'corbolinha'+(c.cor===cc?' on':'')} style={{background:cc}} onClick={()=>setCor(i, cc)} aria-label="cor"></button>)}</div>
+            <button className="legend-x" onClick={()=>del(i)} title="Apagar cor">×</button>
+          </div>
+        ))}
+        <button className="tipopill novo" style={{marginTop:2}} onClick={add}>+ nova cor</button>
+        <div className="cardacts"><span style={{flex:1}}></span><button className="ghost" onClick={onClose}>Cancelar</button><button className="primary" onClick={salvar}>Salvar</button></div>
       </div>
     </div>
   );
@@ -806,7 +893,24 @@ textarea.inp{resize:vertical;}
 .notecard{text-align:left;background:color-mix(in srgb, var(--c) 10%, var(--surface2));border:1px solid var(--border);border-left:4px solid var(--c);border-radius:12px;padding:12px 14px;cursor:pointer;display:flex;flex-direction:column;gap:5px;min-height:64px;}
 .notecard:hover{background:color-mix(in srgb, var(--c) 16%, var(--surface2));}
 .note-num{font-size:14px;font-weight:500;color:var(--text);font-variant-numeric:tabular-nums;word-break:break-word;}
+.note-data{font-size:11px;color:var(--faint);font-variant-numeric:tabular-nums;}
 .note-prev{font-size:12px;color:var(--muted);line-height:1.45;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;}
+.notegrupo{margin-bottom:18px;}
+.grupohead{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px;}
+.grupohead .dot{width:10px;height:10px;border-radius:50%;}
+.grupocount{background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:1px 8px;font-size:11px;letter-spacing:0;text-transform:none;color:var(--muted);}
+.hist{margin:6px 0 4px;max-height:44vh;overflow:auto;}
+.hist-vazio{font-size:13px;color:var(--muted);font-style:italic;padding:6px 0 10px;}
+.hist-item{border-left:2px solid var(--border2);padding:2px 0 10px 12px;margin-bottom:2px;position:relative;}
+.hist-top{display:flex;align-items:center;justify-content:space-between;}
+.hist-data{font-size:11.5px;font-weight:500;color:var(--accent);font-variant-numeric:tabular-nums;}
+.hist-x{background:none;border:none;color:var(--faint);font-size:15px;line-height:1;padding:0 2px;}
+.hist-x:hover{color:#ef4444;}
+.hist-text{font-size:13.5px;color:var(--text);line-height:1.5;white-space:pre-wrap;margin-top:2px;}
+.addbox{display:flex;gap:8px;align-items:flex-end;margin-top:8px;padding-top:10px;border-top:1px solid var(--border);}
+.addbox textarea{flex:1;resize:vertical;}
+.catrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--border);}
+.catdot{width:14px;height:14px;border-radius:50%;flex:none;}
 
 .tbtn.hamb{font-size:15px;padding:6px 9px;line-height:1;}
 .shell.nonav .sidebar{display:none;}
