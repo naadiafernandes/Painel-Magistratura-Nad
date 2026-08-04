@@ -59,7 +59,7 @@
 const { useState, useEffect, useRef } = React;
 
 /* versão do app — bater igual ao conteúdo de version.txt; ao trocar as duas, aparece o aviso "Atualizar" */
-const APP_VERSION = '2026-08-03-2';
+const APP_VERSION = '2026-08-03-3';
 
 // cor do texto que contrasta com um fundo sólido (claro -> texto escuro; escuro -> branco)
 const textOn = hex => { const c = (hex||'#000').replace('#',''); const r=parseInt(c.slice(0,2),16)||0, g=parseInt(c.slice(2,4),16)||0, b=parseInt(c.slice(4,6),16)||0; return (0.299*r+0.587*g+0.114*b)/255 > 0.62 ? '#231a05' : '#ffffff'; };
@@ -241,6 +241,10 @@ function App(){
     setNotes(list => list.map(x => x.id === id ? { ...x, entries:(x.entries||[]).filter(e => e.id !== eid) } : x));
     setNoteView(v => v && v.id === id ? { ...v, entries:(v.entries||[]).filter(e => e.id !== eid) } : v);
   };
+  const setArchived = (id, val) => {
+    setNotes(list => list.map(x => x.id === id ? { ...x, arquivado: val } : x));
+    setNoteView(v => v && v.id === id ? { ...v, arquivado: val } : v);
+  };
 
   const openNew = (dateStr) => setEditing({ id:newId(), title:'', type:'compromisso', date: dateStr || todayStr(), time:'', note:'', repeat:{ freq:'none', interval:1, unit:'week' }, _new:true });
 
@@ -263,7 +267,7 @@ function App(){
       </div>
       {viewing && <EventView ev={viewing} tipoMap={tipoMap} onClose={()=>setViewing(null)} onEdit={()=>{ setEditing(viewing); setViewing(null); }} />}
       {editing && <Editor ev={editing} tipos={tipos} onAddTipo={addTipo} onClose={()=>setEditing(null)} onSave={ev=>{ upsert(ev); setEditing(null); }} onDelete={id=>{ remove(id); setEditing(null); }} />}
-      {noteView && <NoteView n={noteView} cats={noteCats} onClose={()=>setNoteView(null)} onEdit={()=>{ setNoteEdit(noteView); setNoteView(null); }} onDelete={id=>{ removeNote(id); setNoteView(null); }} onAddEntry={addEntry} onDelEntry={delEntry} />}
+      {noteView && <NoteView n={noteView} cats={noteCats} onClose={()=>setNoteView(null)} onEdit={()=>{ setNoteEdit(noteView); setNoteView(null); }} onDelete={id=>{ removeNote(id); setNoteView(null); }} onArchive={setArchived} onAddEntry={addEntry} onDelEntry={delEntry} />}
       {noteEdit && <NoteEditor n={noteEdit} cats={noteCats} onOpenCats={()=>setCatsOpen(true)} onClose={()=>setNoteEdit(null)} onSave={n=>{ upsertNote(n); setNoteEdit(null); }} onDelete={id=>{ removeNote(id); setNoteEdit(null); }} />}
       {catsOpen && <CatManager cats={noteCats} onSave={list=>setNoteCats(list)} onClose={()=>setCatsOpen(false)} />}
       {syncOpen && <SyncModal onClose={()=>setSyncOpen(false)} />}
@@ -494,10 +498,12 @@ function NotesView({ notes, cats, onOpen, onNew, onCats }){
   const [q, setQ] = useState('');
   const qd = soDigitos(q), ql = q.trim().toLowerCase();
   const filtradas = notes.filter(n => {
+    if (n.arquivado && !ql) return false;   // arquivados só aparecem quando busca
     if (!ql) return true;
     const num = (n.num||'');
     return (qd && soDigitos(num).includes(qd)) || num.toLowerCase().includes(ql) || (n.entries||[]).some(e => (e.text||'').toLowerCase().includes(ql));
   });
+  const nArquivados = notes.filter(n => n.arquivado).length;
   const ultimo = n => { const e = (n.entries||[]); return e.length ? e.slice().sort(cmpEntry)[0] : null; };
   const grupos = cats.map(c => ({ cat:c, itens: filtradas.filter(n => n.color === c.key) })).filter(g => g.itens.length);
   const semCat = filtradas.filter(n => !cats.some(c => c.key === n.color));
@@ -522,7 +528,8 @@ function NotesView({ notes, cats, onOpen, onNew, onCats }){
           <div className="notesgrid">
             {g.itens.map(n => { const u = ultimo(n); const solid = (typeof n.solido === 'boolean') ? n.solido : !!g.cat.solido; const tc = solid ? textOn(g.cat.cor) : null;
               return (
-              <button key={n.id} className={'notecard'+(solid?' solido':'')} style={solid ? { background:g.cat.cor, borderColor:g.cat.cor, '--c':g.cat.cor, color:tc } : { '--c':g.cat.cor }} onClick={()=>onOpen(n)}>
+              <button key={n.id} className={'notecard'+(solid?' solido':'')+(n.arquivado?' arquivada':'')} style={solid ? { background:g.cat.cor, borderColor:g.cat.cor, '--c':g.cat.cor, color:tc } : { '--c':g.cat.cor }} onClick={()=>onOpen(n)}>
+                {n.arquivado && <span className="arqtag">arquivado</span>}
                 <span className="note-num" style={solid?{color:tc}:null}>{n.num || '(sem número)'}</span>
                 {u && <span className="note-data" style={solid?{color:tc,opacity:.75}:null}>{fmtData(u.date)}</span>}
                 {u ? <span className="note-prev" style={solid?{color:tc,opacity:.9}:null}>{u.text}</span> : <span className="note-prev" style={solid?{color:tc,opacity:.85,fontStyle:'italic'}:{fontStyle:'italic'}}>sem anotações</span>}
@@ -531,12 +538,13 @@ function NotesView({ notes, cats, onOpen, onNew, onCats }){
           </div>
         </div>
       ))}
+      {!ql && nArquivados > 0 && <div className="arqhint">{nArquivados} {nArquivados === 1 ? 'processo arquivado' : 'processos arquivados'} — some da lista, mas aparece aqui quando você busca pelo número.</div>}
     </div>
   );
 }
 
 /* ---------- NOTAS: caixinha do processo (histórico + anotar) ---------- */
-function NoteView({ n, cats, onClose, onEdit, onDelete, onAddEntry, onDelEntry }){
+function NoteView({ n, cats, onClose, onEdit, onDelete, onArchive, onAddEntry, onDelEntry }){
   const c = catNota(cats, n.color);
   const [txt, setTxt] = useState('');
   const entries = (n.entries||[]).slice().sort(cmpEntry);
@@ -546,9 +554,13 @@ function NoteView({ n, cats, onClose, onEdit, onDelete, onAddEntry, onDelEntry }
       <div className="card vcard" style={{borderTop:'4px solid '+c.cor}}>
         <div className="vhead">
           <span className="vtipo" style={{background:c.cor}}>{c.nome}</span>
+          {n.arquivado && <span className="arqtag">arquivado</span>}
           <span className="vacts">
             <button className="lapis" onClick={onEdit} title="Editar processo" aria-label="Editar">
               <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+            </button>
+            <button className="lapis" onClick={()=>onArchive(n.id, !n.arquivado)} title={n.arquivado ? 'Desarquivar' : 'Arquivar'} aria-label={n.arquivado ? 'Desarquivar' : 'Arquivar'}>
+              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8"/><path d="M10 12h4"/></svg>
             </button>
             <button className="lapis lixeira" onClick={()=>{ if(confirm('Apagar este processo inteiro (o número e todas as anotações)?')) onDelete(n.id); }} title="Apagar processo" aria-label="Apagar processo">
               <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
@@ -974,6 +986,11 @@ textarea.inp{resize:vertical;}
 .updbtn{background:var(--accent);color:var(--on-accent);border:none;border-radius:9px;padding:8px 14px;font-weight:500;font-size:13px;}
 .updx{background:none;border:none;color:var(--faint);font-size:18px;line-height:1;padding:2px 4px;}
 .updx:hover{color:var(--text);}
+.notecard.arquivada{opacity:.62;}
+.arqtag{align-self:flex-start;font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:.4px;
+  background:var(--surface);border:1px solid var(--border2);color:var(--muted);border-radius:20px;padding:1px 8px;}
+.vhead .arqtag{margin-right:auto;margin-left:8px;}
+.arqhint{font-size:12.5px;color:var(--faint);margin-top:6px;padding:10px 0;border-top:1px solid var(--border);}
 .catmove{display:inline-flex;flex-direction:column;gap:2px;flex:none;}
 .mv{width:22px;height:16px;line-height:1;padding:0;background:var(--surface2);border:1px solid var(--border2);color:var(--muted);border-radius:5px;font-size:11px;}
 .mv:hover:not(:disabled){color:var(--accent);border-color:var(--accent);}
