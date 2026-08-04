@@ -584,6 +584,7 @@ function CatManager({ cats, onSave, onClose }){
   const setName = (i,v) => setList(l => l.map((c,j) => j===i ? { ...c, nome:v } : c));
   const setCor  = (i,v) => setList(l => l.map((c,j) => j===i ? { ...c, cor:v } : c));
   const del     = i => setList(l => l.filter((_,j) => j!==i));
+  const move    = (i,d) => setList(l => { const j=i+d; if(j<0||j>=l.length) return l; const c=l.slice(); const t=c[i]; c[i]=c[j]; c[j]=t; return c; });
   const add     = () => setList(l => [...l, { key:catNewKey(), nome:'Nova cor', cor:CAT_CORES[l.length % CAT_CORES.length] }]);
   const salvar  = () => { onSave(list.filter(c => (c.nome||'').trim())); onClose(); };
   return (
@@ -593,6 +594,10 @@ function CatManager({ cats, onSave, onClose }){
         <p className="sub">Renomeie, mude a cor ou crie novas. Os processos ficam agrupados por elas.</p>
         {list.map((c,i) => (
           <div key={c.key} className="catrow">
+            <span className="catmove">
+              <button className="mv" onClick={()=>move(i,-1)} disabled={i===0} title="Subir">↑</button>
+              <button className="mv" onClick={()=>move(i,1)} disabled={i===list.length-1} title="Descer">↓</button>
+            </span>
             <span className="catdot" style={{background:c.cor}}></span>
             <input className="inp" style={{margin:0,flex:1,minWidth:120}} value={c.nome} onChange={e=>setName(i, e.target.value)} />
             <div className="cores">{CAT_CORES.map(cc => <button key={cc} className={'corbolinha'+(c.cor===cc?' on':'')} style={{background:cc}} onClick={()=>setCor(i, cc)} aria-label="cor"></button>)}</div>
@@ -911,6 +916,10 @@ textarea.inp{resize:vertical;}
 .addbox textarea{flex:1;resize:vertical;}
 .catrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--border);}
 .catdot{width:14px;height:14px;border-radius:50%;flex:none;}
+.catmove{display:inline-flex;flex-direction:column;gap:2px;flex:none;}
+.mv{width:22px;height:16px;line-height:1;padding:0;background:var(--surface2);border:1px solid var(--border2);color:var(--muted);border-radius:5px;font-size:11px;}
+.mv:hover:not(:disabled){color:var(--accent);border-color:var(--accent);}
+.mv:disabled{opacity:.35;cursor:default;}
 
 .tbtn.hamb{font-size:15px;padding:6px 9px;line-height:1;}
 .shell.nonav .sidebar{display:none;}
