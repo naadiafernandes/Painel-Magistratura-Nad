@@ -58,6 +58,12 @@
 <script type="text/babel" data-presets="react">
 const { useState, useEffect, useRef } = React;
 
+/* versão do app — bater igual ao conteúdo de version.txt; ao trocar as duas, aparece o aviso "Atualizar" */
+const APP_VERSION = '2026-08-03-1';
+
+// cor do texto que contrasta com um fundo sólido (claro -> texto escuro; escuro -> branco)
+const textOn = hex => { const c = (hex||'#000').replace('#',''); const r=parseInt(c.slice(0,2),16)||0, g=parseInt(c.slice(2,4),16)||0, b=parseInt(c.slice(4,6),16)||0; return (0.299*r+0.587*g+0.114*b)/255 > 0.62 ? '#231a05' : '#ffffff'; };
+
 /* ---------- datas (sempre em horario local, sem fuso) ---------- */
 const pad = n => String(n).padStart(2,'0');
 const ymd = d => d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
@@ -189,6 +195,23 @@ function App(){
   useEffect(() => { if (firstT.current){ firstT.current = false; return; } saveUserTipos(userTipos); }, [userTipos]);
   useEffect(() => { if (firstN.current){ firstN.current = false; return; } saveNotes(notes); }, [notes]);
   useEffect(() => { if (firstC.current){ firstC.current = false; return; } saveNoteCats(noteCats); }, [noteCats]);
+  // avisa quando há versão nova publicada (sem recarregar na mão)
+  const [updateReady, setUpdateReady] = useState(false);
+  useEffect(() => {
+    let stop = false;
+    const check = () => {
+      fetch('version.txt?t=' + Date.now(), { cache:'no-store' })
+        .then(r => r.ok ? r.text() : null)
+        .then(t => { if (!stop && t && t.trim() && t.trim() !== APP_VERSION) setUpdateReady(true); })
+        .catch(()=>{});
+    };
+    check();
+    const id = setInterval(() => { if (document.visibilityState === 'visible') check(); }, 300000);
+    const onFocus = () => check();
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onFocus);
+    return () => { stop = true; clearInterval(id); window.removeEventListener('focus', onFocus); document.removeEventListener('visibilitychange', onFocus); };
+  }, []);
   // recarrega quando a sincronizacao trouxer mudanca de outro aparelho
   useEffect(() => {
     const h = () => { setEvents(loadEvents()); setUserTipos(loadUserTipos()); setNotes(loadNotes()); setNoteCats(loadNoteCats()); };
@@ -244,6 +267,13 @@ function App(){
       {noteEdit && <NoteEditor n={noteEdit} cats={noteCats} onOpenCats={()=>setCatsOpen(true)} onClose={()=>setNoteEdit(null)} onSave={n=>{ upsertNote(n); setNoteEdit(null); }} onDelete={id=>{ removeNote(id); setNoteEdit(null); }} />}
       {catsOpen && <CatManager cats={noteCats} onSave={list=>setNoteCats(list)} onClose={()=>setCatsOpen(false)} />}
       {syncOpen && <SyncModal onClose={()=>setSyncOpen(false)} />}
+      {updateReady && (
+        <div className="updbar">
+          <span>Tem uma versão nova da AgendaNAD.</span>
+          <button className="updbtn" onClick={()=>location.reload()}>Atualizar</button>
+          <button className="updx" onClick={()=>setUpdateReady(false)} aria-label="Depois">×</button>
+        </div>
+      )}
       <style>{CSS}</style>
     </div>
   );
@@ -490,11 +520,12 @@ function NotesView({ notes, cats, onOpen, onNew, onCats }){
         <div key={g.cat.key} className="notegrupo">
           <div className="grupohead"><span className="dot" style={{background:g.cat.cor}}></span>{g.cat.nome}<span className="grupocount">{g.itens.length}</span></div>
           <div className="notesgrid">
-            {g.itens.map(n => { const u = ultimo(n); return (
-              <button key={n.id} className="notecard" style={{'--c':g.cat.cor}} onClick={()=>onOpen(n)}>
-                <span className="note-num">{n.num || '(sem número)'}</span>
-                {u && <span className="note-data">{fmtData(u.date)}</span>}
-                {u ? <span className="note-prev">{u.text}</span> : <span className="note-prev" style={{fontStyle:'italic'}}>sem anotações</span>}
+            {g.itens.map(n => { const u = ultimo(n); const solid = !!g.cat.solido; const tc = solid ? textOn(g.cat.cor) : null;
+              return (
+              <button key={n.id} className={'notecard'+(solid?' solido':'')} style={solid ? { background:g.cat.cor, borderColor:g.cat.cor, '--c':g.cat.cor, color:tc } : { '--c':g.cat.cor }} onClick={()=>onOpen(n)}>
+                <span className="note-num" style={solid?{color:tc}:null}>{n.num || '(sem número)'}</span>
+                {u && <span className="note-data" style={solid?{color:tc,opacity:.75}:null}>{fmtData(u.date)}</span>}
+                {u ? <span className="note-prev" style={solid?{color:tc,opacity:.9}:null}>{u.text}</span> : <span className="note-prev" style={solid?{color:tc,opacity:.85,fontStyle:'italic'}:{fontStyle:'italic'}}>sem anotações</span>}
               </button>
             );})}
           </div>
@@ -583,6 +614,7 @@ function CatManager({ cats, onSave, onClose }){
   const [list, setList] = useState(cats.length ? cats : DEFAULT_NOTECATS.slice());
   const setName = (i,v) => setList(l => l.map((c,j) => j===i ? { ...c, nome:v } : c));
   const setCor  = (i,v) => setList(l => l.map((c,j) => j===i ? { ...c, cor:v } : c));
+  const setSol  = (i,v) => setList(l => l.map((c,j) => j===i ? { ...c, solido:v } : c));
   const del     = i => setList(l => l.filter((_,j) => j!==i));
   const move    = (i,d) => setList(l => { const j=i+d; if(j<0||j>=l.length) return l; const c=l.slice(); const t=c[i]; c[i]=c[j]; c[j]=t; return c; });
   const add     = () => setList(l => [...l, { key:catNewKey(), nome:'Nova cor', cor:CAT_CORES[l.length % CAT_CORES.length] }]);
@@ -601,6 +633,7 @@ function CatManager({ cats, onSave, onClose }){
             <span className="catdot" style={{background:c.cor}}></span>
             <input className="inp" style={{margin:0,flex:1,minWidth:120}} value={c.nome} onChange={e=>setName(i, e.target.value)} />
             <div className="cores">{CAT_CORES.map(cc => <button key={cc} className={'corbolinha'+(c.cor===cc?' on':'')} style={{background:cc}} onClick={()=>setCor(i, cc)} aria-label="cor"></button>)}</div>
+            <button className={'solidtog'+(c.solido?' on':'')} style={c.solido?{background:c.cor,borderColor:c.cor,color:textOn(c.cor)}:null} onClick={()=>setSol(i, !c.solido)} title="Fundo forte (pra urgências)">sólido</button>
             <button className="legend-x" onClick={()=>del(i)} title="Apagar cor">×</button>
           </div>
         ))}
@@ -897,6 +930,9 @@ textarea.inp{resize:vertical;}
 .notesgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;}
 .notecard{text-align:left;background:color-mix(in srgb, var(--c) 10%, var(--surface2));border:1px solid var(--border);border-left:4px solid var(--c);border-radius:12px;padding:12px 14px;cursor:pointer;display:flex;flex-direction:column;gap:5px;min-height:64px;}
 .notecard:hover{background:color-mix(in srgb, var(--c) 16%, var(--surface2));}
+.notecard.solido{border:1px solid var(--c);}
+.notecard.solido:hover{filter:brightness(1.05);background:var(--c);}
+.solidtog{font-size:11.5px;font-weight:500;padding:6px 11px;border-radius:20px;background:var(--surface2);border:1px solid var(--border2);color:var(--muted);flex:none;}
 .note-num{font-size:14px;font-weight:500;color:var(--text);font-variant-numeric:tabular-nums;word-break:break-word;}
 .note-data{font-size:11px;color:var(--faint);font-variant-numeric:tabular-nums;}
 .note-prev{font-size:12px;color:var(--muted);line-height:1.45;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;}
@@ -916,6 +952,12 @@ textarea.inp{resize:vertical;}
 .addbox textarea{flex:1;resize:vertical;}
 .catrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--border);}
 .catdot{width:14px;height:14px;border-radius:50%;flex:none;}
+.updbar{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom));z-index:1200;
+  display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--border2);
+  border-radius:14px;padding:10px 12px 10px 16px;box-shadow:0 12px 34px rgba(0,0,0,.35);font-size:13.5px;color:var(--text);max-width:92vw;}
+.updbtn{background:var(--accent);color:var(--on-accent);border:none;border-radius:9px;padding:8px 14px;font-weight:500;font-size:13px;}
+.updx{background:none;border:none;color:var(--faint);font-size:18px;line-height:1;padding:2px 4px;}
+.updx:hover{color:var(--text);}
 .catmove{display:inline-flex;flex-direction:column;gap:2px;flex:none;}
 .mv{width:22px;height:16px;line-height:1;padding:0;background:var(--surface2);border:1px solid var(--border2);color:var(--muted);border-radius:5px;font-size:11px;}
 .mv:hover:not(:disabled){color:var(--accent);border-color:var(--accent);}
