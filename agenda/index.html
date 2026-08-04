@@ -59,7 +59,7 @@
 const { useState, useEffect, useRef } = React;
 
 /* versão do app — bater igual ao conteúdo de version.txt; ao trocar as duas, aparece o aviso "Atualizar" */
-const APP_VERSION = '2026-08-03-1';
+const APP_VERSION = '2026-08-03-2';
 
 // cor do texto que contrasta com um fundo sólido (claro -> texto escuro; escuro -> branco)
 const textOn = hex => { const c = (hex||'#000').replace('#',''); const r=parseInt(c.slice(0,2),16)||0, g=parseInt(c.slice(2,4),16)||0, b=parseInt(c.slice(4,6),16)||0; return (0.299*r+0.587*g+0.114*b)/255 > 0.62 ? '#231a05' : '#ffffff'; };
@@ -263,7 +263,7 @@ function App(){
       </div>
       {viewing && <EventView ev={viewing} tipoMap={tipoMap} onClose={()=>setViewing(null)} onEdit={()=>{ setEditing(viewing); setViewing(null); }} />}
       {editing && <Editor ev={editing} tipos={tipos} onAddTipo={addTipo} onClose={()=>setEditing(null)} onSave={ev=>{ upsert(ev); setEditing(null); }} onDelete={id=>{ remove(id); setEditing(null); }} />}
-      {noteView && <NoteView n={noteView} cats={noteCats} onClose={()=>setNoteView(null)} onEdit={()=>{ setNoteEdit(noteView); setNoteView(null); }} onAddEntry={addEntry} onDelEntry={delEntry} />}
+      {noteView && <NoteView n={noteView} cats={noteCats} onClose={()=>setNoteView(null)} onEdit={()=>{ setNoteEdit(noteView); setNoteView(null); }} onDelete={id=>{ removeNote(id); setNoteView(null); }} onAddEntry={addEntry} onDelEntry={delEntry} />}
       {noteEdit && <NoteEditor n={noteEdit} cats={noteCats} onOpenCats={()=>setCatsOpen(true)} onClose={()=>setNoteEdit(null)} onSave={n=>{ upsertNote(n); setNoteEdit(null); }} onDelete={id=>{ removeNote(id); setNoteEdit(null); }} />}
       {catsOpen && <CatManager cats={noteCats} onSave={list=>setNoteCats(list)} onClose={()=>setCatsOpen(false)} />}
       {syncOpen && <SyncModal onClose={()=>setSyncOpen(false)} />}
@@ -520,7 +520,7 @@ function NotesView({ notes, cats, onOpen, onNew, onCats }){
         <div key={g.cat.key} className="notegrupo">
           <div className="grupohead"><span className="dot" style={{background:g.cat.cor}}></span>{g.cat.nome}<span className="grupocount">{g.itens.length}</span></div>
           <div className="notesgrid">
-            {g.itens.map(n => { const u = ultimo(n); const solid = !!g.cat.solido; const tc = solid ? textOn(g.cat.cor) : null;
+            {g.itens.map(n => { const u = ultimo(n); const solid = (typeof n.solido === 'boolean') ? n.solido : !!g.cat.solido; const tc = solid ? textOn(g.cat.cor) : null;
               return (
               <button key={n.id} className={'notecard'+(solid?' solido':'')} style={solid ? { background:g.cat.cor, borderColor:g.cat.cor, '--c':g.cat.cor, color:tc } : { '--c':g.cat.cor }} onClick={()=>onOpen(n)}>
                 <span className="note-num" style={solid?{color:tc}:null}>{n.num || '(sem número)'}</span>
@@ -536,7 +536,7 @@ function NotesView({ notes, cats, onOpen, onNew, onCats }){
 }
 
 /* ---------- NOTAS: caixinha do processo (histórico + anotar) ---------- */
-function NoteView({ n, cats, onClose, onEdit, onAddEntry, onDelEntry }){
+function NoteView({ n, cats, onClose, onEdit, onDelete, onAddEntry, onDelEntry }){
   const c = catNota(cats, n.color);
   const [txt, setTxt] = useState('');
   const entries = (n.entries||[]).slice().sort(cmpEntry);
@@ -546,9 +546,14 @@ function NoteView({ n, cats, onClose, onEdit, onAddEntry, onDelEntry }){
       <div className="card vcard" style={{borderTop:'4px solid '+c.cor}}>
         <div className="vhead">
           <span className="vtipo" style={{background:c.cor}}>{c.nome}</span>
-          <button className="lapis" onClick={onEdit} title="Editar processo" aria-label="Editar">
-            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-          </button>
+          <span className="vacts">
+            <button className="lapis" onClick={onEdit} title="Editar processo" aria-label="Editar">
+              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+            </button>
+            <button className="lapis lixeira" onClick={()=>{ if(confirm('Apagar este processo inteiro (o número e todas as anotações)?')) onDelete(n.id); }} title="Apagar processo" aria-label="Apagar processo">
+              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+            </button>
+          </span>
         </div>
         <div className="vtitulo">{n.num || '(sem número)'}</div>
         <div className="hist">
@@ -575,11 +580,14 @@ function NoteView({ n, cats, onClose, onEdit, onAddEntry, onDelEntry }){
 function NoteEditor({ n, cats, onOpenCats, onClose, onSave, onDelete }){
   const [num, setNum] = useState(n.num);
   const [color, setColor] = useState(n.color || (cats[0] && cats[0].key));
+  const catIni = cats.find(c => c.key === (n.color || (cats[0] && cats[0].key))) || {};
+  const [solido, setSolido] = useState(n.solido != null ? n.solido : !!catIni.solido);
   const [firstText, setFirstText] = useState('');
+  const corSel = (cats.find(c => c.key === color) || {}).cor || '#888';
   const salvar = () => {
     const entries = (n.entries||[]).slice();
     if (n._new && firstText.trim()) entries.unshift({ id:newId(), date:todayStr(), text:firstText.trim() });
-    onSave({ ...n, num, color, entries });
+    onSave({ ...n, num, color, entries, solido });
   };
   return (
     <div className="modal" onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
@@ -597,6 +605,10 @@ function NoteEditor({ n, cats, onOpenCats, onClose, onSave, onDelete }){
           ))}
           <button className="tipopill novo" onClick={onOpenCats}>editar cores</button>
         </div>
+        <label className="fortesw">
+          <button className={'solidtog'+(solido?' on':'')} style={solido?{background:corSel,borderColor:corSel,color:textOn(corSel)}:null} onClick={()=>setSolido(s=>!s)}>fundo forte</button>
+          <span>deixa esta janelinha bem sólida (pra urgência)</span>
+        </label>
         {n._new && <textarea className="inp" rows="4" placeholder="Primeira anotação (fica com a data de hoje)" value={firstText} onChange={e=>setFirstText(e.target.value)} />}
         <div className="cardacts">
           {!n._new && <button className="del" onClick={()=>{ if(confirm('Apagar este processo e todas as anotações dele?')) onDelete(n.id); }}>Apagar</button>}
@@ -633,7 +645,7 @@ function CatManager({ cats, onSave, onClose }){
             <span className="catdot" style={{background:c.cor}}></span>
             <input className="inp" style={{margin:0,flex:1,minWidth:120}} value={c.nome} onChange={e=>setName(i, e.target.value)} />
             <div className="cores">{CAT_CORES.map(cc => <button key={cc} className={'corbolinha'+(c.cor===cc?' on':'')} style={{background:cc}} onClick={()=>setCor(i, cc)} aria-label="cor"></button>)}</div>
-            <button className={'solidtog'+(c.solido?' on':'')} style={c.solido?{background:c.cor,borderColor:c.cor,color:textOn(c.cor)}:null} onClick={()=>setSol(i, !c.solido)} title="Fundo forte (pra urgências)">sólido</button>
+            <button className={'solidtog'+(c.solido?' on':'')} style={c.solido?{background:c.cor,borderColor:c.cor,color:textOn(c.cor)}:null} onClick={()=>setSol(i, !c.solido)} title="Padrão forte pra esta cor (dá pra mudar em cada processo)">sólido</button>
             <button className="legend-x" onClick={()=>del(i)} title="Apagar cor">×</button>
           </div>
         ))}
@@ -914,8 +926,10 @@ textarea.inp{resize:vertical;}
 .vcard{width:380px;}
 .vhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
 .vtipo{font-size:11.5px;font-weight:500;color:#fff;padding:4px 11px;border-radius:20px;}
+.vacts{display:inline-flex;gap:8px;}
 .lapis{background:var(--surface2);border:1px solid var(--border2);color:var(--muted);border-radius:9px;width:32px;height:32px;display:inline-grid;place-items:center;}
 .lapis:hover{color:var(--accent);border-color:var(--accent);}
+.lapis.lixeira:hover{color:#ef4444;border-color:#ef4444;}
 .vtitulo{font-size:19px;font-weight:500;line-height:1.3;margin-bottom:12px;}
 .vlinha{display:flex;align-items:center;gap:9px;font-size:14px;color:var(--text);margin-bottom:7px;}
 .vico{width:18px;text-align:center;color:var(--muted);}
@@ -933,6 +947,8 @@ textarea.inp{resize:vertical;}
 .notecard.solido{border:1px solid var(--c);}
 .notecard.solido:hover{filter:brightness(1.05);background:var(--c);}
 .solidtog{font-size:11.5px;font-weight:500;padding:6px 11px;border-radius:20px;background:var(--surface2);border:1px solid var(--border2);color:var(--muted);flex:none;}
+.fortesw{display:flex;align-items:center;gap:10px;margin-bottom:11px;}
+.fortesw>span{font-size:12px;color:var(--muted);}
 .note-num{font-size:14px;font-weight:500;color:var(--text);font-variant-numeric:tabular-nums;word-break:break-word;}
 .note-data{font-size:11px;color:var(--faint);font-variant-numeric:tabular-nums;}
 .note-prev{font-size:12px;color:var(--muted);line-height:1.45;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;}
