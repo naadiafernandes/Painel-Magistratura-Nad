@@ -59,7 +59,7 @@
 const { useState, useEffect, useRef } = React;
 
 /* versão do app — bater igual ao conteúdo de version.txt; ao trocar as duas, aparece o aviso "Atualizar" */
-const APP_VERSION = '2026-08-03-3';
+const APP_VERSION = '2026-08-05-1';
 
 // cor do texto que contrasta com um fundo sólido (claro -> texto escuro; escuro -> branco)
 const textOn = hex => { const c = (hex||'#000').replace('#',''); const r=parseInt(c.slice(0,2),16)||0, g=parseInt(c.slice(2,4),16)||0, b=parseInt(c.slice(4,6),16)||0; return (0.299*r+0.587*g+0.114*b)/255 > 0.62 ? '#231a05' : '#ffffff'; };
@@ -174,6 +174,7 @@ function App(){
   const [refStr, setRefStr] = useState(todayStr()); // data de referencia comum a todas as visoes
   const [editing, setEditing] = useState(null);      // evento em edicao/criacao ou null
   const [viewing, setViewing] = useState(null);      // evento aberto so pra ver (ja salvo)
+  const [dayView, setDayView] = useState(null);      // data (string) com a lista do dia aberta
   const [syncOpen, setSyncOpen] = useState(false);
   const [navHidden, setNavHidden] = useState(() => localStorage.getItem('agenda-nav') === 'hide');
   const [userTipos, setUserTipos] = useState(loadUserTipos);
@@ -258,13 +259,14 @@ function App(){
         <Sidebar view={view} setView={setView} onNew={onNewGlobal} tipos={tipos} onDelTipo={delTipo} />
         <main className="main">
           {navHidden && <CompactNav view={view} setView={setView} onNew={onNewGlobal} />}
-          {view === 'mes'   && <MonthView refStr={refStr} setRefStr={setRefStr} events={events} tipoMap={tipoMap} onNew={openNew} onOpen={setViewing} />}
+          {view === 'mes'   && <MonthView refStr={refStr} setRefStr={setRefStr} events={events} tipoMap={tipoMap} onNew={openNew} onOpen={setViewing} onOpenDay={setDayView} />}
           {view === 'semana'&& <WeekView  refStr={refStr} setRefStr={setRefStr} events={events} tipoMap={tipoMap} onNew={openNew} onOpen={setViewing} />}
           {view === 'ano'   && <YearView  refStr={refStr} setRefStr={setRefStr} events={events} tipoMap={tipoMap} onPick={irPara} />}
           {view === 'lista' && <AgendaView events={events} tipoMap={tipoMap} onOpen={setViewing} onNew={()=>openNew()} />}
           {view === 'notas' && <NotesView notes={notes} cats={noteCats} onOpen={setNoteView} onNew={openNewNote} onCats={()=>setCatsOpen(true)} />}
         </main>
       </div>
+      {dayView && <DayView dateStr={dayView} events={events} tipoMap={tipoMap} onClose={()=>setDayView(null)} onOpen={ev=>{ setDayView(null); setViewing(ev); }} onNew={s=>{ setDayView(null); openNew(s); }} />}
       {viewing && <EventView ev={viewing} tipoMap={tipoMap} onClose={()=>setViewing(null)} onEdit={()=>{ setEditing(viewing); setViewing(null); }} />}
       {editing && <Editor ev={editing} tipos={tipos} onAddTipo={addTipo} onClose={()=>setEditing(null)} onSave={ev=>{ upsert(ev); setEditing(null); }} onDelete={id=>{ remove(id); setEditing(null); }} />}
       {noteView && <NoteView n={noteView} cats={noteCats} onClose={()=>setNoteView(null)} onEdit={()=>{ setNoteEdit(noteView); setNoteView(null); }} onDelete={id=>{ removeNote(id); setNoteView(null); }} onArchive={setArchived} onAddEntry={addEntry} onDelEntry={delEntry} />}
@@ -340,7 +342,7 @@ function ViewHeader({ title, onPrev, onNext, onToday }){
 }
 
 /* ---------- visao de mes ---------- */
-function MonthView({ refStr, setRefStr, events, tipoMap, onNew, onOpen }){
+function MonthView({ refStr, setRefStr, events, tipoMap, onNew, onOpen, onOpenDay }){
   const ref = parseYmd(refStr);
   const y = ref.getFullYear(), m = ref.getMonth();
   const primeiro = new Date(y, m, 1);
@@ -372,7 +374,7 @@ function MonthView({ refStr, setRefStr, events, tipoMap, onNew, onOpen }){
                   {ev.repeat && ev.repeat.freq!=='none' ? '↻ ' : ''}{ev.time ? ev.time+' ' : ''}{ev.title || '(sem título)'}
                 </div>
               ))}
-              {evs.length > 3 && <div className="mais">+{evs.length-3}</div>}
+              {evs.length > 3 && <div className="mais" onClick={e=>{ e.stopPropagation(); onOpenDay(s); }}>+{evs.length-3} ver tudo</div>}
             </div>
           );
         })}
@@ -668,6 +670,29 @@ function CatManager({ cats, onSave, onClose }){
   );
 }
 
+/* ---------- lista de tudo de um dia (aberta pelo "+N" do mês) ---------- */
+function DayView({ dateStr, events, tipoMap, onClose, onOpen, onNew }){
+  const evs = events.filter(ev => occurrences(ev, dateStr, dateStr).length > 0).slice().sort(cmpHora);
+  return (
+    <div className="modal" onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
+      <div className="card">
+        <div className="cardhead"><b>{fmtLongo(dateStr)}</b><button className="x" onClick={onClose} aria-label="Fechar">×</button></div>
+        <div className="daylist">
+          {evs.length === 0 && <div className="hist-vazio">Nada neste dia.</div>}
+          {evs.map((ev,i) => (
+            <div key={i} className="linha" style={{'--c':(tipoMap[ev.type]||FALLBACK_TIPO).cor}} onClick={()=>onOpen(ev)}>
+              <span className="ltempo">{ev.time || '—'}</span>
+              <span className="ltit">{ev.title || '(sem título)'}</span>
+              {ev.repeat && ev.repeat.freq !== 'none' && <span className="lrep">↻</span>}
+            </div>
+          ))}
+        </div>
+        <div className="cardacts"><span style={{flex:1}}></span><button className="primary" onClick={()=>onNew(dateStr)}>+ Novo neste dia</button></div>
+      </div>
+    </div>
+  );
+}
+
 /* ---------- caixinha de um compromisso ja salvo (so leitura + lapis) ---------- */
 function EventView({ ev, tipoMap, onClose, onEdit }){
   const t = tipoMap[ev.type] || FALLBACK_TIPO;
@@ -892,7 +917,10 @@ const CSS = `
 .cell.hoje .cellnum{color:var(--accent);}
 .pill{font-size:11px;line-height:1.25;background:color-mix(in srgb, var(--c) 16%, transparent);color:var(--c);
   border-left:2px solid var(--c);border-radius:4px;padding:2px 4px;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.mais{font-size:10px;color:var(--faint);padding-left:3px;}
+.mais{font-size:10px;color:var(--accent);font-weight:500;padding:2px 3px;border-radius:5px;cursor:pointer;}
+.mais:hover{background:color-mix(in srgb, var(--accent) 14%, transparent);}
+.daylist{margin:4px 0 8px;max-height:52vh;overflow:auto;}
+.daylist .linha{margin-bottom:6px;}
 @media(max-width:760px){ .cell{min-height:62px;} .pill{font-size:10px;} }
 
 .diagrp{margin-bottom:16px;}
