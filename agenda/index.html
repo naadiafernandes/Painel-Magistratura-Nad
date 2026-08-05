@@ -59,7 +59,7 @@
 const { useState, useEffect, useRef } = React;
 
 /* versão do app — bater igual ao conteúdo de version.txt; ao trocar as duas, aparece o aviso "Atualizar" */
-const APP_VERSION = '2026-08-05-2';
+const APP_VERSION = '2026-08-05-3';
 
 // cor do texto que contrasta com um fundo sólido (claro -> texto escuro; escuro -> branco)
 const textOn = hex => { const c = (hex||'#000').replace('#',''); const r=parseInt(c.slice(0,2),16)||0, g=parseInt(c.slice(2,4),16)||0, b=parseInt(c.slice(4,6),16)||0; return (0.299*r+0.587*g+0.114*b)/255 > 0.62 ? '#231a05' : '#ffffff'; };
@@ -175,6 +175,7 @@ function App(){
   const [editing, setEditing] = useState(null);      // evento em edicao/criacao ou null
   const [viewing, setViewing] = useState(null);      // evento aberto so pra ver (ja salvo)
   const [dayView, setDayView] = useState(null);      // data (string) com a lista do dia aberta
+  const [busca, setBusca] = useState('');            // busca na agenda (eventos)
   const [syncOpen, setSyncOpen] = useState(false);
   const [navHidden, setNavHidden] = useState(() => localStorage.getItem('agenda-nav') === 'hide');
   const [userTipos, setUserTipos] = useState(loadUserTipos);
@@ -259,11 +260,22 @@ function App(){
         <Sidebar view={view} setView={setView} onNew={onNewGlobal} tipos={tipos} onDelTipo={delTipo} />
         <main className="main">
           {navHidden && <CompactNav view={view} setView={setView} onNew={onNewGlobal} />}
-          {view === 'mes'   && <MonthView refStr={refStr} setRefStr={setRefStr} events={events} tipoMap={tipoMap} onNew={openNew} onOpen={setViewing} onOpenDay={setDayView} />}
-          {view === 'semana'&& <WeekView  refStr={refStr} setRefStr={setRefStr} events={events} tipoMap={tipoMap} onNew={openNew} onOpen={setViewing} />}
-          {view === 'ano'   && <YearView  refStr={refStr} setRefStr={setRefStr} events={events} tipoMap={tipoMap} onPick={irPara} />}
-          {view === 'lista' && <AgendaView events={events} tipoMap={tipoMap} onOpen={setViewing} onNew={()=>openNew()} />}
-          {view === 'notas' && <NotesView notes={notes} cats={noteCats} onOpen={setNoteView} onNew={openNewNote} onCats={()=>setCatsOpen(true)} />}
+          {view !== 'notas' && (
+            <div className="buscaWrap agbusca">
+              <span className="buscaIco">⌕</span>
+              <input className="busca" placeholder="Buscar na agenda…" value={busca} onChange={e=>setBusca(e.target.value)} autoCapitalize="off" autoCorrect="off" spellCheck="false" />
+              {busca && <button className="buscaX" onClick={()=>setBusca('')} aria-label="Limpar">×</button>}
+            </div>
+          )}
+          {view !== 'notas' && busca.trim()
+            ? <SearchView query={busca} events={events} tipoMap={tipoMap} onOpen={setViewing} />
+            : <React.Fragment>
+                {view === 'mes'   && <MonthView refStr={refStr} setRefStr={setRefStr} events={events} tipoMap={tipoMap} onNew={openNew} onOpen={setViewing} onOpenDay={setDayView} />}
+                {view === 'semana'&& <WeekView  refStr={refStr} setRefStr={setRefStr} events={events} tipoMap={tipoMap} onNew={openNew} onOpen={setViewing} />}
+                {view === 'ano'   && <YearView  refStr={refStr} setRefStr={setRefStr} events={events} tipoMap={tipoMap} onPick={irPara} />}
+                {view === 'lista' && <AgendaView events={events} tipoMap={tipoMap} onOpen={setViewing} onNew={()=>openNew()} />}
+                {view === 'notas' && <NotesView notes={notes} cats={noteCats} onOpen={setNoteView} onNew={openNewNote} onCats={()=>setCatsOpen(true)} />}
+              </React.Fragment>}
         </main>
       </div>
       {dayView && <DayView dateStr={dayView} events={events} tipoMap={tipoMap} onClose={()=>setDayView(null)} onOpen={ev=>{ setDayView(null); setViewing(ev); }} onNew={s=>{ setDayView(null); openNew(s); }} />}
@@ -670,6 +682,36 @@ function CatManager({ cats, onSave, onClose }){
   );
 }
 
+/* próxima ocorrência de um compromisso (>= hoje); se já passou e não repete, mostra a data original */
+function proxData(ev){
+  const hoje = todayStr();
+  const fim = ymd(new Date(new Date().getFullYear() + 2, 11, 31));
+  const occ = occurrences(ev, hoje, fim);
+  return occ.length ? occ[0] : ev.date;
+}
+
+/* ---------- resultados da busca na agenda ---------- */
+function SearchView({ query, events, tipoMap, onOpen }){
+  const ql = query.trim().toLowerCase();
+  const rows = events
+    .filter(ev => (ev.title||'').toLowerCase().includes(ql) || (ev.note||'').toLowerCase().includes(ql))
+    .map(ev => ({ ev, s: proxData(ev) }))
+    .sort((a,b) => a.s === b.s ? (a.ev.time||'').localeCompare(b.ev.time||'') : a.s.localeCompare(b.s));
+  return (
+    <div>
+      <div className="head"><div className="titulo">Busca: "{query}"</div></div>
+      {rows.length === 0 && <div className="vazio">Nada encontrado na agenda para "{query}".</div>}
+      {rows.map(({ ev, s }, i) => (
+        <div key={i} className="linha" style={{'--c':(tipoMap[ev.type]||FALLBACK_TIPO).cor}} onClick={()=>onOpen(ev)}>
+          <span className="ltempo" style={{minWidth:82}}>{fmtData(s)}</span>
+          <span className="ltit">{ev.title || '(sem título)'}{ev.time ? ' · '+ev.time : ''}</span>
+          {ev.repeat && ev.repeat.freq !== 'none' && <span className="lrep">↻ {repeatLabel(ev)}</span>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /* ---------- lista de tudo de um dia (aberta pelo "+N" do mês) ---------- */
 function DayView({ dateStr, events, tipoMap, onClose, onOpen, onNew }){
   const evs = events.filter(ev => occurrences(ev, dateStr, dateStr).length > 0).slice().sort(cmpHora);
@@ -993,6 +1035,7 @@ textarea.inp{resize:vertical;}
 .vnote{margin-top:8px;padding-top:10px;border-top:1px solid var(--border);font-size:13.5px;color:var(--muted);line-height:1.55;white-space:pre-wrap;}
 
 .buscaWrap{position:relative;margin-bottom:14px;max-width:460px;}
+.agbusca{margin-bottom:14px;}
 .buscaIco{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--faint);font-size:16px;}
 .busca{width:100%;box-sizing:border-box;font:inherit;font-size:14px;padding:10px 34px;border-radius:11px;border:1px solid var(--border2);background:var(--input);color:var(--text);}
 .busca:focus{outline:none;border-color:var(--accent);}
