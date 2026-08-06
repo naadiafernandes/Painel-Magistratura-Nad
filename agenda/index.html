@@ -59,7 +59,7 @@
 const { useState, useEffect, useRef } = React;
 
 /* versão do app — bater igual ao conteúdo de version.txt; ao trocar as duas, aparece o aviso "Atualizar" */
-const APP_VERSION = '2026-08-05-3';
+const APP_VERSION = '2026-08-05-4';
 
 // cor do texto que contrasta com um fundo sólido (claro -> texto escuro; escuro -> branco)
 const textOn = hex => { const c = (hex||'#000').replace('#',''); const r=parseInt(c.slice(0,2),16)||0, g=parseInt(c.slice(2,4),16)||0, b=parseInt(c.slice(4,6),16)||0; return (0.299*r+0.587*g+0.114*b)/255 > 0.62 ? '#231a05' : '#ffffff'; };
@@ -167,6 +167,22 @@ function normNote(n){ if (Array.isArray(n.entries)) return n; const e = []; if (
 function loadNotes(){ try { return (JSON.parse(localStorage.getItem(NKEY) || '[]')).map(normNote); } catch(e){ return []; } }
 function saveNotes(list){ localStorage.setItem(NKEY, JSON.stringify(list)); }
 
+// contador de valor (embaixo de Processos): número puro = define; +/- = soma/subtrai
+const VKEY = 'agenda-valor';
+function loadValor(){ const v = parseFloat(localStorage.getItem(VKEY)); return isNaN(v) ? 0 : v; }
+function saveValor(v){ localStorage.setItem(VKEY, String(v)); }
+const fmtValor = v => v.toLocaleString('pt-BR', { minimumFractionDigits:2, maximumFractionDigits:2 });
+function parseValInput(s){
+  s = (s||'').trim(); if (!s) return null;
+  let sign = 1, signed = false;
+  if (s[0] === '+'){ signed = true; s = s.slice(1); }
+  else if (s[0] === '-'){ signed = true; sign = -1; s = s.slice(1); }
+  s = s.trim().replace(/\./g,'').replace(',', '.').replace(/[^0-9.]/g,'');
+  const n = parseFloat(s); if (isNaN(n)) return null;
+  return { signed, val: sign * n };
+}
+function applyVal(cur, input){ const p = parseValInput(input); if (!p) return cur; return +(p.signed ? (cur + p.val) : Math.abs(p.val)).toFixed(2); }
+
 /* ================= App ================= */
 function App(){
   const [events, setEvents] = useState(loadEvents);
@@ -180,6 +196,7 @@ function App(){
   const [navHidden, setNavHidden] = useState(() => localStorage.getItem('agenda-nav') === 'hide');
   const [userTipos, setUserTipos] = useState(loadUserTipos);
   const [notes, setNotes] = useState(loadNotes);
+  const [valor, setValor] = useState(loadValor);
   const [noteCats, setNoteCats] = useState(loadNoteCats);
   const [catsOpen, setCatsOpen] = useState(false);
   const [noteView, setNoteView] = useState(null);   // nota aberta so pra ver
@@ -197,6 +214,8 @@ function App(){
   useEffect(() => { if (firstT.current){ firstT.current = false; return; } saveUserTipos(userTipos); }, [userTipos]);
   useEffect(() => { if (firstN.current){ firstN.current = false; return; } saveNotes(notes); }, [notes]);
   useEffect(() => { if (firstC.current){ firstC.current = false; return; } saveNoteCats(noteCats); }, [noteCats]);
+  const firstV = useRef(true);
+  useEffect(() => { if (firstV.current){ firstV.current = false; return; } saveValor(valor); }, [valor]);
   // avisa quando há versão nova publicada (sem recarregar na mão)
   const [updateReady, setUpdateReady] = useState(false);
   useEffect(() => {
@@ -216,7 +235,7 @@ function App(){
   }, []);
   // recarrega quando a sincronizacao trouxer mudanca de outro aparelho
   useEffect(() => {
-    const h = () => { setEvents(loadEvents()); setUserTipos(loadUserTipos()); setNotes(loadNotes()); setNoteCats(loadNoteCats()); };
+    const h = () => { setEvents(loadEvents()); setUserTipos(loadUserTipos()); setNotes(loadNotes()); setNoteCats(loadNoteCats()); setValor(loadValor()); };
     window.addEventListener('agenda-pulled', h);
     return () => window.removeEventListener('agenda-pulled', h);
   }, []);
@@ -274,7 +293,7 @@ function App(){
                 {view === 'semana'&& <WeekView  refStr={refStr} setRefStr={setRefStr} events={events} tipoMap={tipoMap} onNew={openNew} onOpen={setViewing} />}
                 {view === 'ano'   && <YearView  refStr={refStr} setRefStr={setRefStr} events={events} tipoMap={tipoMap} onPick={irPara} />}
                 {view === 'lista' && <AgendaView events={events} tipoMap={tipoMap} onOpen={setViewing} onNew={()=>openNew()} />}
-                {view === 'notas' && <NotesView notes={notes} cats={noteCats} onOpen={setNoteView} onNew={openNewNote} onCats={()=>setCatsOpen(true)} />}
+                {view === 'notas' && <NotesView notes={notes} cats={noteCats} valor={valor} onValor={setValor} onOpen={setNoteView} onNew={openNewNote} onCats={()=>setCatsOpen(true)} />}
               </React.Fragment>}
         </main>
       </div>
@@ -508,8 +527,10 @@ function AgendaView({ events, tipoMap, onOpen, onNew }){
 }
 
 /* ---------- NOTAS: lista de processos, agrupada por cor, com busca ---------- */
-function NotesView({ notes, cats, onOpen, onNew, onCats }){
+function NotesView({ notes, cats, valor, onValor, onOpen, onNew, onCats }){
   const [q, setQ] = useState('');
+  const [vin, setVin] = useState('');
+  const aplicarValor = () => { const novo = applyVal(valor || 0, vin); onValor(novo); setVin(''); };
   const qd = soDigitos(q), ql = q.trim().toLowerCase();
   const filtradas = notes.filter(n => {
     if (n.arquivado && !ql) return false;   // arquivados só aparecem quando busca
@@ -528,6 +549,13 @@ function NotesView({ notes, cats, onOpen, onNew, onCats }){
       <div className="head">
         <div className="titulo">Processos</div>
         <div className="headbtns"><button className="navbtn" onClick={onCats}>Cores</button></div>
+      </div>
+      <div className="valorbox">
+        <span className="valor-num">{fmtValor(valor || 0)}</span>
+        <input className="valor-inp" value={vin} onChange={e=>setVin(e.target.value)}
+          onKeyDown={e=>{ if(e.key==='Enter') aplicarValor(); }}
+          placeholder="+ 88,94" inputMode="decimal" autoCapitalize="off" autoCorrect="off" spellCheck="false" />
+        <button className="valor-ok" onClick={aplicarValor} title="Atualizar (Enter)">↵</button>
       </div>
       <div className="buscaWrap">
         <span className="buscaIco">⌕</span>
@@ -1036,6 +1064,11 @@ textarea.inp{resize:vertical;}
 
 .buscaWrap{position:relative;margin-bottom:14px;max-width:460px;}
 .agbusca{margin-bottom:14px;}
+.valorbox{display:inline-flex;align-items:center;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:8px 10px 8px 14px;margin-bottom:14px;}
+.valor-num{font-size:18px;font-weight:500;font-variant-numeric:tabular-nums;color:var(--text);min-width:70px;}
+.valor-inp{width:110px;font:inherit;font-size:13px;padding:7px 10px;border-radius:9px;border:1px solid var(--border2);background:var(--input);color:var(--text);text-align:right;}
+.valor-inp:focus{outline:none;border-color:var(--accent);}
+.valor-ok{width:32px;height:32px;border-radius:9px;border:1px solid var(--border2);background:var(--accent);color:var(--on-accent);font-size:15px;line-height:1;}
 .buscaIco{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--faint);font-size:16px;}
 .busca{width:100%;box-sizing:border-box;font:inherit;font-size:14px;padding:10px 34px;border-radius:11px;border:1px solid var(--border2);background:var(--input);color:var(--text);}
 .busca:focus{outline:none;border-color:var(--accent);}
