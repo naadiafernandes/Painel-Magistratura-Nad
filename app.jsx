@@ -1614,7 +1614,7 @@ function CaixaView({ onBack, onArquivarEdital }) {
         .caixa-dtb .caixa-sw{ height:16px !important; width:16px !important; min-width:16px !important; }
         .caixa-destaque{ font-size:15px; font-weight:700; color:var(--text); line-height:1.42; outline:none; border-radius:6px; }
         .caixa-destaque:focus{ box-shadow:0 0 0 2px color-mix(in srgb,var(--gold) 45%,transparent); }
-        .caixa-destaque:empty:before,.caixa-veditor:empty:before{ content:attr(data-ph); color:var(--faint); }
+        .caixa-destaque:empty:not(:focus):before,.caixa-veditor:empty:not(:focus):before{ content:attr(data-ph); color:var(--faint); }
         .caixa-metarow{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:11px; }
         .caixa-metalbl{ font-size:11px; color:var(--faint); }
         .caixa-chip{ font-size:11.5px; font-weight:700; padding:3px 9px; border-radius:999px; border:1px solid; display:inline-flex; align-items:center; gap:5px; }
@@ -4979,7 +4979,7 @@ export default function App() {
           border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; font: inherit; font-size: 15px;
           line-height: 1.55; overflow-y: auto; }
         .diario-input:focus { outline: none; border-color: var(--gold); }
-        .diario-input:empty:before { content: attr(data-placeholder); color: var(--faint); pointer-events: none; }
+        .diario-input:empty:not(:focus):before { content: attr(data-placeholder); color: var(--faint); pointer-events: none; }
         .diario-compose-tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
         .diario-compose-lbl { font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: var(--muted);
           font-weight: 700; margin-right: 2px; }
@@ -5194,7 +5194,7 @@ export default function App() {
         .tn-tag-x { cursor: pointer; opacity: .55; font-weight: 700; }
         .tn-tag-x:hover { opacity: 1; }
         .tn-content { outline: none; font-size: 15px; line-height: 1.62; min-height: 24px; color: var(--text); }
-        .tn-content:empty::before { content: attr(data-ph); color: var(--faint); }
+        .tn-content:empty:not(:focus)::before { content: attr(data-ph); color: var(--faint); }
         .tn-content b, .tn-content strong { font-weight: 700; }
         .tn-content u { text-decoration: underline; }
         .tn-toolbar { display: none; gap: 4px; align-items: center; flex-wrap: wrap; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line-2); }
