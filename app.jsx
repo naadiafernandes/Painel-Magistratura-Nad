@@ -2191,8 +2191,29 @@ const ES_PAGES = {
 };
 
 // ===== ESTUDEI: Cronômetro (livre + pomodoro) =====
-function CronometroView({ crono, now, onPlay, onPause, onReset, onMode, onField, onPomoCfg, onSalvar, onBack }) {
+// relógio isolado: bate o próprio segundo e re-renderiza SÓ a si mesmo (não o app inteiro),
+// pra não cortar a composição de acento morto em nenhum campo enquanto o cronômetro roda.
+function useTickNow(running) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    setNow(Date.now());
+    if (!running) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [running]);
+  return now;
+}
+function CronoClock({ crono }) {
+  const now = useTickNow(crono.running);
+  const txt = crono.mode === "pomo"
+    ? fmtClock(Math.max(0, cronoAlvoMs(crono) - cronoPhaseMs(crono, now)))
+    : fmtClock(cronoPhaseMs(crono, now));
+  return <span className="cron-pill-tx">{txt}</span>;
+}
+
+function CronometroView({ crono, onPlay, onPause, onReset, onMode, onField, onPomoCfg, onSalvar, onBack }) {
   const c = crono;
+  const now = useTickNow(crono.running);
   const materias = [...new Set(SECTIONS.flatMap((s) => s.subjects.map((x) => x.name)))].sort();
   const phaseMs = cronoPhaseMs(c, now);
   const estudoMs = cronoStudiedMs(c, now);
@@ -3552,7 +3573,6 @@ export default function App() {
   const [regEditing, setRegEditing] = useState(null);
   const [regToast, setRegToast] = useState(false);
   const [crono, setCrono] = useState(CRONO_DEFAULT);
-  const [cronoNow, setCronoNow] = useState(0);
   const [cicloMetas, setCicloMetas] = useState(CICLO_METAS_DEFAULT);
   useEffect(() => { setMatAberta(null); }, [view]);
   const [prioInput, setPrioInput] = useState("");
@@ -3882,10 +3902,8 @@ export default function App() {
   // o relógio: atualiza a cada segundo e vira as fases do pomodoro sozinho
   useEffect(() => {
     if (!crono.running) return;
-    setCronoNow(Date.now());
     const id = setInterval(() => {
       const now = Date.now();
-      setCronoNow(now);
       const c = cronoRef.current;
       if (!c.running || c.mode !== "pomo") return;
       if (cronoPhaseMs(c, now) >= cronoAlvoMs(c)) {
@@ -5678,9 +5696,7 @@ export default function App() {
       {crono.running && view !== "es-crono" && (
         <button className="cron-pill" onClick={() => { setView("es-crono"); window.scrollTo(0, 0); }} title="Cronômetro rodando">
           <span className={`cron-pill-dot${crono.mode === "pomo" && crono.fase === "pausa" ? " pausa" : ""}`} />
-          <span className="cron-pill-tx">{crono.mode === "pomo"
-            ? fmtClock(Math.max(0, cronoAlvoMs(crono) - cronoPhaseMs(crono, cronoNow)))
-            : fmtClock(cronoPhaseMs(crono, cronoNow))}</span>
+          <CronoClock crono={crono} />
         </button>
       )}
       {regOpen && <RegistroModal inicial={regEditing} onClose={fecharRegistro} onSave={upsertRegistro} />}
@@ -6160,7 +6176,7 @@ export default function App() {
           />
         )}
         {view === "es-crono" && (
-          <CronometroView crono={crono} now={cronoNow} onPlay={cronoPlay} onPause={cronoPause} onReset={cronoZerar}
+          <CronometroView crono={crono} onPlay={cronoPlay} onPause={cronoPause} onReset={cronoZerar}
             onMode={cronoMode} onField={cronoField} onPomoCfg={cronoPomoCfg} onSalvar={cronoSalvar} onBack={() => setView("es-painel")} />
         )}
         {view === "es-historico" && (
