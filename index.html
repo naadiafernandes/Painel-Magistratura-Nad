@@ -1994,9 +1994,13 @@ function NotaBox({ id, initialHtml, register, onBlur }) {
     register(id, ref.current);
     return () => register(id, null);
   }, []);
+  // o texto-fantasma é uma CAMADA separada (não um ::before dentro do campo), pra
+  // não atrapalhar a composição do acento morto quando a caixa está vazia.
   return (
-    <div className="tn-content" contentEditable suppressContentEditableWarning
-      ref={ref} data-ph="Escreva aqui…" onBlur={onBlur} />
+    <div className="tn-wrap">
+      <div className="tn-content" contentEditable suppressContentEditableWarning ref={ref} onBlur={onBlur} />
+      <div className="tn-ph" aria-hidden="true">Escreva aqui…</div>
+    </div>
   );
 }
 
@@ -5388,8 +5392,10 @@ function App() {
         .tn-tag { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 99px; }
         .tn-tag-x { cursor: pointer; opacity: .55; font-weight: 700; }
         .tn-tag-x:hover { opacity: 1; }
+        .tn-wrap { position: relative; }
         .tn-content { outline: none; font-size: 15px; line-height: 1.62; min-height: 24px; color: var(--text); }
-        .tn-content:empty:not(:focus)::before { content: attr(data-ph); color: var(--faint); }
+        .tn-ph { position: absolute; top: 0; left: 0; font-size: 15px; line-height: 1.62; color: var(--faint); pointer-events: none; }
+        .tn-content:focus + .tn-ph, .tn-content:not(:empty) + .tn-ph { display: none; }
         .tn-content b, .tn-content strong { font-weight: 700; }
         .tn-content u { text-decoration: underline; }
         .tn-toolbar { display: none; gap: 4px; align-items: center; flex-wrap: wrap; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line-2); }
