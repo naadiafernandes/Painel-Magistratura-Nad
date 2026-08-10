@@ -2018,7 +2018,13 @@ function TopicNotes({ label, materia, initial, onBack, onSave }) {
 
   useEffect(() => { try { document.execCommand("styleWithCSS", false, true); } catch (e) {} }, []);
   useEffect(() => {
+    // NÃO ler a seleção enquanto o acento morto está compondo — ler a seleção durante a
+    // composição faz o Chrome cortar a tecla morta (~ ´ etc.). Guarda a composição.
+    let composing = false;
+    const onCompStart = () => { composing = true; };
+    const onCompEnd = () => { composing = false; };
     const onSel = () => {
+      if (composing) return;
       const s = document.getSelection();
       if (!s || !s.rangeCount) return;
       const r = s.getRangeAt(0);
@@ -2026,8 +2032,14 @@ function TopicNotes({ label, materia, initial, onBack, onSave }) {
         if (refs.current[id] && refs.current[id].contains(r.commonAncestorContainer)) { savedRange.current = r.cloneRange(); break; }
       }
     };
+    document.addEventListener("compositionstart", onCompStart, true);
+    document.addEventListener("compositionend", onCompEnd, true);
     document.addEventListener("selectionchange", onSel);
-    return () => document.removeEventListener("selectionchange", onSel);
+    return () => {
+      document.removeEventListener("compositionstart", onCompStart, true);
+      document.removeEventListener("compositionend", onCompEnd, true);
+      document.removeEventListener("selectionchange", onSel);
+    };
   }, []);
 
   const collect = () => boxes.map((b) => ({ id: b.id, html: refs.current[b.id] ? refs.current[b.id].innerHTML : b.html, tags: b.tags }));
