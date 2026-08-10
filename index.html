@@ -1985,6 +1985,21 @@ const TJSC_BLOCOS = {
 };
 const BLOCO_LBL = { 1: "Bloco I", 2: "Bloco II", 3: "Bloco III" };
 
+// caixinha de nota: o conteúdo é escrito no DOM só uma vez (no início) e o React NÃO reescreve
+// depois — assim o acento morto (~ ´ ` ^) e a pontuação compõem normalmente.
+function NotaBox({ id, initialHtml, register, onBlur }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (ref.current) ref.current.innerHTML = initialHtml || "";
+    register(id, ref.current);
+    return () => register(id, null);
+  }, []);
+  return (
+    <div className="tn-content" contentEditable suppressContentEditableWarning
+      ref={ref} data-ph="Escreva aqui…" onBlur={onBlur} />
+  );
+}
+
 function TopicNotes({ label, materia, initial, onBack, onSave }) {
   const [boxes, setBoxes] = useState(() => {
     const arr = initial && initial.length ? initial : [{ id: TN_UID(), html: "", tags: [] }];
@@ -2044,6 +2059,7 @@ function TopicNotes({ label, materia, initial, onBack, onSave }) {
     commit(arr);
   };
   const blurBox = () => { const arr = collect(); setBoxes(arr); persist(arr); };
+  const registerRef = (id, el) => { if (el) refs.current[id] = el; else delete refs.current[id]; };
 
   const addTag = (id) => {
     const label = window.prompt("Nome da tag (ex.: STF, Decorar, Pegadinha):");
@@ -2097,7 +2113,6 @@ function TopicNotes({ label, materia, initial, onBack, onSave }) {
       <button className="edital-back" onClick={back}>← Voltar ao edital</button>
       {materia && <p className="eyebrow">{materia}</p>}
       <h1 className="serif tn-title">{label}</h1>
-      <p className="tn-hint">Suas notas sobre este tópico. Selecione um trecho para colorir; arraste pelo ⠿ para reordenar.</p>
 
       <div className="tn-list">
         {boxes.map((b) => (
@@ -2117,15 +2132,7 @@ function TopicNotes({ label, materia, initial, onBack, onSave }) {
                 })}
               </div>
             )}
-            <div
-              className="tn-content"
-              contentEditable
-              suppressContentEditableWarning
-              ref={(el) => { if (el) refs.current[b.id] = el; }}
-              data-ph="Escreva aqui…"
-              onBlur={blurBox}
-              dangerouslySetInnerHTML={{ __html: b.html }}
-            />
+            <NotaBox id={b.id} initialHtml={b.html} register={registerRef} onBlur={blurBox} />
             <div className="tn-toolbar">
               <button className="tn-tb b" title="Negrito" onMouseDown={(e) => e.preventDefault()} onClick={() => exec("bold")}>B</button>
               <button className="tn-tb i" title="Itálico" onMouseDown={(e) => e.preventDefault()} onClick={() => exec("italic")}>I</button>
@@ -2505,6 +2512,13 @@ function RegistroModal({ inicial, onClose, onSave }) {
   const [erros, setErros] = useState(init.erros ? String(init.erros) : "");
   const [coment, setComent] = useState(init.coment || "");
   const [concluido, setConcluido] = useState(!!init.concluido);
+  const [matFoco, setMatFoco] = useState(false);
+  // sugestões de matéria ignorando acentos e maiúsculas (ç, ã, é... entram na busca)
+  const matSug = (() => {
+    const q = diaNorm(materia.trim());
+    if (!q) return materias;
+    return materias.filter((m) => diaNorm(m).includes(q) && diaNorm(m) !== q);
+  })();
 
   const podeSalvar = fonte && materia.trim();
   const salvar = () => {
@@ -2543,10 +2557,21 @@ function RegistroModal({ inicial, onClose, onSave }) {
           </div>
 
           <div className="reg-2col">
-            <div>
+            <div className="reg-ac">
               <label className="reg-lbl">Matéria</label>
-              <input className="reg-in" list="reg-materias" value={materia} onChange={(e) => setMateria(e.target.value)} placeholder="ex.: Direito Administrativo" />
-              <datalist id="reg-materias">{materias.map((m) => <option key={m} value={m} />)}</datalist>
+              <input className="reg-in" value={materia} autoComplete="off"
+                onChange={(e) => setMateria(e.target.value)}
+                onFocus={() => setMatFoco(true)}
+                onBlur={() => setTimeout(() => setMatFoco(false), 130)}
+                placeholder="ex.: Direito Administrativo" />
+              {matFoco && matSug.length > 0 && (
+                <div className="reg-ac-list">
+                  {matSug.slice(0, 8).map((m) => (
+                    <button type="button" key={m} className="reg-ac-item"
+                      onMouseDown={() => { setMateria(m); setMatFoco(false); }}>{m}</button>
+                  ))}
+                </div>
+              )}
             </div>
             <div>
               <label className="reg-lbl">Tópico <span className="reg-opt">(opcional)</span></label>
@@ -3744,7 +3769,8 @@ function App() {
   const [showTop, setShowTop] = useState(false);
   const [navOpen, setNavOpen] = useState(() => {
     if (typeof window === "undefined") return true;
-    return window.innerWidth >= 1025;
+    if (window.innerWidth < 1025) return false;            // celular/tablet: começa recolhido (gaveta)
+    try { return localStorage.getItem("navOpen") !== "0"; } catch (e) { return true; }
   });
 
   // guarda a preferência de menu aberto/fechado
@@ -4698,7 +4724,7 @@ function App() {
   );
 
   return (
-    <div className="root">
+    <div className={`root${navOpen ? "" : " nav-hidden"}`}>
       <style>{`
         :root {
           --bg:#121215; --surface:#18181b; --surface-2:#1f1f23; --surface-3:#27272a;
@@ -4729,6 +4755,7 @@ function App() {
         }
         @media (min-width: 1025px) {
           .root { padding-left: 296px; }
+          .root.nav-hidden { padding-left: clamp(16px,3vw,40px); }
         }
         :root[data-theme="light"] .stat { background: var(--surface); }
         :root[data-theme="light"] .pop, :root[data-theme="light"] .pop-head { background: rgba(255,255,255,.98); }
@@ -4771,7 +4798,12 @@ function App() {
           background: var(--sidebar); border-right: 1px solid var(--line);
           display: flex; flex-direction: column; padding: 16px 14px 26px;
           overflow-y: auto; transition: transform .24s ease; }
+        .sidebar.closed { transform: translateX(-100%); }
         .sidebar a, .sidebar button { text-decoration: none; }
+        .side-collapse { margin-left: auto; width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center;
+          border: 1px solid var(--line-2); background: var(--surface); color: var(--muted); cursor: pointer; flex-shrink: 0; }
+        .side-collapse:hover { background: var(--surface-3); color: var(--text); }
+        .side-collapse svg { width: 17px; height: 17px; }
         .side-logo { display: flex; align-items: center; gap: 9px; padding: 4px 8px 6px; }
         .side-logo .mark { width: 30px; height: 30px; border-radius: 9px; background: var(--accent-btn); color: var(--on-accent);
           display: grid; place-items: center; font-size: 16px; font-weight: 800; flex-shrink: 0; }
@@ -4792,8 +4824,8 @@ function App() {
         .nav-item.active .nav-n { color: var(--on-accent); background: var(--gold); }
         .nav-item .lbl { flex: 1; }
 
-        /* botão de recolher/expandir (só em telas estreitas) */
-        .nav-toggle { position: fixed; top: 53px; left: 12px; z-index: 400; display: none;
+        /* botão flutuante pra reabrir o menu (aparece quando ele está recolhido) */
+        .nav-toggle { position: fixed; top: 53px; left: 12px; z-index: 400; display: grid;
           width: 42px; height: 42px; border-radius: 12px; place-items: center;
           border: 1px solid var(--line-2); background: var(--surface); color: var(--muted); cursor: pointer;
           box-shadow: 0 4px 14px rgba(0,0,0,.18); transition: background .15s, color .15s, transform .15s; }
@@ -5525,6 +5557,13 @@ function App() {
         .reg-in { width: 100%; background: var(--surface-2); border: 1px solid var(--line-2); color: var(--text); border-radius: 10px;
           padding: 10px 12px; font: inherit; font-size: 14px; box-sizing: border-box; }
         .reg-in::placeholder { color: var(--faint); }
+        .reg-ac { position: relative; }
+        .reg-ac-list { position: absolute; left: 0; right: 0; top: 100%; margin-top: 4px; z-index: 20;
+          background: var(--surface); border: 1px solid var(--line-2); border-radius: 10px; padding: 4px;
+          box-shadow: 0 12px 30px rgba(0,0,0,.28); max-height: 232px; overflow-y: auto; }
+        .reg-ac-item { display: block; width: 100%; text-align: left; background: none; border: none; cursor: pointer;
+          font: inherit; font-size: 13.5px; color: var(--text); padding: 8px 10px; border-radius: 7px; }
+        .reg-ac-item:hover { background: var(--surface-3); }
         .reg-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
         .reg-3col { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 12px; align-items: end; }
         @media (max-width: 560px){ .reg-2col, .reg-3col { grid-template-columns: 1fr; } }
@@ -5764,24 +5803,19 @@ function App() {
         .stat-sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
       `}</style>
 
-      <button
-        className="nav-toggle"
-        onClick={() => setNavOpen((v) => !v)}
-        aria-label={navOpen ? "Recolher menu" : "Abrir menu"}
-        aria-expanded={navOpen}
-        title={navOpen ? "Recolher menu" : "Abrir menu"}
-      >
-        {navOpen ? (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="4" width="18" height="16" rx="2" /><line x1="9" y1="4" x2="9" y2="20" />
-            <path d="M15 9l-2 3 2 3" />
-          </svg>
-        ) : (
+      {!navOpen && (
+        <button
+          className="nav-toggle"
+          onClick={() => setNavOpen(true)}
+          aria-label="Abrir menu"
+          aria-expanded={false}
+          title="Abrir menu"
+        >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <line x1="4" y1="7" x2="20" y2="7" /><line x1="4" y1="12" x2="20" y2="12" /><line x1="4" y1="17" x2="20" y2="17" />
           </svg>
-        )}
-      </button>
+        </button>
+      )}
 
       <div
         className={`nav-backdrop${navOpen ? " active" : ""}`}
@@ -5793,6 +5827,11 @@ function App() {
         <div className="side-logo">
           <span className="mark">⚖</span>
           <span className="name">MagisNAD</span>
+          <button className="side-collapse" onClick={() => setNavOpen(false)} title="Recolher menu" aria-label="Recolher menu">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="4" y1="7" x2="20" y2="7" /><line x1="4" y1="12" x2="20" y2="12" /><line x1="4" y1="17" x2="20" y2="17" />
+            </svg>
+          </button>
         </div>
         {NAV_GROUPS.map((g) => (
           <div className="nav-group" key={g.label}>
