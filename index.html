@@ -2566,6 +2566,7 @@ function RegistroModal({ inicial, onClose, onSave }) {
     else if (quando === "hoje" && editando && whenTs(init.ts).q === "hoje") ts = init.ts;
     const tempo = (parseInt(horas || 0, 10) * 60) + parseInt(min || 0, 10);
     onSave({
+      ...init,
       id: init.id || Date.now(), ts, fonte,
       materia: materia.trim(), topico: topico.trim(), tempo,
       acertos: parseInt(acertos || 0, 10), erros: parseInt(erros || 0, 10),
@@ -3255,8 +3256,40 @@ function MateriaDetail({ materia, registros, cursoData, onToggleCurso, onBack, o
   );
 }
 
+// nota livre da Nadia num item de revisão: "o que revisar / de onde continuar"
+function RevLembrete({ nota, onSave }) {
+  const [editando, setEditando] = useState(false);
+  const [txt, setTxt] = useState(nota || "");
+  useEffect(() => { if (!editando) setTxt(nota || ""); }, [nota, editando]);
+  const salvar = () => { onSave(txt.trim()); setEditando(false); };
+  const cancelar = () => { setTxt(nota || ""); setEditando(false); };
+  if (editando) {
+    return (
+      <div className="rev-lembrete-edit">
+        <textarea className="rev-lembrete-in" value={txt} autoFocus rows={2}
+          onChange={(e) => setTxt(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) salvar(); if (e.key === "Escape") cancelar(); }}
+          placeholder="o que revisar / de onde continuar — ex.: Refazer meu caderno de erros do TEC" />
+        <div className="rev-lembrete-acts">
+          <button className="rev-btn ok" onClick={salvar}>salvar</button>
+          <button className="rev-btn" onClick={cancelar}>cancelar</button>
+          {nota && <button className="rev-btn" onClick={() => { onSave(""); setEditando(false); }}>apagar</button>}
+        </div>
+      </div>
+    );
+  }
+  if (nota) {
+    return (
+      <button className="rev-lembrete" onClick={() => setEditando(true)} title="Editar lembrete">
+        <span className="rev-lembrete-ico">🔖</span><span>{nota}</span>
+      </button>
+    );
+  }
+  return <button className="rev-lembrete-add" onClick={() => setEditando(true)}>+ lembrete de revisão</button>;
+}
+
 // ===== ESTUDEI: Revisões (só o que você concluiu; sem prazo) =====
-function RevisoesView({ registros, revStatus, onMark, onBack }) {
+function RevisoesView({ registros, revStatus, onMark, onEdit, onSaveNota, onBack }) {
   const [aba, setAba] = useState("fazer");
   const feitas = revStatus.feitas || [], guardadas = revStatus.guardadas || [];
   const concl = registros.filter((r) => r.concluido);
@@ -3272,7 +3305,6 @@ function RevisoesView({ registros, revStatus, onMark, onBack }) {
       <button className="edital-back" onClick={onBack}>← Voltar ao painel</button>
       <p className="eyebrow">ESTUDEI</p>
       <h1 className="serif" style={{ marginBottom: 10 }}>Revisões</h1>
-      <p className="es-sub">Sem prazos. Um tópico só entra aqui quando você o conclui num registro.</p>
       <div className="rev-tabs">
         {abas.map(([k, l]) => (
           <button key={k} className={`rev-tab${aba === k ? " on" : ""}`} onClick={() => setAba(k)}>{l} <span className="rev-n">{buckets[k].length}</span></button>
@@ -3291,9 +3323,11 @@ function RevisoesView({ registros, revStatus, onMark, onBack }) {
             </div>
             <span className="hist-fonte" style={{ color: f.color, background: `color-mix(in srgb, ${f.color} 15%, transparent)` }}>{f.label}</span>
             <div className="rev-actions">
+              <button className="hist-edit" onClick={() => onEdit(r)} title="Editar registro">✎</button>
               {aba === "fazer" && <><button className="rev-btn ok" onClick={() => onMark(r.id, "feitas")}>revisei</button><button className="rev-btn" onClick={() => onMark(r.id, "guardadas")}>guardar</button></>}
               {aba !== "fazer" && <button className="rev-btn" onClick={() => onMark(r.id, "fazer")}>voltar</button>}
             </div>
+            <RevLembrete nota={r.revNota} onSave={(txt) => onSaveNota(r.id, txt)} />
           </div>
         );
       })}
@@ -4152,6 +4186,7 @@ function App() {
     else if (destino === "guardadas") next.guardadas.push(id);
     setRevStatus(next); try { window.storage.set(REVSTATUS_KEY, JSON.stringify(next)); } catch {}
   };
+  const saveRevNota = (id, texto) => saveRegistros(registros.map((r) => (r.id === id ? { ...r, revNota: texto } : r)));
 
   // ---------- Diário de estudos ----------
   const saveDiario = (arr) => {
@@ -5822,9 +5857,19 @@ function App() {
         .rev-tab { background: var(--surface-2); border: 1px solid var(--line-2); color: var(--muted); border-radius: 999px; padding: 7px 14px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
         .rev-tab.on { background: var(--gold); color: var(--on-accent); border-color: var(--gold); }
         .rev-n { opacity: .7; font-size: 11.5px; }
-        .rev-item { display: flex; align-items: center; gap: 12px; padding: 12px 4px; border-bottom: 1px solid var(--line); }
+        .rev-item { display: flex; align-items: center; gap: 12px; padding: 12px 4px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
         .rev-when { font-size: 12px; color: var(--faint); margin-top: 2px; }
-        .rev-actions { display: flex; gap: 8px; flex: none; }
+        .rev-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+        .rev-lembrete, .rev-lembrete-add, .rev-lembrete-edit { width: 100%; order: 9; }
+        .rev-lembrete-add { background: none; border: 1px dashed var(--line-2); color: var(--faint); border-radius: 8px; padding: 7px 11px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; text-align: left; }
+        .rev-lembrete-add:hover { color: var(--muted); border-color: var(--muted); }
+        .rev-lembrete { display: flex; align-items: flex-start; gap: 7px; background: var(--surface-2); border: 1px solid var(--line-2); border-left: 3px solid var(--gold); border-radius: 8px; padding: 8px 11px; font: inherit; font-size: 12.5px; color: var(--text); cursor: pointer; text-align: left; line-height: 1.45; white-space: pre-wrap; }
+        .rev-lembrete:hover { border-color: var(--gold); }
+        .rev-lembrete-ico { flex: none; }
+        .rev-lembrete-in { width: 100%; box-sizing: border-box; background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 8px; padding: 8px 11px; font: inherit; font-size: 12.5px; color: var(--text); line-height: 1.45; resize: vertical; }
+        .rev-lembrete-in:focus { outline: none; border-color: var(--gold); }
+        .rev-lembrete-in::placeholder { color: var(--faint); }
+        .rev-lembrete-acts { display: flex; gap: 8px; margin-top: 6px; }
         .rev-btn { background: var(--surface-2); border: 1px solid var(--line-2); color: var(--muted); border-radius: 8px; padding: 6px 12px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
         .rev-btn:hover { color: var(--text); }
         .rev-btn.ok { background: var(--green-bg); border-color: transparent; color: var(--green); }
@@ -6367,7 +6412,7 @@ function App() {
           <JurisFonte infoData={infoData} onToggle={toggleInfo} feitos={infoDone} total={infoTotal} onBack={() => setView("es-painel")} />
         )}
         {view === "es-revisoes" && (
-          <RevisoesView registros={registros} revStatus={revStatus} onMark={marcarRevisao} onBack={() => setView("es-painel")} />
+          <RevisoesView registros={registros} revStatus={revStatus} onMark={marcarRevisao} onEdit={abrirRegistro} onSaveNota={saveRevNota} onBack={() => setView("es-painel")} />
         )}
         {view === "es-estatisticas" && (
           <EstatSimView
