@@ -2355,19 +2355,30 @@ function LeiLinha({ children, className, nota, onSaveNota }) {
   );
 }
 
+// clareia as notas legais entre parênteses (Incluído/Redação dada/Vigência/Vide/Revogado...) como no normio
+function leiFmt(text) {
+  if (!text) return text;
+  return String(text).split(/(\([^)]*\))/g).map((p, i) =>
+    /^\((?:Inclu|Reda[çc]|Vig[êe]|Vide|Revog|Vetad|Renumer|renumer|Regulament)/i.test(p)
+      ? <span key={i} className="lei-leg">{p}</span> : p
+  );
+}
+// um artigo: renderiza suas PARTES (caput, incisos, alíneas, parágrafos) na ordem exata; cada uma anotável
 function LeiArtigo({ dipId, art, notas, onSaveNota }) {
   const base = dipId + ":" + art.num;
-  const linhas = [];
-  const push = (suf, node, cls) => linhas.push(
-    <LeiLinha key={suf} className={cls} nota={notas[base + ":" + suf]} onSaveNota={(v) => onSaveNota(base + ":" + suf, v)}>{node}</LeiLinha>
+  return (
+    <div className="lei-art">
+      {(art.partes || []).map((pt, i) => {
+        const key = base + ":i" + i;
+        let cls, node;
+        if (pt.t === "caput") { cls = "lei-caput"; node = <><span className="lei-artnum">Art. {art.num}</span> {leiFmt(pt.txt)}</>; }
+        else if (pt.t === "inc") { cls = "lei-inc"; node = <><span className="lei-marca">{pt.marca} –</span> {leiFmt(pt.txt)}</>; }
+        else if (pt.t === "ali") { cls = "lei-alinea"; node = <><span className="lei-marca">{pt.marca})</span> {leiFmt(pt.txt)}</>; }
+        else { cls = "lei-par"; node = <><span className="lei-marca">{pt.marca}</span> {leiFmt(pt.txt)}</>; }
+        return <LeiLinha key={i} className={cls} nota={notas[key]} onSaveNota={(v) => onSaveNota(key, v)}>{node}</LeiLinha>;
+      })}
+    </div>
   );
-  push("c", <><span className="lei-artnum">Art. {art.num}</span> {art.caput}</>, "lei-caput");
-  (art.itens || []).forEach((it) => {
-    push("i" + it.m, <><span className="lei-marca">{it.m} –</span> {it.txt}</>, "lei-inc");
-    (it.alineas || []).forEach((al) => push("i" + it.m + "-a" + al.m, <><span className="lei-marca">{al.m})</span> {al.txt}</>, "lei-alinea"));
-  });
-  (art.paragrafos || []).forEach((p, idx) => push("p" + idx, <><span className="lei-marca">{p.rot}</span> {p.txt}</>, "lei-par"));
-  return <div className="lei-art">{linhas}</div>;
 }
 
 // memorando de uma unidade — à prova de acento (texto no DOM uma vez + camada-fantasma).
@@ -6151,6 +6162,7 @@ function App() {
         .lei-alinea { margin: 6px 0 6px 48px; font-size: 15px; line-height: 1.72; color: var(--text); }
         .lei-par { margin: 9px 0; font-size: 15px; line-height: 1.72; color: var(--text); }
         .lei-marca { font-weight: 700; }
+        .lei-leg { color: var(--faint); font-size: .86em; }
         .lei-linha { margin: 0; }
         .lei-anotar { margin-left: 7px; background: none; border: none; cursor: pointer; color: var(--faint); font-size: 13px; opacity: 0; transition: opacity .12s; vertical-align: middle; }
         .lei-linha:hover .lei-anotar { opacity: 1; }
