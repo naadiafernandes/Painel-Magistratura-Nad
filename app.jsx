@@ -1760,6 +1760,28 @@ const TN_FORE = ["#e68a8a", "#7fa8e6", "#7bd39a"];   // começo enxuto — as re
 const TN_BACK = ["none", "#5a3d3d", "#3d4a5a"];
 const TN_CORES_KEY = "tjsc-tn-cores:v1";             // cores recentes (letra/fundo) que ela mais usa
 const TN_TAGS = [["#a9c4ef", "127,168,230"], ["#e6c060", "230,192,96"], ["#7bd39a", "123,211,154"], ["#e68a8a", "230,138,138"], ["#c79bff", "199,155,255"], ["#5fbfc0", "95,191,192"]];
+// remove a linha em branco "presa" que fica logo antes de uma tabela (quando ela só quer a tabela)
+function tnLimpa(el) {
+  if (!el) return;
+  const branco = (n) => n && ((n.nodeType === 3 && !n.textContent.trim()) || (n.nodeType === 1 && n.tagName !== "TABLE" && n.tagName !== "HR" && n.tagName !== "IMG" && !n.textContent.trim() && !n.querySelector("img")));
+  while (el.firstChild && branco(el.firstChild)) {
+    const nx = el.firstChild.nextSibling;
+    if (nx && nx.nodeType === 1 && nx.tagName === "TABLE") el.removeChild(el.firstChild); else break;
+  }
+}
+// "-->" vira "→" assim que ela digita o ">" (não age durante composição de acento)
+function tnAutoSeta(e) {
+  if (e.isComposing) return;
+  const sel = document.getSelection(); if (!sel || !sel.rangeCount) return;
+  const r = sel.getRangeAt(0); const node = r.startContainer;
+  if (node.nodeType !== 3) return;
+  const off = r.startOffset, txt = node.textContent;
+  if (off >= 3 && txt.slice(off - 3, off) === "-->") {
+    node.textContent = txt.slice(0, off - 3) + "→" + txt.slice(off);
+    const nr = document.createRange(); nr.setStart(node, off - 2); nr.collapse(true);
+    sel.removeAllRanges(); sel.addRange(nr);
+  }
+}
 
 // Blocos do edital TJSC (Juiz 2025): bloco de cada matéria + importância (%) dentro do bloco
 const TJSC_BLOCOS = {
@@ -1782,7 +1804,7 @@ const BLOCO_LBL = { 1: "Bloco I", 2: "Bloco II", 3: "Bloco III" };
 
 // caixinha de nota: o conteúdo é escrito no DOM só uma vez (no início) e o React NÃO reescreve
 // depois — assim o acento morto (~ ´ ` ^) e a pontuação compõem normalmente.
-function NotaBox({ id, initialHtml, register, onBlur, onKeyDown }) {
+function NotaBox({ id, initialHtml, register, onBlur, onKeyDown, onInput, onMouseDown, onMouseMove }) {
   const ref = useRef(null);
   useEffect(() => {
     if (ref.current) ref.current.innerHTML = initialHtml || "";
@@ -1793,7 +1815,8 @@ function NotaBox({ id, initialHtml, register, onBlur, onKeyDown }) {
   // não atrapalhar a composição do acento morto quando a caixa está vazia.
   return (
     <div className="tn-wrap">
-      <div className="tn-content" contentEditable suppressContentEditableWarning ref={ref} onBlur={onBlur} onKeyDown={onKeyDown} />
+      <div className="tn-content" contentEditable suppressContentEditableWarning ref={ref}
+        onBlur={onBlur} onKeyDown={onKeyDown} onInput={onInput} onMouseDown={onMouseDown} onMouseMove={onMouseMove} />
       <div className="tn-ph" aria-hidden="true">Escreva aqui…</div>
     </div>
   );
@@ -1887,7 +1910,7 @@ function TopicNotes({ label, materia, initial, onBack, onSave }) {
     delete refs.current[id];
     commit(arr);
   };
-  const blurBox = () => { const arr = collect(); setBoxes(arr); persist(arr); };
+  const blurBox = () => { Object.values(refs.current).forEach(tnLimpa); const arr = collect(); setBoxes(arr); persist(arr); };
   const registerRef = (id, el) => { if (el) refs.current[id] = el; else delete refs.current[id]; };
 
   // insere um HTML na caixinha focada (restaura a seleção salva antes, porque o clique no botão tira o foco)
@@ -1925,6 +1948,39 @@ function TopicNotes({ label, materia, initial, onBack, onSave }) {
     r.selectNodeContents(target); r.collapse(true);
     sel.removeAllRanges(); sel.addRange(r);
     setTimeout(blurBox, 0);
+  };
+  const onInputBox = (e) => tnAutoSeta(e);
+
+  // ----- edição de tabela (linha/coluna/mesclar/largura) -----
+  const tblCelula = () => {
+    const s = document.getSelection(); if (!s || !s.rangeCount) return null;
+    let n = s.anchorNode; n = n && (n.nodeType === 1 ? n : n.parentElement);
+    while (n && n.tagName !== "TD" && n.tagName !== "TABLE") n = n.parentElement;
+    return n && n.tagName === "TD" ? n : null;
+  };
+  const tblAddLinha = () => { const td = tblCelula(); if (!td) return; const tr = td.parentElement; const nt = document.createElement("tr"); for (let i = 0; i < tr.children.length; i++) { const c = document.createElement("td"); c.innerHTML = "<br>"; nt.appendChild(c); } tr.after(nt); setTimeout(blurBox, 0); };
+  const tblDelLinha = () => { const td = tblCelula(); if (!td) return; const tr = td.parentElement, tb = tr.parentElement; if (tb.children.length > 1) tr.remove(); setTimeout(blurBox, 0); };
+  const tblAddColuna = () => { const td = tblCelula(); if (!td) return; const idx = td.cellIndex, table = td.closest("table"); Array.from(table.rows).forEach((r) => { const c = r.insertCell(Math.min(idx + 1, r.cells.length)); c.innerHTML = "<br>"; }); setTimeout(blurBox, 0); };
+  const tblDelColuna = () => { const td = tblCelula(); if (!td) return; const idx = td.cellIndex, table = td.closest("table"); if (table.rows[0].cells.length > 1) Array.from(table.rows).forEach((r) => { if (r.cells[idx]) r.deleteCell(idx); }); setTimeout(blurBox, 0); };
+  const tblMesclarDir = () => { const td = tblCelula(); if (!td) return; const nx = td.nextElementSibling; if (!nx) return; td.colSpan = (td.colSpan || 1) + (nx.colSpan || 1); if (nx.textContent.trim()) td.innerHTML = (td.innerHTML === "<br>" ? "" : td.innerHTML + " ") + nx.innerHTML; nx.remove(); setTimeout(blurBox, 0); };
+  const tblMesclarBaixo = () => { const td = tblCelula(); if (!td) return; const tr = td.parentElement, idx = td.cellIndex, ntr = tr.nextElementSibling; if (!ntr) return; const ab = ntr.cells[idx]; if (!ab) return; td.rowSpan = (td.rowSpan || 1) + (ab.rowSpan || 1); if (ab.textContent.trim()) td.innerHTML = (td.innerHTML === "<br>" ? "" : td.innerHTML + " ") + ab.innerHTML; ab.remove(); setTimeout(blurBox, 0); };
+  // arrastar a borda direita de uma célula muda a largura da coluna
+  const onMouseDownBox = (e) => {
+    const td = e.target.closest && e.target.closest("td");
+    if (!td) return;
+    const rect = td.getBoundingClientRect();
+    if (rect.right - e.clientX > 7 || e.clientX - rect.left < 7) return;   // só na beirada direita
+    e.preventDefault();
+    const table = td.closest("table"); table.style.tableLayout = "fixed";
+    const idx = td.cellIndex, startX = e.clientX, startW = td.offsetWidth;
+    const mover = (ev) => { const w = Math.max(30, startW + (ev.clientX - startX)); Array.from(table.rows).forEach((r) => { if (r.cells[idx]) r.cells[idx].style.width = w + "px"; }); };
+    const soltar = () => { document.removeEventListener("mousemove", mover); document.removeEventListener("mouseup", soltar); setTimeout(blurBox, 0); };
+    document.addEventListener("mousemove", mover); document.addEventListener("mouseup", soltar);
+  };
+  const onMouseMoveBox = (e) => {
+    const el = e.currentTarget, td = e.target.closest && e.target.closest("td");
+    if (td) { const r = td.getBoundingClientRect(); el.style.cursor = (r.right - e.clientX <= 7 && e.clientX - r.left >= 7) ? "col-resize" : ""; }
+    else if (el.style.cursor) el.style.cursor = "";
   };
 
   const addTag = (id) => {
@@ -1999,7 +2055,19 @@ function TopicNotes({ label, materia, initial, onBack, onSave }) {
                 })}
               </div>
             )}
-            <NotaBox id={b.id} initialHtml={b.html} register={registerRef} onBlur={blurBox} onKeyDown={onKeyDownBox} />
+            <NotaBox id={b.id} initialHtml={b.html} register={registerRef} onBlur={blurBox} onKeyDown={onKeyDownBox} onInput={onInputBox} onMouseDown={onMouseDownBox} onMouseMove={onMouseMoveBox} />
+            {/<table/i.test(b.html) && (
+              <div className="tn-tbltb">
+                <span className="tn-tbltb-lbl">tabela:</span>
+                <button title="Adicionar linha abaixo" onMouseDown={(e) => e.preventDefault()} onClick={tblAddLinha}>+ linha</button>
+                <button title="Remover a linha atual" onMouseDown={(e) => e.preventDefault()} onClick={tblDelLinha}>− linha</button>
+                <button title="Adicionar coluna à direita" onMouseDown={(e) => e.preventDefault()} onClick={tblAddColuna}>+ coluna</button>
+                <button title="Remover a coluna atual" onMouseDown={(e) => e.preventDefault()} onClick={tblDelColuna}>− coluna</button>
+                <button title="Mesclar com a célula à direita" onMouseDown={(e) => e.preventDefault()} onClick={tblMesclarDir}>mesclar →</button>
+                <button title="Mesclar com a célula de baixo" onMouseDown={(e) => e.preventDefault()} onClick={tblMesclarBaixo}>mesclar ↓</button>
+                <span className="tn-tbltb-dica">largura: arraste a beira da coluna</span>
+              </div>
+            )}
             <div className="tn-toolbar">
               <button className="tn-tb b" title="Negrito" onMouseDown={(e) => e.preventDefault()} onClick={() => exec("bold")}>B</button>
               <button className="tn-tb i" title="Itálico" onMouseDown={(e) => e.preventDefault()} onClick={() => exec("italic")}>I</button>
@@ -5510,8 +5578,13 @@ export default function App() {
         .tn-content h3 { font-size: 13px; font-weight: 700; color: var(--muted); margin: 9px 0 4px; text-transform: uppercase; letter-spacing: .05em; }
         .tn-h { font: inherit; font-size: 12px; font-weight: 600; color: var(--muted); background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 6px; padding: 4px 6px; cursor: pointer; }
         .tn-h:hover { color: var(--text); }
-        .tn-content table.tn-tbl { border-collapse: collapse; margin: 10px 0; width: 100%; }
-        .tn-content table.tn-tbl td { border: 1px solid var(--line-2); padding: 6px 9px; min-width: 44px; vertical-align: top; }
+        .tn-content table.tn-tbl { border-collapse: collapse; margin: 10px 0; width: 100%; table-layout: fixed; }
+        .tn-content table.tn-tbl td { border: 1px solid var(--line-2); padding: 6px 9px; min-width: 30px; vertical-align: top; overflow-wrap: anywhere; }
+        .tn-tbltb { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 8px; padding: 7px 9px; background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 9px; }
+        .tn-tbltb-lbl { font-size: 11px; font-weight: 700; color: var(--faint); text-transform: uppercase; letter-spacing: .04em; }
+        .tn-tbltb button { font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; color: var(--muted); background: var(--surface); border: 1px solid var(--line-2); border-radius: 7px; padding: 4px 9px; }
+        .tn-tbltb button:hover { color: var(--text); border-color: var(--gold); }
+        .tn-tbltb-dica { font-size: 11px; color: var(--faint); margin-left: 4px; }
         .tn-content table.tn-tbl td:focus { outline: 2px solid color-mix(in srgb, var(--gold) 55%, transparent); outline-offset: -2px; }
         .tn-toolbar { display: none; gap: 4px; align-items: center; flex-wrap: wrap; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line-2); }
         .tn-box:focus-within .tn-toolbar { display: flex; }
