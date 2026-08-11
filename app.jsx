@@ -2120,9 +2120,12 @@ function EmBreve({ title, sub, onBack }) {
 // que o Claude preenche/atualiza sob pedido. As anotações dela ficam salvas por artigo.
 function leiContaArts(d) { return (d.blocos || []).filter((b) => b.t === "art").length; }
 
+const LEISECA_ABERTO_KEY = "magisnad-leiseca-aberto:v1";
 function LeiSecaView({ onBack }) {
   const diplomas = (typeof window !== "undefined" && Array.isArray(window.LEISECA)) ? window.LEISECA : [];
-  const [aberto, setAberto] = useState(null);
+  // ao recarregar, volta pro MESMO código que estava aberto
+  const [aberto, setAberto] = useState(() => { try { return localStorage.getItem(LEISECA_ABERTO_KEY) || null; } catch { return null; } });
+  useEffect(() => { try { if (aberto) localStorage.setItem(LEISECA_ABERTO_KEY, aberto); else localStorage.removeItem(LEISECA_ABERTO_KEY); } catch {} }, [aberto]);
   const dip = diplomas.find((d) => d.id === aberto);
   if (dip) return <LeiSecaReader dip={dip} onBack={() => setAberto(null)} />;
   return (
