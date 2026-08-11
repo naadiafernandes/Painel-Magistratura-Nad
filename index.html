@@ -1616,6 +1616,13 @@ function caixaNotaToHtml(n) {
   if (n.fonte) h += "<br><br><i>" + caixaEsc(n.fonte) + "</i>";
   return h;
 }
+// junta o antigo "Destaque" (título) + "Ver mais" (corpo) numa caixinha de texto só
+function caixaCombina(n) {
+  const corpo = (n.verMais && n.verMais.replace(/<[^>]*>/g, "").trim()) ? n.verMais : "";
+  const tit = (n.destaque || "").trim();
+  if (!tit) return corpo;
+  return "<b>" + caixaEsc(tit) + "</b>" + (corpo ? "<br><br>" + corpo : "");
+}
 // mapeia a categoria do Buscador -> id da matéria do painel (quando a frase não denuncia sozinha)
 function caixaCatToMat(cat) {
   const c = diaNorm(cat);
@@ -1738,6 +1745,9 @@ function CaixaView({ onBack, onArquivarEdital }) {
         }
         try { window.storage.set(CAIXA_KEY, JSON.stringify(arr)); window.storage.set(CAIXA_SEED_FLAG, "1"); } catch {}
       }
+      // funde título + corpo numa caixinha só (uma vez) — as notas viram texto puro
+      arr = (arr || []).map((n) => (n && n.destaque && n.destaque.trim()) ? { ...n, verMais: caixaCombina(n), destaque: "" } : n);
+      try { window.storage.set(CAIXA_KEY, JSON.stringify(arr)); } catch {}
       setNotas(arr); setCarregou(true);
     })();
   }, []);
@@ -1819,7 +1829,8 @@ function CaixaView({ onBack, onArquivarEdital }) {
         .caixa-ph{ position:absolute; left:0; top:0; color:var(--faint); pointer-events:none; }
         .caixa-ed:focus + .caixa-ph, .caixa-ed:not(:empty) + .caixa-ph{ display:none; }
         .caixa-destaque + .caixa-ph{ font-size:15px; font-weight:700; line-height:1.42; }
-        .caixa-veditor + .caixa-ph{ top:11px; left:12px; font-size:13.5px; line-height:1.6; }
+        .caixa-veditor + .caixa-ph{ top:11px; left:12px; font-size:15px; line-height:1.6; }
+        .caixa-cardtop{ display:flex; align-items:center; gap:8px; margin-bottom:8px; min-height:20px; }
         .caixa-metarow{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:11px; }
         .caixa-metalbl{ font-size:11px; color:var(--faint); }
         .caixa-chip{ font-size:11.5px; font-weight:700; padding:3px 9px; border-radius:999px; border:1px solid; display:inline-flex; align-items:center; gap:5px; }
@@ -1838,13 +1849,15 @@ function CaixaView({ onBack, onArquivarEdital }) {
         .caixa-fav.on{ color:var(--gold); }
         .caixa-toggle{ font:inherit; font-size:12px; font-weight:700; color:var(--gold); background:none; border:none; cursor:pointer; padding:10px 0 0; }
         .caixa-vermais{ margin-top:9px; border:1px solid var(--line); border-radius:11px; overflow:hidden; }
-        .caixa-vtoolbar{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; padding:7px 9px; background:var(--surface-2); border-bottom:1px solid var(--line); }
+        .caixa-vtoolbar{ display:none; align-items:center; gap:6px; flex-wrap:wrap; padding:7px 9px; background:var(--surface-2); border:1px solid var(--line-2); border-radius:9px; margin-bottom:8px; }
+        .caixa-card:focus-within .caixa-vtoolbar{ display:flex; }
         .caixa-vtoolbar button{ font:inherit; min-width:28px; height:26px; cursor:pointer; color:var(--text); background:var(--surface);
           border:1px solid var(--line-2); border-radius:6px; font-size:13px; padding:0 7px; }
         .caixa-vtoolbar button:hover{ background:var(--surface-3); }
         .caixa-vsep{ width:1px; height:18px; background:var(--line-2); margin:0 2px; }
         .caixa-sw{ width:20px !important; min-width:20px !important; height:20px !important; padding:0 !important; border-radius:50% !important; border:1px solid var(--line-2) !important; }
-        .caixa-veditor{ padding:11px 12px; font-size:13.5px; line-height:1.6; color:var(--muted); min-height:64px; outline:none; }
+        .caixa-veditor{ padding:11px 12px; font-size:15px; line-height:1.6; color:var(--text); min-height:60px; outline:none; border:1px solid var(--line-2); border-radius:11px; }
+        .caixa-card:focus-within .caixa-veditor{ border-color:var(--gold); box-shadow:0 0 0 3px color-mix(in srgb,var(--gold) 14%,transparent); }
         .caixa-actions{ display:flex; flex-wrap:wrap; gap:7px; margin-top:12px; padding-top:12px; border-top:1px solid var(--line); }
         .caixa-act{ font:inherit; font-size:12.5px; font-weight:700; cursor:pointer; color:var(--muted); background:var(--surface-2);
           border:1px solid var(--line-2); border-radius:9px; padding:7px 11px; display:inline-flex; align-items:center; gap:6px; }
@@ -1882,70 +1895,21 @@ function CaixaView({ onBack, onArquivarEdital }) {
         <>
           <p className="caixa-count">{notas.length} {notas.length === 1 ? "nota guardada" : "notas guardadas"}<button className="caixa-esvaziar" onClick={esvaziar}>esvaziar a caixa</button></p>
           {notas.map((n) => {
-            const open = !!aberto[n.id];
             return (
               <div key={n.id} className="caixa-card">
-                <div className="caixa-lbl-row">
-                  <span className="caixa-lbl">Destaque</span>
-                  {destFoco === n.id && (
-                    <span className="caixa-dtb">
-                      <button title="Negrito" style={{ fontWeight: 800 }} onMouseDown={fmt("bold")}>N</button>
-                      <button title="Itálico" style={{ fontStyle: "italic" }} onMouseDown={fmt("italic")}>I</button>
-                      <button title="Sublinhado" style={{ textDecoration: "underline" }} onMouseDown={fmt("underline")}>S</button>
-                      <button className="caixa-sw" style={{ background: "var(--text)" }} title="Cor padrão" onMouseDown={cor("reset")} />
-                      {CAIXA_CORES.map((c) => <button key={c} className="caixa-sw" style={{ background: c }} title="Cor" onMouseDown={cor(c)} />)}
-                    </span>
-                  )}
-                </div>
-                <CaixaEdit className="caixa-destaque" html={n.destaque || ""} placeholder="Título em destaque…" onFocus={() => setDestFoco(n.id)} onSave={(t) => { update(n.id, { destaque: t }); setDestFoco(null); }} />
-
-                <div className="caixa-metarow">
-                  <span className="caixa-metalbl">Matéria:</span>
-                  {n.mats.map((mid) => (
-                    <span key={mid} className="caixa-chip" style={chipStyle(materiaColor(mid))}>
-                      {caixaMatLabel(mid)}
-                      <button className="caixa-chip-x" title="Tirar" onClick={() => toggleMat(n.id, mid)}>×</button>
-                    </span>
-                  ))}
-                  <button className="caixa-addmat" onClick={() => setMatPicker((p) => p === n.id ? null : n.id)}>＋ matéria</button>
-                </div>
-                {matPicker === n.id && (
-                  <div className="caixa-matpick">
-                    {CAIXA_MATS.map((mid) => {
-                      const on = n.mats.includes(mid);
-                      return (
-                        <button key={mid} className="caixa-matpick-b" style={on ? chipStyle(materiaColor(mid)) : null} onClick={() => toggleMat(n.id, mid)}>
-                          {on ? "✓ " : ""}{caixaMatLabel(mid)}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-
-                <div className="caixa-metarow">
-                  <span className="caixa-metalbl">Tópico do edital:</span>
-                  <select className="caixa-topsel" value={n.topico} onChange={(e) => update(n.id, { topico: e.target.value })}>
-                    <option value="">— escolher —</option>
-                    {topicoOpts(n).map((t) => <option key={t} value={t}>{t}</option>)}
-                  </select>
+                <div className="caixa-cardtop">
                   {n.fonte && <span className="caixa-chip fonte">{n.fonte}</span>}
                   <button className={"caixa-fav" + (n.favorito ? " on" : "")} title="Favorito" onClick={() => toggleFav(n.id)}>{n.favorito ? "★" : "☆"}</button>
                 </div>
-
-                <button className="caixa-toggle" onClick={() => toggleAberto(n.id)}>{open ? "▾ Ver mais" : "▸ Ver mais"}</button>
-                {open && (
-                  <div className="caixa-vermais">
-                    <div className="caixa-vtoolbar">
-                      <button title="Negrito" style={{ fontWeight: 800 }} onMouseDown={fmt("bold")}>N</button>
-                      <button title="Itálico" style={{ fontStyle: "italic" }} onMouseDown={fmt("italic")}>I</button>
-                      <button title="Sublinhado" style={{ textDecoration: "underline" }} onMouseDown={fmt("underline")}>S</button>
-                      <span className="caixa-vsep" />
-                      <button className="caixa-sw" style={{ background: "var(--text)" }} title="Cor padrão" onMouseDown={cor("reset")} />
-                      {CAIXA_CORES.map((c) => <button key={c} className="caixa-sw" style={{ background: c }} title="Cor" onMouseDown={cor(c)} />)}
-                    </div>
-                    <CaixaEdit className="caixa-veditor" html={n.verMais} placeholder="Escreva ou cole aqui o resto do conteúdo…" onSave={(h) => update(n.id, { verMais: h })} />
-                  </div>
-                )}
+                <div className="caixa-vtoolbar">
+                  <button title="Negrito" style={{ fontWeight: 800 }} onMouseDown={fmt("bold")}>N</button>
+                  <button title="Itálico" style={{ fontStyle: "italic" }} onMouseDown={fmt("italic")}>I</button>
+                  <button title="Sublinhado" style={{ textDecoration: "underline" }} onMouseDown={fmt("underline")}>S</button>
+                  <span className="caixa-vsep" />
+                  <button className="caixa-sw" style={{ background: "var(--text)" }} title="Cor padrão" onMouseDown={cor("reset")} />
+                  {CAIXA_CORES.map((c) => <button key={c} className="caixa-sw" style={{ background: c }} title="Cor" onMouseDown={cor(c)} />)}
+                </div>
+                <CaixaEdit className="caixa-veditor" html={caixaCombina(n)} placeholder="Escreva ou cole aqui…" onSave={(h) => update(n.id, { verMais: h, destaque: "" })} />
 
                 <div className="caixa-actions">
                   {CAIXA_DESTINOS.map((d) => {
