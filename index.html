@@ -1694,13 +1694,19 @@ function caixaNormalize(n) {
   return { id: n.id || CAIXA_UID(), destaque, verMais, mats: n.mats || [], topico: n.topico || n.assunto || "", fonte: n.fonte || "", favorito: !!n.favorito, destino: n.destino || null, ts: n.ts || Date.now() };
 }
 // caixinha editável (título ou "Ver mais"): recebe html inicial uma vez e salva ao sair
+// caixinha de texto da Caixa de entrada — mesmo padrão das notas do edital: o conteúdo é
+// escrito no DOM uma vez e o React não reescreve; e o texto-fantasma é uma CAMADA separada
+// (não um ::before dentro do campo), pra o acento morto (~ ´ ` ^) compor normalmente.
 function CaixaEdit({ html, plain, onSave, onFocus, className, placeholder }) {
   const ref = useRef(null);
   useEffect(() => { if (ref.current) ref.current.innerHTML = html || ""; }, []);
   return (
-    <div ref={ref} className={className} contentEditable suppressContentEditableWarning
-      data-ph={placeholder} onFocus={onFocus}
-      onBlur={() => onSave(plain ? ref.current.innerText : ref.current.innerHTML)} />
+    <div className="caixa-edwrap">
+      <div ref={ref} className={(className || "") + " caixa-ed"} contentEditable suppressContentEditableWarning
+        onFocus={onFocus}
+        onBlur={() => onSave(plain ? ref.current.innerText : ref.current.innerHTML)} />
+      <div className="caixa-ph" aria-hidden="true">{placeholder}</div>
+    </div>
   );
 }
 
@@ -1809,7 +1815,11 @@ function CaixaView({ onBack, onArquivarEdital }) {
         .caixa-dtb .caixa-sw{ height:16px !important; width:16px !important; min-width:16px !important; }
         .caixa-destaque{ font-size:15px; font-weight:700; color:var(--text); line-height:1.42; outline:none; border-radius:6px; }
         .caixa-destaque:focus{ box-shadow:0 0 0 2px color-mix(in srgb,var(--gold) 45%,transparent); }
-        .caixa-destaque:empty:not(:focus):before,.caixa-veditor:empty:not(:focus):before{ content:attr(data-ph); color:var(--faint); }
+        .caixa-edwrap{ position:relative; }
+        .caixa-ph{ position:absolute; left:0; top:0; color:var(--faint); pointer-events:none; }
+        .caixa-ed:focus + .caixa-ph, .caixa-ed:not(:empty) + .caixa-ph{ display:none; }
+        .caixa-destaque + .caixa-ph{ font-size:15px; font-weight:700; line-height:1.42; }
+        .caixa-veditor + .caixa-ph{ top:11px; left:12px; font-size:13.5px; line-height:1.6; }
         .caixa-metarow{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:11px; }
         .caixa-metalbl{ font-size:11px; color:var(--faint); }
         .caixa-chip{ font-size:11.5px; font-weight:700; padding:3px 9px; border-radius:999px; border:1px solid; display:inline-flex; align-items:center; gap:5px; }
