@@ -1344,6 +1344,7 @@ function diarioParaRegistro(e) {
 // ---------- Lei Seca (vade mecum progressivo, estilo normio) ----------
 const LEISECA_NOTAS_KEY = "tjsc-leiseca-notas:v1";   // anotações da Nadia por artigo
 const LEISECA_SEEN_KEY = "tjsc-leiseca-visto:v1";    // última vez que ela viu cada diploma (pro aviso "atualizada")
+const LEISECA_MARKS_KEY = "tjsc-leiseca-grifos:v1";  // grifos/pinturas dela no próprio texto da lei (por unidade)
 // navegação salva: ao recarregar (Cmd+Shift+R) volta pra EXATA mesma tela (inclui a página de notas de um tópico)
 const NAV_KEY = "magisnad-nav:v1";
 function readNav() { try { return JSON.parse(localStorage.getItem(NAV_KEY) || "{}") || {}; } catch { return {}; } }
@@ -2150,11 +2151,14 @@ function LeiSecaView({ onBack }) {
 
 function LeiSecaReader({ dip, onBack }) {
   const [notas, setNotas] = useState({});
+  const [marcas, setMarcas] = useState({});
+  const [fgOpen, setFgOpen] = useState(false);
   const [aviso, setAviso] = useState(false);
   const [verMudou, setVerMudou] = useState(false);
   useEffect(() => {
     (async () => {
       try { const r = await window.storage.get(LEISECA_NOTAS_KEY); setNotas(r ? JSON.parse(r.value) : {}); } catch { setNotas({}); }
+      try { const g = await window.storage.get(LEISECA_MARKS_KEY); setMarcas(g ? JSON.parse(g.value) : {}); } catch { setMarcas({}); }
       try {
         const s = await window.storage.get(LEISECA_SEEN_KEY);
         const seen = s ? JSON.parse(s.value) : {};
@@ -2178,6 +2182,44 @@ function LeiSecaReader({ dip, onBack }) {
     setAviso(false); setVerMudou(false);
     try { const s = await window.storage.get(LEISECA_SEEN_KEY); const seen = s ? JSON.parse(s.value) : {}; seen[dip.id] = dip.atualizado; window.storage.set(LEISECA_SEEN_KEY, JSON.stringify(seen)); } catch {}
   };
+  // salva (ou apaga, se ficou sem grifo) o texto pintado de uma unidade
+  const salvarMarca = (key, html) => setMarcas((prev) => {
+    const next = { ...prev };
+    if (/<span[^>]*style=/.test(html)) next[key] = html; else delete next[key];
+    try { window.storage.set(LEISECA_MARKS_KEY, JSON.stringify(next)); } catch {}
+    return next;
+  });
+  // aplica uma pintura (fundo/fonte/negrito...) na seleção — SÓ dentro de uma unidade da lei, sem deixar editar o texto
+  const pintar = (cmd, valor) => {
+    const sel = document.getSelection();
+    if (!sel || !sel.rangeCount || sel.isCollapsed) return;
+    const contDe = (n) => { n = n && (n.nodeType === 1 ? n : n.parentElement); return n && n.closest ? n.closest(".lei-txt") : null; };
+    const cont = contDe(sel.anchorNode);
+    if (!cont || cont !== contDe(sel.focusNode)) return;   // seleção precisa estar dentro de uma única unidade
+    const key = cont.getAttribute("data-key");
+    const range = sel.getRangeAt(0).cloneRange();
+    cont.setAttribute("contenteditable", "true"); cont.focus();
+    const s2 = document.getSelection(); s2.removeAllRanges(); s2.addRange(range);
+    try { document.execCommand("styleWithCSS", false, true); } catch (e) {}
+    try { document.execCommand(cmd, false, valor || null); } catch (e) {}
+    cont.removeAttribute("contenteditable");
+    salvarMarca(key, cont.innerHTML);
+    setFgOpen(false);
+  };
+  // clique no "×" que aparece em cima de um grifo apaga aquele grifo
+  const cliqueCorpo = (e) => {
+    const m = e.target.closest && e.target.closest(".lei-txt span[style]");
+    if (!m) return;
+    const r = m.getBoundingClientRect();
+    if (e.clientY <= r.top + 8 && e.clientX >= r.right - 20) {
+      const cont = m.closest(".lei-txt"), parent = m.parentNode;
+      while (m.firstChild) parent.insertBefore(m.firstChild, m);
+      parent.removeChild(m); cont.normalize();
+      salvarMarca(cont.getAttribute("data-key"), cont.innerHTML);
+      e.preventDefault();
+    }
+  };
+  const pd = (e) => e.preventDefault();
   return (
     <section className="editais-page lei-reader">
       <button className="edital-back" onClick={onBack}>← Voltar às leis</button>
@@ -2202,23 +2244,47 @@ function LeiSecaReader({ dip, onBack }) {
       {aviso && verMudou && dip.mudancas && (
         <ul className="lei-mudlist">{dip.mudancas.map((m, i) => <li key={i}>{m}</li>)}</ul>
       )}
-      <div className="lei-body">
+      <div className="lei-paint">
+        <button className="lei-paint-b" title="Negrito" style={{ fontWeight: 800 }} onMouseDown={pd} onClick={() => pintar("bold")}>B</button>
+        <button className="lei-paint-b" title="Tachado" style={{ textDecoration: "line-through" }} onMouseDown={pd} onClick={() => pintar("strikeThrough")}>S</button>
+        <button className="lei-paint-b" title="Sublinhado" style={{ textDecoration: "underline" }} onMouseDown={pd} onClick={() => pintar("underline")}>U</button>
+        <button className="lei-paint-b" title="Itálico" style={{ fontStyle: "italic" }} onMouseDown={pd} onClick={() => pintar("italic")}>I</button>
+        <span className="lei-paint-sep" />
+        {LEI_CORES.map((c) => <button key={c} className="lei-paint-dot" style={{ background: c }} title="Marca-texto (fundo)" onMouseDown={pd} onClick={() => pintar("hiliteColor", c)} />)}
+        <span className="lei-paint-sep" />
+        <span className="lei-paint-A">
+          <button className="lei-paint-Abtn" title="Cor da fonte" onMouseDown={pd} onClick={() => setFgOpen((o) => !o)}>A<small>▾</small></button>
+          {fgOpen && (
+            <span className="lei-paint-fg">
+              {LEI_CORES.map((c) => <button key={c} className="lei-paint-dot" style={{ background: c }} title="Cor da fonte" onMouseDown={pd} onClick={() => pintar("foreColor", c)} />)}
+            </span>
+          )}
+        </span>
+        <span className="lei-paint-sep" />
+        <button className="lei-paint-clear" title="Tirar a formatação da seleção" onMouseDown={pd} onClick={() => pintar("removeFormat")}>limpar</button>
+        <span className="lei-paint-dica">selecione um trecho da lei e pinte</span>
+      </div>
+      <div className="lei-body" onClick={cliqueCorpo}>
         {dip.blocos.map((b, i) => b.t === "h"
           ? <div key={i} className={"lei-h" + (b.sub ? " sub" : "")}>{b.txt}</div>
-          : <LeiArtigo key={i} dipId={dip.id} art={b} notas={notas} onSaveNota={saveNota} />
+          : <LeiArtigo key={i} dipId={dip.id} art={b} notas={notas} onSaveNota={saveNota} marcas={marcas} />
         )}
       </div>
     </section>
   );
 }
 
-// uma UNIDADE da lei (caput, inciso, alínea ou parágrafo): o texto + o lápis próprio + o memorando dela
-function LeiLinha({ children, className, nota, onSaveNota }) {
+// uma UNIDADE da lei (caput, inciso, alínea ou parágrafo): rótulo (não grifável) + TEXTO DA LEI (grifável) + lápis + memorando
+function LeiLinha({ marca, texto, className, notaKey, nota, onSaveNota, marcas }) {
   const [anota, setAnota] = useState(false);
+  const grifado = marcas && marcas[notaKey];
   return (
     <div className="lei-linha">
       <p className={className}>
-        {children}
+        {marca}{marca ? " " : null}
+        {grifado
+          ? <span className="lei-txt" data-key={notaKey} dangerouslySetInnerHTML={{ __html: grifado }} />
+          : <span className="lei-txt" data-key={notaKey}>{leiFmt(texto)}</span>}
         {!nota && !anota && <button className="lei-anotar" title="Anotar aqui" onClick={() => setAnota(true)}>✎</button>}
       </p>
       {(nota || anota) && (
@@ -2240,18 +2306,18 @@ function leiFmt(text) {
   );
 }
 // um artigo: renderiza suas PARTES (caput, incisos, alíneas, parágrafos) na ordem exata; cada uma anotável
-function LeiArtigo({ dipId, art, notas, onSaveNota }) {
+function LeiArtigo({ dipId, art, notas, onSaveNota, marcas }) {
   const base = dipId + ":" + art.num;
   return (
     <div className="lei-art">
       {(art.partes || []).map((pt, i) => {
         const key = base + ":i" + i;
-        let cls, node;
-        if (pt.t === "caput") { cls = "lei-caput"; node = <><span className="lei-artnum">Art. {art.num}</span> {leiFmt(pt.txt)}</>; }
-        else if (pt.t === "inc") { cls = "lei-inc"; node = <><span className="lei-marca">{pt.marca} –</span> {leiFmt(pt.txt)}</>; }
-        else if (pt.t === "ali") { cls = "lei-alinea"; node = <><span className="lei-marca">{pt.marca})</span> {leiFmt(pt.txt)}</>; }
-        else { cls = "lei-par"; node = <><span className="lei-marca">{pt.marca}</span> {leiFmt(pt.txt)}</>; }
-        return <LeiLinha key={i} className={cls} nota={notas[key]} onSaveNota={(v) => onSaveNota(key, v)}>{node}</LeiLinha>;
+        let cls, marca;
+        if (pt.t === "caput") { cls = "lei-caput"; marca = <span className="lei-artnum">Art. {art.num}</span>; }
+        else if (pt.t === "inc") { cls = "lei-inc"; marca = <span className="lei-marca">{pt.marca} –</span>; }
+        else if (pt.t === "ali") { cls = "lei-alinea"; marca = <span className="lei-marca">{pt.marca})</span>; }
+        else { cls = "lei-par"; marca = <span className="lei-marca">{pt.marca}</span>; }
+        return <LeiLinha key={i} className={cls} marca={marca} texto={pt.txt} notaKey={key} nota={notas[key]} onSaveNota={(v) => onSaveNota(key, v)} marcas={marcas} />;
       })}
     </div>
   );
@@ -6041,6 +6107,23 @@ export default function App() {
         .lei-banner-x:hover { color: var(--text); }
         .lei-mudlist { margin: 4px 0 10px; padding-left: 22px; font-size: 13px; color: var(--muted); line-height: 1.6; }
 
+        .lei-paint { position: sticky; top: 8px; z-index: 6; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 16px 0 4px; padding: 8px 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.25); }
+        .lei-paint-b { font: inherit; min-width: 28px; height: 28px; cursor: pointer; color: var(--text); background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 7px; font-size: 13px; padding: 0 7px; }
+        .lei-paint-b:hover { background: var(--surface-3); }
+        .lei-paint-sep { width: 1px; height: 20px; background: var(--line-2); margin: 0 2px; }
+        .lei-paint-dot { width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--line-2); cursor: pointer; padding: 0; }
+        .lei-paint-dot:hover { transform: scale(1.12); }
+        .lei-paint-A { position: relative; display: inline-flex; }
+        .lei-paint-Abtn { font: inherit; height: 28px; cursor: pointer; color: var(--text); background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 7px; font-size: 14px; font-weight: 800; padding: 0 8px; display: inline-flex; align-items: center; gap: 2px; }
+        .lei-paint-Abtn small { font-size: 9px; font-weight: 600; }
+        .lei-paint-Abtn:hover { background: var(--surface-3); }
+        .lei-paint-fg { position: absolute; top: 34px; left: 0; z-index: 8; display: flex; gap: 6px; padding: 8px 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+        .lei-paint-clear { font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; color: var(--muted); background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 7px; padding: 5px 10px; }
+        .lei-paint-clear:hover { color: var(--text); }
+        .lei-paint-dica { font-size: 11px; color: var(--faint); margin-left: 4px; }
+        .lei-txt span[style] { position: relative; border-radius: 3px; padding: 0 1px; }
+        .lei-txt span[style]::after { content: "×"; position: absolute; top: -11px; right: -6px; width: 16px; height: 16px; line-height: 15px; text-align: center; font-size: 11px; font-weight: 700; border-radius: 50%; background: var(--coral, #e0483d); color: #fff; opacity: 0; transition: opacity .1s; pointer-events: none; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
+        .lei-txt span[style]:hover::after { opacity: 1; }
         .lei-body { margin-top: 18px; }
         .lei-h { text-align: center; font-weight: 800; letter-spacing: .07em; color: var(--text); margin: 28px 0 4px; font-size: 14px; }
         .lei-h.sub { font-weight: 700; font-size: 12px; color: var(--muted); letter-spacing: .13em; margin: 2px 0 8px; }
