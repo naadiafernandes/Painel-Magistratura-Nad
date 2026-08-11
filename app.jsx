@@ -1344,6 +1344,9 @@ function diarioParaRegistro(e) {
 // ---------- Lei Seca (vade mecum progressivo, estilo normio) ----------
 const LEISECA_NOTAS_KEY = "tjsc-leiseca-notas:v1";   // anotações da Nadia por artigo
 const LEISECA_SEEN_KEY = "tjsc-leiseca-visto:v1";    // última vez que ela viu cada diploma (pro aviso "atualizada")
+// navegação salva: ao recarregar (Cmd+Shift+R) volta pra EXATA mesma tela (inclui a página de notas de um tópico)
+const NAV_KEY = "magisnad-nav:v1";
+function readNav() { try { return JSON.parse(localStorage.getItem(NAV_KEY) || "{}") || {}; } catch { return {}; } }
 const LEI_CORES = ["#e6b800", "#38b24a", "#3d7fe6", "#e0559b", "#e8842a", "#e0483d"];
 // escolhe texto escuro ou claro conforme o brilho da etiqueta (pro cartão preenchido ficar legível)
 function leiTextoContraste(hex) {
@@ -1870,7 +1873,6 @@ function TopicNotes({ label, materia, initial, onBack, onSave }) {
     // "reset" volta a letra pra cor padrão do tema (preta no claro, clara no escuro)
     const c = color === "reset" ? getComputedStyle(document.body).color : color;
     try { document.execCommand(kind === "fore" ? "foreColor" : "hiliteColor", false, c); } catch (e) {}
-    guardarRecente(kind, color);
   };
 
   const addBox = () => {
@@ -1900,6 +1902,7 @@ function TopicNotes({ label, materia, initial, onBack, onSave }) {
   };
   // Tab dentro de tabela: vai pra próxima célula; na última, cria uma linha nova e entra nela
   const onKeyDownBox = (e) => {
+    if (e.isComposing || e.keyCode === 229) return;   // nunca interferir na composição de acento/emoji
     if (e.key !== "Tab" || e.shiftKey) return;
     const sel = document.getSelection();
     if (!sel || !sel.rangeCount) return;
@@ -1962,11 +1965,12 @@ function TopicNotes({ label, materia, initial, onBack, onSave }) {
         c === "none" ? (
           <span key={i} className="tn-sw none" title="sem fundo" onMouseDown={(e) => e.preventDefault()} onClick={() => applyColor("back", "transparent")} />
         ) : (
-          <span key={i} className="tn-sw" style={{ background: c }} onMouseDown={(e) => e.preventDefault()} onClick={() => applyColor(kind, c)} />
+          <span key={i} className="tn-sw" style={{ background: c }} onMouseDown={(e) => e.preventDefault()} onClick={() => { applyColor(kind, c); guardarRecente(kind, c); }} />
         )
       )}
       <span className="tn-sw pick" title="qualquer cor — fica salva aqui">
-        <input type="color" onMouseDown={(e) => e.stopPropagation()} onChange={(e) => applyColor(kind, e.target.value)} />
+        {/* aplica ao vivo enquanto ela escolhe, mas SÓ guarda nas recentes a cor final (no blur), não as que o mouse cruza */}
+        <input type="color" onMouseDown={(e) => e.stopPropagation()} onChange={(e) => applyColor(kind, e.target.value)} onBlur={(e) => guardarRecente(kind, e.target.value)} />
       </span>
     </span>
   );
@@ -3844,7 +3848,7 @@ export default function App() {
       editRef.current.focus();
     }
   }, [editId]);
-  const [view, setView] = useState(() => { try { return localStorage.getItem("magisnad-view") || "es-painel"; } catch { return "es-painel"; } });
+  const [view, setView] = useState(() => readNav().view || "es-painel");
   const [openEdital, setOpenEdital] = useState(0);
   const [openMat, setOpenMat] = useState({});
   const [openNote, setOpenNote] = useState(null); // chave do tópico com a caixinha de Observações aberta
@@ -4103,6 +4107,10 @@ export default function App() {
       if (diaTags && diaTags.fonte) setDiarioTags({ fonte: diaTags.fonte, materia: diaTags.materia || [] });
       if (cron && typeof cron === "object") setCrono({ ...CRONO_DEFAULT, ...cron, running: false, startedAt: null });
       if (cMetas && typeof cMetas === "object") setCicloMetas({ ...CICLO_METAS_DEFAULT, ...cMetas });
+      // volta pra EXATA tela onde ela estava (agora que os editais já carregaram, pra a página de notas abrir com o conteúdo certo)
+      const nav = readNav();
+      if (nav.openTopic) setOpenTopic(nav.openTopic);
+      if (nav.matAberta) setMatAberta(nav.matAberta);
       setLoaded(true);
     })();
   }, []);
@@ -4553,8 +4561,12 @@ export default function App() {
     } catch {}
   }, []);
 
-  // Ao recarregar (Cmd+Shift+R), continua na mesma página em vez de voltar pro início.
-  useEffect(() => { try { localStorage.setItem("magisnad-view", view); } catch {} }, [view]);
+  // Ao recarregar (Cmd+Shift+R), continua na EXATA mesma tela — inclusive a página de notas de um tópico.
+  // Só grava depois que tudo carregou, pra não sobrescrever a tela salva antes de restaurá-la.
+  useEffect(() => {
+    if (!loaded) return;
+    try { localStorage.setItem(NAV_KEY, JSON.stringify({ view, openTopic, matAberta })); } catch {}
+  }, [loaded, view, openTopic, matAberta]);
 
   // marca/desmarca UMA caixinha (Teoria, Lei Seca, Questões, 1ª/2ª/3ª revisão) de um tópico
   const toggleEditalCell = async (editalId, pathKey, field) => {
