@@ -2260,7 +2260,13 @@ function LeiSecaReader({ dip, onBack }) {
   useEffect(() => {
     const onKey = (e) => {
       if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
-      const m = { b: "bold", i: "italic", u: "underline" }[e.key.toLowerCase()];
+      const k = e.key.toLowerCase();
+      let m = null;
+      if (e.shiftKey && k === "x") m = "strikeThrough";        // ⌘⇧X = tachado
+      else if (!e.shiftKey && k === "b") m = "bold";           // ⌘B
+      else if (!e.shiftKey && k === "i") m = "italic";         // ⌘I
+      else if (!e.shiftKey && k === "u") m = "underline";      // ⌘U
+      else if (e.key === "ArrowUp") m = "uppercase";           // ⌘↑ = MAIÚSCULAS
       if (!m) return;
       const sel = document.getSelection();
       if (!sel || !sel.rangeCount || sel.isCollapsed) return;
@@ -2333,9 +2339,7 @@ function LeiLinha({ marca, texto, className, notaKey, nota, onSaveNota, marcas }
     <div className="lei-linha">
       <p className={className}>
         {marca}{marca ? " " : null}
-        {grifado
-          ? <span className="lei-txt" data-key={notaKey} dangerouslySetInnerHTML={{ __html: grifado }} />
-          : <span className="lei-txt" data-key={notaKey}>{leiFmt(texto)}</span>}
+        <span className="lei-txt" data-key={notaKey} dangerouslySetInnerHTML={{ __html: grifado || leiFmtHtml(texto) }} />
         {!nota && !anota && <button className="lei-anotar" title="Anotar aqui" onClick={() => setAnota(true)}>✎</button>}
       </p>
       {(nota || anota) && (
@@ -2348,13 +2352,15 @@ function LeiLinha({ marca, texto, className, notaKey, nota, onSaveNota, marcas }
   );
 }
 
-// clareia as notas legais entre parênteses (Incluído/Redação dada/Vigência/Vide/Revogado...) como no normio
-function leiFmt(text) {
-  if (!text) return text;
-  return String(text).split(/(\([^)]*\))/g).map((p, i) =>
+// clareia as notas legais entre parênteses (Incluído/Redação dada/Vigência/Vide/Revogado...) — como HTML puro,
+// pra o texto da lei ser sempre montado por innerHTML (React não controla os filhos → pintar não quebra a reconciliação)
+function leiEsc(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+function leiFmtHtml(text) {
+  if (!text) return "";
+  return String(text).split(/(\([^)]*\))/g).map((p) =>
     /^\((?:Inclu|Reda[çc]|Vig[êe]|Vide|Revog|Vetad|Renumer|renumer|Regulament)/i.test(p)
-      ? <span key={i} className="lei-leg">{p}</span> : p
-  );
+      ? '<span class="lei-leg">' + leiEsc(p) + "</span>" : leiEsc(p)
+  ).join("");
 }
 // um artigo: renderiza suas PARTES (caput, incisos, alíneas, parágrafos) na ordem exata; cada uma anotável
 function LeiArtigo({ dipId, art, notas, onSaveNota, marcas }) {
@@ -2381,10 +2387,15 @@ function LeiNota({ nota, editing, onOpen, onClose, onSave, onDelete, recuo }) {
   const [cor, setCor] = useState((nota && nota.cor) || LEI_CORES[0]);
   useEffect(() => { if (editing && ref.current) ref.current.innerHTML = (nota && nota.html) || ""; }, [editing]);
   const fmt = (cmd) => (e) => { e.preventDefault(); try { document.execCommand(cmd, false, null); } catch (x) {} };
-  // Cmd/Ctrl + B/U/I funcionam sem precisar clicar na barra
+  // Cmd/Ctrl + B/U/I e ⌘⇧X (tachado) funcionam sem precisar clicar na barra
   const atalho = (e) => {
     if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
-    const m = { b: "bold", i: "italic", u: "underline" }[e.key.toLowerCase()];
+    const k = e.key.toLowerCase();
+    let m = null;
+    if (e.shiftKey && k === "x") m = "strikeThrough";
+    else if (!e.shiftKey && k === "b") m = "bold";
+    else if (!e.shiftKey && k === "i") m = "italic";
+    else if (!e.shiftKey && k === "u") m = "underline";
     if (m) { e.preventDefault(); try { document.execCommand(m, false, null); } catch (x) {} }
   };
   const salvar = () => {
@@ -2413,7 +2424,7 @@ function LeiNota({ nota, editing, onOpen, onClose, onSave, onDelete, recuo }) {
         {LEI_CORES.map((c) => <button key={c} className={"lei-sw" + (c === cor ? " on" : "")} style={{ background: c }} title="Cor da etiqueta" onClick={() => setCor(c)} />)}
       </div>
       <div className="lei-nedit-inwrap">
-        <div className="lei-nedit-in" contentEditable suppressContentEditableWarning ref={ref} onKeyDown={atalho} />
+        <div className="lei-nedit-in" contentEditable suppressContentEditableWarning ref={ref} onKeyDown={atalho} onInput={tnAutoSeta} />
         <div className="lei-nedit-ph" aria-hidden="true">Escreva sua nota de estudo…</div>
       </div>
       <div className="lei-nedit-foot">
