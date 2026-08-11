@@ -1345,6 +1345,13 @@ function diarioParaRegistro(e) {
 const LEISECA_NOTAS_KEY = "tjsc-leiseca-notas:v1";   // anotações da Nadia por artigo
 const LEISECA_SEEN_KEY = "tjsc-leiseca-visto:v1";    // última vez que ela viu cada diploma (pro aviso "atualizada")
 const LEI_CORES = ["#e6b800", "#38b24a", "#3d7fe6", "#e0559b", "#e8842a", "#e0483d"];
+// escolhe texto escuro ou claro conforme o brilho da etiqueta (pro cartão preenchido ficar legível)
+function leiTextoContraste(hex) {
+  const h = (hex || "").replace("#", "");
+  if (h.length < 6) return "#17120a";
+  const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+  return (0.299 * r + 0.587 * g + 0.114 * b) > 150 ? "#17120a" : "#ffffff";
+}
 
 // ---------- Caixa de entrada: cole qualquer material e vira nota (você escolhe a matéria; o tópico vem do edital) ----------
 const CAIXA_KEY = "tjsc-caixa:v2";
@@ -1771,7 +1778,7 @@ const BLOCO_LBL = { 1: "Bloco I", 2: "Bloco II", 3: "Bloco III" };
 
 // caixinha de nota: o conteúdo é escrito no DOM só uma vez (no início) e o React NÃO reescreve
 // depois — assim o acento morto (~ ´ ` ^) e a pontuação compõem normalmente.
-function NotaBox({ id, initialHtml, register, onBlur }) {
+function NotaBox({ id, initialHtml, register, onBlur, onKeyDown }) {
   const ref = useRef(null);
   useEffect(() => {
     if (ref.current) ref.current.innerHTML = initialHtml || "";
@@ -1782,7 +1789,7 @@ function NotaBox({ id, initialHtml, register, onBlur }) {
   // não atrapalhar a composição do acento morto quando a caixa está vazia.
   return (
     <div className="tn-wrap">
-      <div className="tn-content" contentEditable suppressContentEditableWarning ref={ref} onBlur={onBlur} />
+      <div className="tn-content" contentEditable suppressContentEditableWarning ref={ref} onBlur={onBlur} onKeyDown={onKeyDown} />
       <div className="tn-ph" aria-hidden="true">Escreva aqui…</div>
     </div>
   );
@@ -1861,6 +1868,40 @@ function TopicNotes({ label, materia, initial, onBack, onSave }) {
   const blurBox = () => { const arr = collect(); setBoxes(arr); persist(arr); };
   const registerRef = (id, el) => { if (el) refs.current[id] = el; else delete refs.current[id]; };
 
+  // insere um HTML na caixinha focada (restaura a seleção salva antes, porque o clique no botão tira o foco)
+  const insertHTML = (html) => { restore(); try { document.execCommand("insertHTML", false, html); } catch (e) {} setTimeout(blurBox, 0); };
+  const addLinha = () => insertHTML("<hr>");
+  const addTabela = () => {
+    const cell = "<td><br></td>";
+    const row = "<tr>" + cell + cell + "</tr>";
+    insertHTML('<table class="tn-tbl"><tbody>' + row + row + "</tbody></table><p><br></p>");
+  };
+  // Tab dentro de tabela: vai pra próxima célula; na última, cria uma linha nova e entra nela
+  const onKeyDownBox = (e) => {
+    if (e.key !== "Tab" || e.shiftKey) return;
+    const sel = document.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    let td = sel.anchorNode;
+    td = td && (td.nodeType === 1 ? td : td.parentElement);
+    while (td && td.tagName !== "TD" && td.tagName !== "TABLE") td = td.parentElement;
+    if (!td || td.tagName !== "TD") return;
+    e.preventDefault();
+    const cells = Array.from(td.closest("table").querySelectorAll("td"));
+    let target = cells[cells.indexOf(td) + 1];
+    if (!target) {
+      const tr = td.parentElement;
+      const ncols = tr.children.length;
+      const novaTr = document.createElement("tr");
+      for (let i = 0; i < ncols; i++) { const c = document.createElement("td"); c.innerHTML = "<br>"; novaTr.appendChild(c); }
+      tr.parentElement.appendChild(novaTr);
+      target = novaTr.children[0];
+    }
+    const r = document.createRange();
+    r.selectNodeContents(target); r.collapse(true);
+    sel.removeAllRanges(); sel.addRange(r);
+    setTimeout(blurBox, 0);
+  };
+
   const addTag = (id) => {
     const label = window.prompt("Nome da tag (ex.: STF, Decorar, Pegadinha):");
     if (!label || !label.trim()) return;
@@ -1932,11 +1973,14 @@ function TopicNotes({ label, materia, initial, onBack, onSave }) {
                 })}
               </div>
             )}
-            <NotaBox id={b.id} initialHtml={b.html} register={registerRef} onBlur={blurBox} />
+            <NotaBox id={b.id} initialHtml={b.html} register={registerRef} onBlur={blurBox} onKeyDown={onKeyDownBox} />
             <div className="tn-toolbar">
               <button className="tn-tb b" title="Negrito" onMouseDown={(e) => e.preventDefault()} onClick={() => exec("bold")}>B</button>
               <button className="tn-tb i" title="Itálico" onMouseDown={(e) => e.preventDefault()} onClick={() => exec("italic")}>I</button>
               <button className="tn-tb u" title="Sublinhado" onMouseDown={(e) => e.preventDefault()} onClick={() => exec("underline")}>U</button>
+              <span className="tn-sep" />
+              <button className="tn-tb" title="Tabela (Tab pula célula; na última, cria linha)" onMouseDown={(e) => e.preventDefault()} onClick={addTabela}>⊞</button>
+              <button className="tn-tb" title="Linha divisória" onMouseDown={(e) => e.preventDefault()} onClick={addLinha}>──</button>
               <span className="tn-sep" />
               <span className="tn-lbl">letra</span>
               {swatchRow("fore", TN_FORE)}
@@ -2060,36 +2104,50 @@ function LeiSecaReader({ dip, onBack }) {
       <div className="lei-body">
         {dip.blocos.map((b, i) => b.t === "h"
           ? <div key={i} className={"lei-h" + (b.sub ? " sub" : "")}>{b.txt}</div>
-          : <LeiArtigo key={i} art={b} nota={notas[dip.id + ":" + b.num]} onSaveNota={(v) => saveNota(dip.id + ":" + b.num, v)} />
+          : <LeiArtigo key={i} dipId={dip.id} art={b} notas={notas} onSaveNota={saveNota} />
         )}
       </div>
     </section>
   );
 }
 
-function LeiArtigo({ art, nota, onSaveNota }) {
+// uma UNIDADE da lei (caput, inciso, alínea ou parágrafo): o texto + o lápis próprio + o memorando dela
+function LeiLinha({ children, className, nota, onSaveNota }) {
   const [anota, setAnota] = useState(false);
   return (
-    <div className="lei-art">
-      <p className="lei-caput">
-        <span className="lei-artnum">Art. {art.num}</span> {art.caput}
-        {!nota && !anota && <button className="lei-anotar" title="Anotar" onClick={() => setAnota(true)}>✎</button>}
+    <div className="lei-linha">
+      <p className={className}>
+        {children}
+        {!nota && !anota && <button className="lei-anotar" title="Anotar aqui" onClick={() => setAnota(true)}>✎</button>}
       </p>
-      {(art.itens || []).map((it, i) => (
-        <p key={i} className="lei-inc"><span className="lei-marca">{it.m} –</span> {it.txt}</p>
-      ))}
-      {(art.paragrafos || []).map((p, i) => (
-        <p key={i} className="lei-par"><span className="lei-marca">{p.rot}</span> {p.txt}</p>
-      ))}
       {(nota || anota) && (
-        <LeiNota nota={nota} editing={anota} onOpen={() => setAnota(true)} onClose={() => setAnota(false)} onSave={(v) => { onSaveNota(v); setAnota(false); }} />
+        <LeiNota nota={nota} editing={anota}
+          onOpen={() => setAnota(true)} onClose={() => setAnota(false)}
+          onSave={(v) => { onSaveNota(v); setAnota(false); }}
+          onDelete={() => { onSaveNota(null); setAnota(false); }} />
       )}
     </div>
   );
 }
 
-// caixinha de anotação por artigo — mesmo padrão à prova de acento (texto no DOM uma vez + camada-fantasma)
-function LeiNota({ nota, editing, onOpen, onClose, onSave }) {
+function LeiArtigo({ dipId, art, notas, onSaveNota }) {
+  const base = dipId + ":" + art.num;
+  const linhas = [];
+  const push = (suf, node, cls) => linhas.push(
+    <LeiLinha key={suf} className={cls} nota={notas[base + ":" + suf]} onSaveNota={(v) => onSaveNota(base + ":" + suf, v)}>{node}</LeiLinha>
+  );
+  push("c", <><span className="lei-artnum">Art. {art.num}</span> {art.caput}</>, "lei-caput");
+  (art.itens || []).forEach((it) => {
+    push("i" + it.m, <><span className="lei-marca">{it.m} –</span> {it.txt}</>, "lei-inc");
+    (it.alineas || []).forEach((al) => push("i" + it.m + "-a" + al.m, <><span className="lei-marca">{al.m})</span> {al.txt}</>, "lei-alinea"));
+  });
+  (art.paragrafos || []).forEach((p, idx) => push("p" + idx, <><span className="lei-marca">{p.rot}</span> {p.txt}</>, "lei-par"));
+  return <div className="lei-art">{linhas}</div>;
+}
+
+// memorando de uma unidade — à prova de acento (texto no DOM uma vez + camada-fantasma).
+// Salvo, vira um cartão PREENCHIDO com a cor da etiqueta (destacado, no estilo do normio).
+function LeiNota({ nota, editing, onOpen, onClose, onSave, onDelete }) {
   const ref = useRef(null);
   const [cor, setCor] = useState((nota && nota.cor) || LEI_CORES[0]);
   useEffect(() => { if (editing && ref.current) ref.current.innerHTML = (nota && nota.html) || ""; }, [editing]);
@@ -2100,10 +2158,12 @@ function LeiNota({ nota, editing, onOpen, onClose, onSave }) {
     onSave(plain ? { html, cor } : null);
   };
   if (!editing) {
+    const fg = leiTextoContraste(nota.cor);
     return (
-      <div className="lei-nota" style={{ borderLeftColor: nota.cor }}>
+      <div className="lei-nota" style={{ background: nota.cor, color: fg }}>
         <div className="lei-nota-body" dangerouslySetInnerHTML={{ __html: nota.html }} />
-        <button className="lei-nota-edit" title="Editar anotação" onClick={onOpen}>✎</button>
+        <button className="lei-nota-ic" style={{ color: fg }} title="Editar" onClick={onOpen}>✎</button>
+        <button className="lei-nota-ic" style={{ color: fg }} title="Apagar" onClick={onDelete}>×</button>
       </div>
     );
   }
@@ -3744,7 +3804,7 @@ export default function App() {
       editRef.current.focus();
     }
   }, [editId]);
-  const [view, setView] = useState("es-painel");
+  const [view, setView] = useState(() => { try { return localStorage.getItem("magisnad-view") || "es-painel"; } catch { return "es-painel"; } });
   const [openEdital, setOpenEdital] = useState(0);
   const [openMat, setOpenMat] = useState({});
   const [openNote, setOpenNote] = useState(null); // chave do tópico com a caixinha de Observações aberta
@@ -4452,6 +4512,9 @@ export default function App() {
       if (g) { localStorage.removeItem("magisnad-goto"); setView(g); }
     } catch {}
   }, []);
+
+  // Ao recarregar (Cmd+Shift+R), continua na mesma página em vez de voltar pro início.
+  useEffect(() => { try { localStorage.setItem("magisnad-view", view); } catch {} }, [view]);
 
   // marca/desmarca UMA caixinha (Teoria, Lei Seca, Questões, 1ª/2ª/3ª revisão) de um tópico
   const toggleEditalCell = async (editalId, pathKey, field) => {
@@ -5389,6 +5452,10 @@ export default function App() {
         .tn-content:focus + .tn-ph, .tn-content:not(:empty) + .tn-ph { display: none; }
         .tn-content b, .tn-content strong { font-weight: 700; }
         .tn-content u { text-decoration: underline; }
+        .tn-content hr { border: none; border-top: 1px solid var(--line-2); margin: 12px 0; }
+        .tn-content table.tn-tbl { border-collapse: collapse; margin: 10px 0; width: 100%; }
+        .tn-content table.tn-tbl td { border: 1px solid var(--line-2); padding: 6px 9px; min-width: 44px; vertical-align: top; }
+        .tn-content table.tn-tbl td:focus { outline: 2px solid color-mix(in srgb, var(--gold) 55%, transparent); outline-offset: -2px; }
         .tn-toolbar { display: none; gap: 4px; align-items: center; flex-wrap: wrap; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line-2); }
         .tn-box:focus-within .tn-toolbar { display: flex; }
         .tn-tb { border: 1px solid var(--line-2); background: var(--surface-2); color: var(--text); border-radius: 8px; height: 30px;
@@ -5851,16 +5918,19 @@ export default function App() {
         .lei-caput { font-size: 15.5px; line-height: 1.72; color: var(--text); }
         .lei-artnum { color: var(--gold); font-weight: 800; }
         .lei-inc { margin: 7px 0 7px 24px; font-size: 15px; line-height: 1.72; color: var(--text); }
+        .lei-alinea { margin: 6px 0 6px 48px; font-size: 15px; line-height: 1.72; color: var(--text); }
         .lei-par { margin: 9px 0; font-size: 15px; line-height: 1.72; color: var(--text); }
         .lei-marca { font-weight: 700; }
+        .lei-linha { margin: 0; }
         .lei-anotar { margin-left: 7px; background: none; border: none; cursor: pointer; color: var(--faint); font-size: 13px; opacity: 0; transition: opacity .12s; vertical-align: middle; }
-        .lei-art:hover .lei-anotar { opacity: 1; }
+        .lei-linha:hover .lei-anotar { opacity: 1; }
         .lei-anotar:hover { color: var(--gold); }
 
-        .lei-nota { display: flex; align-items: flex-start; gap: 8px; background: var(--surface-2); border: 1px solid var(--line-2); border-left: 3px solid var(--gold); border-radius: 10px; padding: 10px 12px; margin: 10px 0 0 24px; }
-        .lei-nota-body { flex: 1; font-size: 13.5px; line-height: 1.55; color: var(--text); }
-        .lei-nota-edit { background: none; border: none; cursor: pointer; color: var(--faint); font-size: 13px; flex: none; }
-        .lei-nota-edit:hover { color: var(--gold); }
+        .lei-nota { display: flex; align-items: flex-start; gap: 8px; border-radius: 10px; padding: 9px 12px; margin: 8px 0 8px 24px; box-shadow: 0 2px 8px rgba(0,0,0,.18); }
+        .lei-nota-body { flex: 1; font-size: 13.5px; line-height: 1.55; font-weight: 500; }
+        .lei-nota-body b, .lei-nota-body strong { font-weight: 800; }
+        .lei-nota-ic { background: none; border: none; cursor: pointer; font-size: 15px; line-height: 1; flex: none; opacity: .75; padding: 0 2px; }
+        .lei-nota-ic:hover { opacity: 1; }
         .lei-nedit { background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--gold); border-radius: 12px; margin: 10px 0 0 24px; overflow: hidden; }
         .lei-nedit-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; font-size: 12.5px; font-weight: 700; color: var(--muted); border-bottom: 1px solid var(--line); }
         .lei-nedit-x { background: none; border: none; cursor: pointer; color: var(--faint); font-size: 17px; line-height: 1; }
