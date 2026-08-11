@@ -1198,7 +1198,7 @@ const NAV_GROUPS = [
     { key: "fonte-juris", icon: "info", label: "Jurisprudência", kind: "view", view: "fonte-juris" },
     { key: "fonte-questoes", icon: "clipboard", label: "Questões (🔜)", kind: "view", view: "fonte-questoes" },
     { key: "fonte-teoria", icon: "video", label: "Teoria (🔜)", kind: "view", view: "es-cursos" },
-    { key: "fonte-leiseca", icon: "file", label: "Lei Seca (🔜)", kind: "view", view: "fonte-leiseca" },
+    { key: "fonte-leiseca", icon: "file", label: "Lei Seca", kind: "view", view: "fonte-leiseca" },
     { key: "fonte-revisoes", icon: "refresh", label: "Revisões", kind: "view", view: "es-revisoes" },
   ] },
   { label: "Navegação", items: [
@@ -1340,6 +1340,11 @@ function diarioParaRegistro(e) {
     concluido: false, origem: "diario", dref: e.id,
   };
 }
+
+// ---------- Lei Seca (vade mecum progressivo, estilo normio) ----------
+const LEISECA_NOTAS_KEY = "tjsc-leiseca-notas:v1";   // anotações da Nadia por artigo
+const LEISECA_SEEN_KEY = "tjsc-leiseca-visto:v1";    // última vez que ela viu cada diploma (pro aviso "atualizada")
+const LEI_CORES = ["#e6b800", "#38b24a", "#3d7fe6", "#e0559b", "#e8842a", "#e0483d"];
 
 // ---------- Caixa de entrada: cole qualquer material e vira nota (você escolhe a matéria; o tópico vem do edital) ----------
 const CAIXA_KEY = "tjsc-caixa:v2";
@@ -1961,6 +1966,166 @@ function EmBreve({ title, sub, onBack }) {
       {sub && <p className="es-sub">{sub}</p>}
       <div className="es-hint" style={{ marginTop: 18 }}>🚧 Em breve — esta fonte ainda está em construção.</div>
     </section>
+  );
+}
+
+// ===== FONTES: Lei Seca — vade mecum próprio, no estilo do leitor de leis do normio =====
+// A lei entra AOS POUCOS (só o que a Nadia está lendo). O texto mora em leiseca.js (window.LEISECA),
+// que o Claude preenche/atualiza sob pedido. As anotações dela ficam salvas por artigo.
+function leiContaArts(d) { return (d.blocos || []).filter((b) => b.t === "art").length; }
+
+function LeiSecaView({ onBack }) {
+  const diplomas = (typeof window !== "undefined" && Array.isArray(window.LEISECA)) ? window.LEISECA : [];
+  const [aberto, setAberto] = useState(null);
+  const dip = diplomas.find((d) => d.id === aberto);
+  if (dip) return <LeiSecaReader dip={dip} onBack={() => setAberto(null)} />;
+  return (
+    <section className="editais-page es-page">
+      <button className="edital-back" onClick={onBack}>← Voltar ao painel</button>
+      <p className="eyebrow">FONTES</p>
+      <h1 className="serif" style={{ marginBottom: 10 }}>Lei Seca</h1>
+      {diplomas.length === 0 ? (
+        <div className="lei-empty">
+          <p>Seu vade mecum começa vazio — a lei entra aos poucos, só o que você está lendo.</p>
+          <p className="lei-empty-dim">É só me pedir: <b>“põe o CPP, art. 1º ao 62”</b> — que eu deixo aqui formatado igual ao normio, pra você ler e anotar.</p>
+        </div>
+      ) : (
+        <div className="lei-grid">
+          {diplomas.map((d) => (
+            <button key={d.id} className="lei-card" onClick={() => setAberto(d.id)}>
+              <span className="lei-card-nome">{d.nome}</span>
+              <span className="lei-card-meta">{leiContaArts(d)} {leiContaArts(d) === 1 ? "artigo" : "artigos"} · atualizado em {d.atualizado}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function LeiSecaReader({ dip, onBack }) {
+  const [notas, setNotas] = useState({});
+  const [aviso, setAviso] = useState(false);
+  const [verMudou, setVerMudou] = useState(false);
+  useEffect(() => {
+    (async () => {
+      try { const r = await window.storage.get(LEISECA_NOTAS_KEY); setNotas(r ? JSON.parse(r.value) : {}); } catch { setNotas({}); }
+      try {
+        const s = await window.storage.get(LEISECA_SEEN_KEY);
+        const seen = s ? JSON.parse(s.value) : {};
+        if (seen[dip.id] === undefined) {
+          // primeira vez que ela abre este diploma: marca como visto, sem aviso
+          seen[dip.id] = dip.atualizado;
+          try { window.storage.set(LEISECA_SEEN_KEY, JSON.stringify(seen)); } catch {}
+        } else if (dip.atualizado && seen[dip.id] !== dip.atualizado) {
+          setAviso(true);
+        }
+      } catch {}
+    })();
+  }, [dip.id]);
+  const saveNota = (key, val) => setNotas((prev) => {
+    const next = { ...prev };
+    if (val && val.html) next[key] = val; else delete next[key];
+    try { window.storage.set(LEISECA_NOTAS_KEY, JSON.stringify(next)); } catch {}
+    return next;
+  });
+  const marcarVisto = async () => {
+    setAviso(false); setVerMudou(false);
+    try { const s = await window.storage.get(LEISECA_SEEN_KEY); const seen = s ? JSON.parse(s.value) : {}; seen[dip.id] = dip.atualizado; window.storage.set(LEISECA_SEEN_KEY, JSON.stringify(seen)); } catch {}
+  };
+  return (
+    <section className="editais-page lei-reader">
+      <button className="edital-back" onClick={onBack}>← Voltar às leis</button>
+      <div className="lei-head">
+        <h1 className="serif lei-title">{dip.nome}</h1>
+        <div className="lei-sub">Atualizado em {dip.atualizado}</div>
+        <div className="lei-tools">
+          {dip.planalto && <a className="lei-tool" href={dip.planalto} target="_blank" rel="noreferrer">↗ Planalto</a>}
+          <button className="lei-tool" title="Conferir no Planalto se mudou algo" onClick={() => { if (dip.planalto) window.open(dip.planalto, "_blank", "noopener"); }}>⟳ Atualizar</button>
+        </div>
+      </div>
+      {aviso && (
+        <div className="lei-banner">
+          <div className="lei-banner-txt">
+            <b>Esta norma mudou desde a sua última visita.</b>
+            <span>Conferida no Planalto · atualizada em {dip.atualizado}.</span>
+          </div>
+          {dip.mudancas && dip.mudancas.length > 0 && <button className="lei-banner-ver" onClick={() => setVerMudou((v) => !v)}>{verMudou ? "Esconder" : "Ver o que mudou"}</button>}
+          <button className="lei-banner-x" title="Já vi" onClick={marcarVisto}>×</button>
+        </div>
+      )}
+      {aviso && verMudou && dip.mudancas && (
+        <ul className="lei-mudlist">{dip.mudancas.map((m, i) => <li key={i}>{m}</li>)}</ul>
+      )}
+      <div className="lei-body">
+        {dip.blocos.map((b, i) => b.t === "h"
+          ? <div key={i} className={"lei-h" + (b.sub ? " sub" : "")}>{b.txt}</div>
+          : <LeiArtigo key={i} art={b} nota={notas[dip.id + ":" + b.num]} onSaveNota={(v) => saveNota(dip.id + ":" + b.num, v)} />
+        )}
+      </div>
+    </section>
+  );
+}
+
+function LeiArtigo({ art, nota, onSaveNota }) {
+  const [anota, setAnota] = useState(false);
+  return (
+    <div className="lei-art">
+      <p className="lei-caput">
+        <span className="lei-artnum">Art. {art.num}</span> {art.caput}
+        {!nota && !anota && <button className="lei-anotar" title="Anotar" onClick={() => setAnota(true)}>✎</button>}
+      </p>
+      {(art.itens || []).map((it, i) => (
+        <p key={i} className="lei-inc"><span className="lei-marca">{it.m} –</span> {it.txt}</p>
+      ))}
+      {(art.paragrafos || []).map((p, i) => (
+        <p key={i} className="lei-par"><span className="lei-marca">{p.rot}</span> {p.txt}</p>
+      ))}
+      {(nota || anota) && (
+        <LeiNota nota={nota} editing={anota} onOpen={() => setAnota(true)} onClose={() => setAnota(false)} onSave={(v) => { onSaveNota(v); setAnota(false); }} />
+      )}
+    </div>
+  );
+}
+
+// caixinha de anotação por artigo — mesmo padrão à prova de acento (texto no DOM uma vez + camada-fantasma)
+function LeiNota({ nota, editing, onOpen, onClose, onSave }) {
+  const ref = useRef(null);
+  const [cor, setCor] = useState((nota && nota.cor) || LEI_CORES[0]);
+  useEffect(() => { if (editing && ref.current) ref.current.innerHTML = (nota && nota.html) || ""; }, [editing]);
+  const fmt = (cmd) => (e) => { e.preventDefault(); try { document.execCommand(cmd, false, null); } catch (x) {} };
+  const salvar = () => {
+    const html = ref.current ? ref.current.innerHTML : "";
+    const plain = ref.current ? ref.current.innerText.trim() : "";
+    onSave(plain ? { html, cor } : null);
+  };
+  if (!editing) {
+    return (
+      <div className="lei-nota" style={{ borderLeftColor: nota.cor }}>
+        <div className="lei-nota-body" dangerouslySetInnerHTML={{ __html: nota.html }} />
+        <button className="lei-nota-edit" title="Editar anotação" onClick={onOpen}>✎</button>
+      </div>
+    );
+  }
+  return (
+    <div className="lei-nedit" style={{ borderLeftColor: cor }}>
+      <div className="lei-nedit-head"><span>📄 Anotação</span><button className="lei-nedit-x" title="Fechar" onClick={onClose}>×</button></div>
+      <div className="lei-nedit-tb">
+        <button title="Negrito" style={{ fontWeight: 800 }} onMouseDown={fmt("bold")}>B</button>
+        <button title="Itálico" style={{ fontStyle: "italic" }} onMouseDown={fmt("italic")}>I</button>
+        <button title="Sublinhado" style={{ textDecoration: "underline" }} onMouseDown={fmt("underline")}>U</button>
+        <span className="lei-nedit-etq">etiqueta</span>
+        {LEI_CORES.map((c) => <button key={c} className={"lei-sw" + (c === cor ? " on" : "")} style={{ background: c }} title="Cor da etiqueta" onClick={() => setCor(c)} />)}
+      </div>
+      <div className="lei-nedit-inwrap">
+        <div className="lei-nedit-in" contentEditable suppressContentEditableWarning ref={ref} />
+        <div className="lei-nedit-ph" aria-hidden="true">Escreva sua nota de estudo…</div>
+      </div>
+      <div className="lei-nedit-foot">
+        <button className="lei-nedit-cancel" onClick={onClose}>Cancelar</button>
+        <button className="lei-nedit-save" onClick={salvar}>Salvar</button>
+      </div>
+    </div>
   );
 }
 // Uma "gaveta" que abre e fecha (título fixo; conteúdo só aparece no clique).
@@ -5654,6 +5819,65 @@ export default function App() {
         .rev-btn.ok { background: var(--green-bg); border-color: transparent; color: var(--green); }
         @media (max-width: 560px){ .rev-item { flex-wrap: wrap; } .rev-actions { width: 100%; } }
 
+        /* ===== Lei Seca — vade mecum (estilo normio) ===== */
+        .lei-empty { margin-top: 22px; font-size: 15px; line-height: 1.6; color: var(--muted); max-width: 620px; }
+        .lei-empty-dim { color: var(--faint); font-size: 13.5px; margin-top: 8px; }
+        .lei-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; margin-top: 18px; }
+        .lei-card { text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; cursor: pointer; display: flex; flex-direction: column; gap: 6px; }
+        .lei-card:hover { border-color: var(--gold); }
+        .lei-card-nome { font-weight: 700; font-size: 15.5px; color: var(--text); }
+        .lei-card-meta { font-size: 12px; color: var(--faint); }
+
+        .lei-reader { max-width: 760px; margin: 0 auto; }
+        .lei-head { text-align: center; margin-bottom: 8px; }
+        .lei-title { margin: 6px 0 2px; }
+        .lei-sub { font-size: 12.5px; color: var(--faint); }
+        .lei-tools { display: flex; gap: 8px; justify-content: center; margin-top: 12px; flex-wrap: wrap; }
+        .lei-tool { font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; color: var(--muted); background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 999px; padding: 6px 14px; text-decoration: none; display: inline-flex; align-items: center; gap: 5px; }
+        .lei-tool:hover { color: var(--text); border-color: var(--gold); }
+
+        .lei-banner { display: flex; align-items: center; gap: 12px; background: color-mix(in srgb, var(--gold) 12%, transparent); border: 1px solid color-mix(in srgb, var(--gold) 40%, transparent); border-radius: 12px; padding: 12px 14px; margin: 16px 0 6px; }
+        .lei-banner-txt { flex: 1; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+        .lei-banner-txt span { color: var(--muted); font-size: 12px; }
+        .lei-banner-ver { font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; color: var(--on-accent, #10141a); background: var(--gold); border: none; border-radius: 8px; padding: 7px 12px; white-space: nowrap; }
+        .lei-banner-x { font-size: 18px; line-height: 1; cursor: pointer; background: none; border: none; color: var(--faint); }
+        .lei-banner-x:hover { color: var(--text); }
+        .lei-mudlist { margin: 4px 0 10px; padding-left: 22px; font-size: 13px; color: var(--muted); line-height: 1.6; }
+
+        .lei-body { margin-top: 18px; }
+        .lei-h { text-align: center; font-weight: 800; letter-spacing: .07em; color: var(--text); margin: 28px 0 4px; font-size: 14px; }
+        .lei-h.sub { font-weight: 700; font-size: 12px; color: var(--muted); letter-spacing: .13em; margin: 2px 0 8px; }
+        .lei-art { margin: 20px 0; }
+        .lei-caput { font-size: 15.5px; line-height: 1.72; color: var(--text); }
+        .lei-artnum { color: var(--gold); font-weight: 800; }
+        .lei-inc { margin: 7px 0 7px 24px; font-size: 15px; line-height: 1.72; color: var(--text); }
+        .lei-par { margin: 9px 0; font-size: 15px; line-height: 1.72; color: var(--text); }
+        .lei-marca { font-weight: 700; }
+        .lei-anotar { margin-left: 7px; background: none; border: none; cursor: pointer; color: var(--faint); font-size: 13px; opacity: 0; transition: opacity .12s; vertical-align: middle; }
+        .lei-art:hover .lei-anotar { opacity: 1; }
+        .lei-anotar:hover { color: var(--gold); }
+
+        .lei-nota { display: flex; align-items: flex-start; gap: 8px; background: var(--surface-2); border: 1px solid var(--line-2); border-left: 3px solid var(--gold); border-radius: 10px; padding: 10px 12px; margin: 10px 0 0 24px; }
+        .lei-nota-body { flex: 1; font-size: 13.5px; line-height: 1.55; color: var(--text); }
+        .lei-nota-edit { background: none; border: none; cursor: pointer; color: var(--faint); font-size: 13px; flex: none; }
+        .lei-nota-edit:hover { color: var(--gold); }
+        .lei-nedit { background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--gold); border-radius: 12px; margin: 10px 0 0 24px; overflow: hidden; }
+        .lei-nedit-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; font-size: 12.5px; font-weight: 700; color: var(--muted); border-bottom: 1px solid var(--line); }
+        .lei-nedit-x { background: none; border: none; cursor: pointer; color: var(--faint); font-size: 17px; line-height: 1; }
+        .lei-nedit-tb { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+        .lei-nedit-tb button { font: inherit; min-width: 26px; height: 24px; cursor: pointer; color: var(--text); background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 6px; font-size: 12.5px; padding: 0 6px; }
+        .lei-nedit-tb button:hover { background: var(--surface-3); }
+        .lei-nedit-etq { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--faint); font-weight: 700; margin-left: auto; }
+        .lei-sw { width: 18px !important; min-width: 18px !important; height: 18px !important; padding: 0 !important; border-radius: 5px !important; border: 1px solid var(--line-2) !important; }
+        .lei-sw.on { outline: 2px solid var(--text); outline-offset: 1px; }
+        .lei-nedit-inwrap { position: relative; padding: 11px 12px; }
+        .lei-nedit-in { outline: none; font-size: 13.5px; line-height: 1.55; color: var(--text); min-height: 54px; }
+        .lei-nedit-ph { position: absolute; top: 11px; left: 12px; font-size: 13.5px; line-height: 1.55; color: var(--faint); pointer-events: none; }
+        .lei-nedit-in:focus + .lei-nedit-ph, .lei-nedit-in:not(:empty) + .lei-nedit-ph { display: none; }
+        .lei-nedit-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--line); }
+        .lei-nedit-cancel { font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; color: var(--muted); background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 8px; padding: 7px 13px; }
+        .lei-nedit-save { font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; color: var(--on-accent, #10141a); background: var(--gold); border: none; border-radius: 8px; padding: 7px 15px; }
+
         /* ===== Estatísticas ===== */
         .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; margin-top: 6px; }
         .stat-grid .panel { margin-top: 0; }
@@ -6185,7 +6409,7 @@ export default function App() {
           <EmBreve title="Questões" sub="Bancos de questões por matéria e por tema." onBack={() => setView("es-painel")} />
         )}
         {view === "fonte-leiseca" && (
-          <EmBreve title="Lei Seca" sub="Seu vade mécum — a lei que importa, do jeitinho que você gosta." onBack={() => setView("es-painel")} />
+          <LeiSecaView onBack={() => setView("es-painel")} />
         )}
         {view === "fonte-juris" && (
           <JurisFonte infoData={infoData} onToggle={toggleInfo} feitos={infoDone} total={infoTotal} onBack={() => setView("es-painel")} />
