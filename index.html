@@ -1949,8 +1949,9 @@ function CaixaView({ onBack, onArquivarEdital }) {
 
 // ---------- Página de notas de um tópico do edital (caixinhas arrastáveis, rich text) ----------
 const TN_UID = () => "b" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-const TN_FORE = ["#e68a8a", "#7fa8e6", "#7bd39a", "#e6c060", "#c79bff"];
-const TN_BACK = ["none", "#5a3d3d", "#3d4a5a", "#3d5a45", "#5a5030", "#4a3d5a"];
+const TN_FORE = ["#e68a8a", "#7fa8e6", "#7bd39a"];   // começo enxuto — as recentes dela tomam conta
+const TN_BACK = ["none", "#5a3d3d", "#3d4a5a"];
+const TN_CORES_KEY = "tjsc-tn-cores:v1";             // cores recentes (letra/fundo) que ela mais usa
 const TN_TAGS = [["#a9c4ef", "127,168,230"], ["#e6c060", "230,192,96"], ["#7bd39a", "123,211,154"], ["#e68a8a", "230,138,138"], ["#c79bff", "199,155,255"], ["#5fbfc0", "95,191,192"]];
 
 // Blocos do edital TJSC (Juiz 2025): bloco de cada matéria + importância (%) dentro do bloco
@@ -2001,7 +2002,25 @@ function TopicNotes({ label, materia, initial, onBack, onSave }) {
   const dragId = useRef(null);
   const pending = useRef(null);
   const [overId, setOverId] = useState(null);
+  const [recentes, setRecentes] = useState({ fore: TN_FORE, back: TN_BACK });
   const tagCounter = useRef(boxes.reduce((n, b) => n + b.tags.length, 0));
+
+  useEffect(() => {
+    (async () => {
+      try { const r = await window.storage.get(TN_CORES_KEY); if (r) { const v = JSON.parse(r.value); setRecentes({ fore: v.fore || TN_FORE, back: v.back || TN_BACK }); } } catch {}
+    })();
+  }, []);
+  // guarda a cor recém-usada no topo dos quadradinhos (sem repetir; "none" fica sempre no fundo)
+  const guardarRecente = (kind, color) => {
+    if (!color || color === "reset" || color === "transparent" || !/^#/.test(color)) return;
+    setRecentes((prev) => {
+      const atual = (prev[kind] || []).filter((c) => c !== "none");
+      const lista = [color, ...atual.filter((c) => c.toLowerCase() !== color.toLowerCase())].slice(0, 7);
+      const next = { ...prev, [kind]: kind === "back" ? ["none", ...lista] : lista };
+      try { window.storage.set(TN_CORES_KEY, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
 
   useEffect(() => { try { document.execCommand("styleWithCSS", false, true); } catch (e) {} }, []);
   useEffect(() => {
@@ -2047,6 +2066,7 @@ function TopicNotes({ label, materia, initial, onBack, onSave }) {
     // "reset" volta a letra pra cor padrão do tema (preta no claro, clara no escuro)
     const c = color === "reset" ? getComputedStyle(document.body).color : color;
     try { document.execCommand(kind === "fore" ? "foreColor" : "hiliteColor", false, c); } catch (e) {}
+    guardarRecente(kind, color);
   };
 
   const addBox = () => {
@@ -2067,6 +2087,8 @@ function TopicNotes({ label, materia, initial, onBack, onSave }) {
   // insere um HTML na caixinha focada (restaura a seleção salva antes, porque o clique no botão tira o foco)
   const insertHTML = (html) => { restore(); try { document.execCommand("insertHTML", false, html); } catch (e) {} setTimeout(blurBox, 0); };
   const addLinha = () => insertHTML("<hr>");
+  // transforma a linha atual em título (T1/T2/T3) ou volta pra texto normal — vira um sumário dentro da caixinha
+  const setTitulo = (tag) => { if (!tag) return; restore(); try { document.execCommand("formatBlock", false, tag); } catch (e) {} setTimeout(blurBox, 0); };
   const addTabela = () => {
     const cell = "<td><br></td>";
     const row = "<tr>" + cell + cell + "</tr>";
@@ -2127,19 +2149,19 @@ function TopicNotes({ label, materia, initial, onBack, onSave }) {
 
   const back = () => { persist(collect()); onBack(); };
 
-  const swatchRow = (kind, colors) => (
+  const swatchRow = (kind) => (
     <span className="tn-sw-row">
       {kind === "fore" && (
         <span className="tn-sw" style={{ background: "var(--text)" }} title="cor padrão" onMouseDown={(e) => e.preventDefault()} onClick={() => applyColor("fore", "reset")} />
       )}
-      {colors.map((c, i) =>
+      {(recentes[kind] || []).map((c, i) =>
         c === "none" ? (
           <span key={i} className="tn-sw none" title="sem fundo" onMouseDown={(e) => e.preventDefault()} onClick={() => applyColor("back", "transparent")} />
         ) : (
           <span key={i} className="tn-sw" style={{ background: c }} onMouseDown={(e) => e.preventDefault()} onClick={() => applyColor(kind, c)} />
         )
       )}
-      <span className="tn-sw pick" title="qualquer cor">
+      <span className="tn-sw pick" title="qualquer cor — fica salva aqui">
         <input type="color" onMouseDown={(e) => e.stopPropagation()} onChange={(e) => applyColor(kind, e.target.value)} />
       </span>
     </span>
@@ -2174,15 +2196,22 @@ function TopicNotes({ label, materia, initial, onBack, onSave }) {
               <button className="tn-tb b" title="Negrito" onMouseDown={(e) => e.preventDefault()} onClick={() => exec("bold")}>B</button>
               <button className="tn-tb i" title="Itálico" onMouseDown={(e) => e.preventDefault()} onClick={() => exec("italic")}>I</button>
               <button className="tn-tb u" title="Sublinhado" onMouseDown={(e) => e.preventDefault()} onClick={() => exec("underline")}>U</button>
+              <select className="tn-h" title="Título (vira um sumário na caixinha)" value="" onMouseDown={(e) => e.stopPropagation()} onChange={(e) => setTitulo(e.target.value)}>
+                <option value="">Título…</option>
+                <option value="H1">Título 1</option>
+                <option value="H2">Título 2</option>
+                <option value="H3">Título 3</option>
+                <option value="P">Texto normal</option>
+              </select>
               <span className="tn-sep" />
               <button className="tn-tb" title="Tabela (Tab pula célula; na última, cria linha)" onMouseDown={(e) => e.preventDefault()} onClick={addTabela}>⊞</button>
               <button className="tn-tb" title="Linha divisória" onMouseDown={(e) => e.preventDefault()} onClick={addLinha}>──</button>
               <span className="tn-sep" />
               <span className="tn-lbl">letra</span>
-              {swatchRow("fore", TN_FORE)}
+              {swatchRow("fore")}
               <span className="tn-sep" />
               <span className="tn-lbl">fundo</span>
-              {swatchRow("back", TN_BACK)}
+              {swatchRow("back")}
               <span className="tn-sep" />
               <button className="tn-tb" title="Adicionar tag" onMouseDown={(e) => e.preventDefault()} onClick={() => addTag(b.id)}>+ tag</button>
             </div>
@@ -5649,6 +5678,11 @@ function App() {
         .tn-content b, .tn-content strong { font-weight: 700; }
         .tn-content u { text-decoration: underline; }
         .tn-content hr { border: none; border-top: 1px solid var(--line-2); margin: 12px 0; }
+        .tn-content h1 { font-size: 18px; font-weight: 800; color: var(--gold); margin: 12px 0 6px; padding-bottom: 3px; border-bottom: 1px solid color-mix(in srgb, var(--gold) 30%, transparent); }
+        .tn-content h2 { font-size: 15.5px; font-weight: 800; color: var(--text); margin: 10px 0 5px; }
+        .tn-content h3 { font-size: 13px; font-weight: 700; color: var(--muted); margin: 9px 0 4px; text-transform: uppercase; letter-spacing: .05em; }
+        .tn-h { font: inherit; font-size: 12px; font-weight: 600; color: var(--muted); background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 6px; padding: 4px 6px; cursor: pointer; }
+        .tn-h:hover { color: var(--text); }
         .tn-content table.tn-tbl { border-collapse: collapse; margin: 10px 0; width: 100%; }
         .tn-content table.tn-tbl td { border: 1px solid var(--line-2); padding: 6px 9px; min-width: 44px; vertical-align: top; }
         .tn-content table.tn-tbl td:focus { outline: 2px solid color-mix(in srgb, var(--gold) 55%, transparent); outline-offset: -2px; }
