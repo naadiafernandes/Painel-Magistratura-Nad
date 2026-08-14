@@ -59,7 +59,7 @@
 const { useState, useEffect, useRef } = React;
 
 /* versão do app — bater igual ao conteúdo de version.txt; ao trocar as duas, aparece o aviso "Atualizar" */
-const APP_VERSION = '2026-08-14-1';
+const APP_VERSION = '2026-08-14-2';
 
 // cor do texto que contrasta com um fundo sólido (claro -> texto escuro; escuro -> branco)
 const textOn = hex => { const c = (hex||'#000').replace('#',''); const r=parseInt(c.slice(0,2),16)||0, g=parseInt(c.slice(2,4),16)||0, b=parseInt(c.slice(4,6),16)||0; return (0.299*r+0.587*g+0.114*b)/255 > 0.62 ? '#231a05' : '#ffffff'; };
@@ -89,7 +89,19 @@ const DEFAULT_TIPOS = [
 const FALLBACK_TIPO = { nome:'Outro', cor:'#a1a1aa' };
 const CORES_TIPO = ['#2F6FE4','#f59e0b','#E85D9A','#7C4DE0','#10b981','#ef4444','#14b8a6','#eab308','#6366f1','#f97316'];
 const TKEY = 'agenda-types';
-function loadUserTipos(){ try { return JSON.parse(localStorage.getItem(TKEY) || '[]'); } catch(e){ return []; } }
+// Agora TODOS os tipos (inclusive os 3 padrões) ficam nesta lista, editáveis/apagáveis.
+// Migração: na 1ª vez, semeia os padrões que faltam junto com os que a usuária já criou.
+function loadUserTipos(){
+  let stored = null;
+  try { const raw = localStorage.getItem(TKEY); if (raw != null) stored = JSON.parse(raw); } catch(e){}
+  const base = Array.isArray(stored) ? stored : [];
+  if (localStorage.getItem('agenda-types-seeded') === '1') return base;
+  const has = new Set(base.map(t => t.key));
+  const faltantes = DEFAULT_TIPOS.filter(d => !has.has(d.key)).map(d => ({ key:d.key, nome:d.nome, cor:d.cor }));
+  const merged = [...faltantes, ...base];
+  try { localStorage.setItem(TKEY, JSON.stringify(merged)); localStorage.setItem('agenda-types-seeded', '1'); } catch(e){}
+  return merged;
+}
 function saveUserTipos(l){ localStorage.setItem(TKEY, JSON.stringify(l)); }
 const tipoNewKey = () => 'u' + (_id++).toString(36) + Math.floor(Math.random()*1e6).toString(36);
 function mapa(tiposList){ const m = {}; tiposList.forEach(t => { m[t.key] = t; }); return m; }
@@ -195,6 +207,8 @@ function App(){
   const [syncOpen, setSyncOpen] = useState(false);
   const [navHidden, setNavHidden] = useState(() => localStorage.getItem('agenda-nav') === 'hide');
   const [userTipos, setUserTipos] = useState(loadUserTipos);
+  const [filtroTipo, setFiltroTipo] = useState(null);   // ver só um tipo no calendário (null = todos)
+  const [tipoEdit, setTipoEdit] = useState(null);       // tipo em criação/edição
   const [notes, setNotes] = useState(loadNotes);
   const [valor, setValor] = useState(loadValor);
   const [noteCats, setNoteCats] = useState(loadNoteCats);
@@ -207,8 +221,10 @@ function App(){
   const firstN = useRef(true);
   const firstC = useRef(true);
 
-  const tipos = [...DEFAULT_TIPOS, ...userTipos];
+  const tipos = userTipos;
   const tipoMap = mapa(tipos);
+  // eventos que aparecem no calendário: se um tipo estiver selecionado, mostra só ele
+  const eventosVista = filtroTipo ? events.filter(e => e.type === filtroTipo) : events;
 
   useEffect(() => { if (first.current){ first.current = false; return; } saveEvents(events); }, [events]);
   useEffect(() => { if (firstT.current){ firstT.current = false; return; } saveUserTipos(userTipos); }, [userTipos]);
@@ -241,7 +257,9 @@ function App(){
   }, []);
 
   const addTipo = (nome, cor) => { const key = tipoNewKey(); setUserTipos(l => [...l, { key, nome, cor }]); return key; };
-  const delTipo = key => setUserTipos(l => l.filter(t => t.key !== key));
+  const editTipo = (key, nome, cor) => setUserTipos(l => l.map(t => t.key === key ? { ...t, nome, cor } : t));
+  const delTipo = key => { setUserTipos(l => l.filter(t => t.key !== key)); setFiltroTipo(f => f === key ? null : f); };
+  const toggleFiltro = key => setFiltroTipo(f => f === key ? null : key);
 
   const upsert = ev => setEvents(list => {
     const i = list.findIndex(e => e.id === ev.id);
@@ -276,9 +294,12 @@ function App(){
     <div style={{minHeight:'100vh'}}>
       <Toolbar onSync={()=>setSyncOpen(true)} onToggleNav={toggleNav} />
       <div className={'shell'+(navHidden?' nonav':'')}>
-        <Sidebar view={view} setView={setView} onNew={onNewGlobal} tipos={tipos} onDelTipo={delTipo} />
+        <Sidebar view={view} setView={setView} onNew={onNewGlobal} tipos={tipos} filtroTipo={filtroTipo} onFiltro={toggleFiltro} onEditTipo={t=>setTipoEdit(t)} onNewTipo={()=>setTipoEdit({ _new:true, nome:'', cor:CORES_TIPO[4] })} onDelTipo={delTipo} />
         <main className="main">
           {navHidden && <CompactNav view={view} setView={setView} onNew={onNewGlobal} />}
+          {view !== 'notas' && filtroTipo && tipoMap[filtroTipo] && (
+            <div className="filtro-bar"><span className="dot" style={{background:tipoMap[filtroTipo].cor}}></span>Mostrando só <b>{tipoMap[filtroTipo].nome}</b><button className="filtro-x" onClick={()=>setFiltroTipo(null)}>ver todos ×</button></div>
+          )}
           {view !== 'notas' && (
             <div className="buscaWrap agbusca">
               <span className="buscaIco">⌕</span>
@@ -287,22 +308,23 @@ function App(){
             </div>
           )}
           {view !== 'notas' && busca.trim()
-            ? <SearchView query={busca} events={events} tipoMap={tipoMap} onOpen={setViewing} />
+            ? <SearchView query={busca} events={eventosVista} tipoMap={tipoMap} onOpen={setViewing} />
             : <React.Fragment>
-                {view === 'mes'   && <MonthView refStr={refStr} setRefStr={setRefStr} events={events} tipoMap={tipoMap} onNew={openNew} onOpen={setViewing} onOpenDay={setDayView} />}
-                {view === 'semana'&& <WeekView  refStr={refStr} setRefStr={setRefStr} events={events} tipoMap={tipoMap} onNew={openNew} onOpen={setViewing} />}
-                {view === 'ano'   && <YearView  refStr={refStr} setRefStr={setRefStr} events={events} tipoMap={tipoMap} onPick={irPara} />}
-                {view === 'lista' && <AgendaView events={events} tipoMap={tipoMap} onOpen={setViewing} onNew={()=>openNew()} />}
+                {view === 'mes'   && <MonthView refStr={refStr} setRefStr={setRefStr} events={eventosVista} tipoMap={tipoMap} onNew={openNew} onOpen={setViewing} onOpenDay={setDayView} />}
+                {view === 'semana'&& <WeekView  refStr={refStr} setRefStr={setRefStr} events={eventosVista} tipoMap={tipoMap} onNew={openNew} onOpen={setViewing} />}
+                {view === 'ano'   && <YearView  refStr={refStr} setRefStr={setRefStr} events={eventosVista} tipoMap={tipoMap} onPick={irPara} />}
+                {view === 'lista' && <AgendaView events={eventosVista} tipoMap={tipoMap} onOpen={setViewing} onNew={()=>openNew()} />}
                 {view === 'notas' && <NotesView notes={notes} cats={noteCats} valor={valor} onValor={setValor} onOpen={setNoteView} onNew={openNewNote} onCats={()=>setCatsOpen(true)} />}
               </React.Fragment>}
         </main>
       </div>
-      {dayView && <DayView dateStr={dayView} events={events} tipoMap={tipoMap} onClose={()=>setDayView(null)} onOpen={ev=>{ setDayView(null); setViewing(ev); }} onNew={s=>{ setDayView(null); openNew(s); }} />}
+      {dayView && <DayView dateStr={dayView} events={eventosVista} tipoMap={tipoMap} onClose={()=>setDayView(null)} onOpen={ev=>{ setDayView(null); setViewing(ev); }} onNew={s=>{ setDayView(null); openNew(s); }} />}
       {viewing && <EventView ev={viewing} tipoMap={tipoMap} onClose={()=>setViewing(null)} onEdit={()=>{ setEditing(viewing); setViewing(null); }} onDelete={id=>{ remove(id); setViewing(null); }} />}
       {editing && <Editor ev={editing} tipos={tipos} onAddTipo={addTipo} onClose={()=>setEditing(null)} onSave={ev=>{ upsert(ev); setEditing(null); }} onDelete={id=>{ remove(id); setEditing(null); }} />}
       {noteView && <NoteView n={noteView} cats={noteCats} onClose={()=>setNoteView(null)} onEdit={()=>{ setNoteEdit(noteView); setNoteView(null); }} onDelete={id=>{ removeNote(id); setNoteView(null); }} onArchive={setArchived} onAddEntry={addEntry} onDelEntry={delEntry} />}
       {noteEdit && <NoteEditor n={noteEdit} cats={noteCats} onOpenCats={()=>setCatsOpen(true)} onClose={()=>setNoteEdit(null)} onSave={n=>{ upsertNote(n); setNoteEdit(null); }} onDelete={id=>{ removeNote(id); setNoteEdit(null); }} />}
       {catsOpen && <CatManager cats={noteCats} onSave={list=>setNoteCats(list)} onClose={()=>setCatsOpen(false)} />}
+      {tipoEdit && <TipoEditor tipo={tipoEdit} onClose={()=>setTipoEdit(null)} onSave={(nome,cor)=>{ if(tipoEdit._new) addTipo(nome,cor); else editTipo(tipoEdit.key,nome,cor); setTipoEdit(null); }} />}
       {syncOpen && <SyncModal onClose={()=>setSyncOpen(false)} />}
       {updateReady && (
         <div className="updbar">
@@ -317,7 +339,7 @@ function App(){
 }
 
 /* ---------- menu lateral ---------- */
-function Sidebar({ view, setView, onNew, tipos, onDelTipo }){
+function Sidebar({ view, setView, onNew, tipos, filtroTipo, onFiltro, onEditTipo, onNewTipo, onDelTipo }){
   const item = (id, icon, label) => (
     <button className={'navitem'+(view===id?' on':'')} onClick={()=>setView(id)}>
       <span className="ico">{icon}</span>{label}
@@ -334,12 +356,17 @@ function Sidebar({ view, setView, onNew, tipos, onDelTipo }){
       {item('lista','☰','Lista')}
       <div className="navgroup">Notas</div>
       {item('notas','❏','Processos')}
-      {view!=='notas' && <div className="navgroup">Tipos</div>}
+      {view!=='notas' && <div className="navgroup">Tipos <span className="navgroup-hint">toque pra filtrar</span></div>}
       {view!=='notas' && tipos.map(t => (
-        <div key={t.key} className="legend"><span className="dot" style={{background:t.cor}}></span><span className="legend-nome">{t.nome}</span>
-          {!t.fixo && <button className="legend-x" title="Apagar tipo" onClick={()=>{ if(confirm('Apagar o tipo "'+t.nome+'"? Os compromissos já marcados com ele continuam na agenda.')) onDelTipo(t.key); }}>×</button>}
+        <div key={t.key} className={'legend'+(filtroTipo===t.key?' on':'')+(filtroTipo&&filtroTipo!==t.key?' dim':'')}>
+          <button className="legend-main" onClick={()=>onFiltro(t.key)} title="Ver só este tipo no calendário">
+            <span className="dot" style={{background:t.cor}}></span><span className="legend-nome">{t.nome}</span>
+          </button>
+          <button className="legend-ed" title="Editar tipo" onClick={()=>onEditTipo(t)}>✎</button>
+          <button className="legend-x" title="Apagar tipo" onClick={()=>{ if(confirm('Apagar o tipo "'+t.nome+'"? Os compromissos já marcados com ele continuam na agenda.')) onDelTipo(t.key); }}>×</button>
         </div>
       ))}
+      {view!=='notas' && <button className="legend-add" onClick={onNewTipo}>+ novo tipo</button>}
     </aside>
   );
 }
@@ -676,6 +703,25 @@ function NoteEditor({ n, cats, onOpenCats, onClose, onSave, onDelete }){
 }
 
 /* ---------- NOTAS: gerenciar as cores (renomear / criar / apagar) ---------- */
+/* ---------- editor de TIPO de compromisso (criar/editar nome + cor) ---------- */
+function TipoEditor({ tipo, onClose, onSave }){
+  const [nome, setNome] = useState(tipo.nome || '');
+  const [cor, setCor] = useState(tipo.cor || CORES_TIPO[0]);
+  const salvar = () => { const n = nome.trim(); if (!n) return; onSave(n, cor); };
+  return (
+    <div className="modal" onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
+      <div className="card">
+        <div className="cardhead"><b>{tipo._new ? 'Novo tipo' : 'Editar tipo'}</b><button className="x" onClick={onClose} aria-label="Fechar">×</button></div>
+        <input className="inp" autoFocus placeholder="Nome do tipo (ex.: Pagamento, Reunião)" value={nome} onChange={e=>setNome(e.target.value)} onKeyDown={e=>{ if(e.key==='Enter') salvar(); }} />
+        <div className="cores" style={{marginBottom:6}}>
+          {CORES_TIPO.map(c => <button key={c} className={'corbolinha'+(cor===c?' on':'')} style={{background:c}} onClick={()=>setCor(c)} aria-label="cor"></button>)}
+        </div>
+        <div className="cardacts"><span style={{flex:1}}></span><button className="ghost" onClick={onClose}>Cancelar</button><button className="primary" onClick={salvar}>Salvar</button></div>
+      </div>
+    </div>
+  );
+}
+
 function CatManager({ cats, onSave, onClose }){
   const [list, setList] = useState(cats.length ? cats : DEFAULT_NOTECATS.slice());
   const setName = (i,v) => setList(l => l.map((c,j) => j===i ? { ...c, nome:v } : c));
@@ -979,8 +1025,23 @@ const CSS = `
 .navitem:hover{background:var(--surface2);color:var(--text);}
 .navitem.on{background:var(--surface2);color:var(--text);border-left-color:var(--accent);font-weight:500;}
 .navitem .ico{width:18px;display:inline-grid;place-items:center;opacity:.9;}
-.legend{display:flex;align-items:center;gap:9px;color:var(--muted);font-size:12.5px;padding:5px 10px;}
+.legend{display:flex;align-items:center;gap:2px;color:var(--muted);font-size:12.5px;padding:1px 4px 1px 6px;border-radius:8px;}
+.legend.on{background:var(--surface2);}
+.legend.dim{opacity:.42;}
+.legend-main{flex:1;display:flex;align-items:center;gap:9px;background:none;border:none;color:inherit;font:inherit;font-size:12.5px;text-align:left;padding:5px 4px;cursor:pointer;border-radius:7px;min-width:0;}
+.legend-main:hover{color:var(--text);}
+.legend.on .legend-main{color:var(--text);font-weight:500;}
 .legend .dot{width:9px;height:9px;border-radius:50%;flex:none;}
+.legend-nome{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.legend-ed{background:none;border:none;color:var(--faint);font-size:12px;line-height:1;padding:3px 4px;cursor:pointer;flex:none;}
+.legend-ed:hover{color:var(--accent);}
+.legend-add{width:100%;text-align:left;background:none;border:1px dashed var(--border2);color:var(--accent);border-radius:8px;padding:6px 10px;font-size:12px;margin-top:5px;cursor:pointer;}
+.legend-add:hover{background:var(--surface2);}
+.navgroup-hint{text-transform:none;letter-spacing:0;font-weight:400;color:var(--faint);opacity:.75;}
+.filtro-bar{display:flex;align-items:center;gap:8px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:8px 12px;margin-bottom:12px;font-size:13px;color:var(--muted);}
+.filtro-bar .dot{width:10px;height:10px;border-radius:50%;flex:none;}
+.filtro-bar b{color:var(--text);font-weight:500;}
+.filtro-x{margin-left:auto;background:none;border:none;color:var(--accent);font-size:12.5px;font-weight:500;cursor:pointer;padding:2px 4px;}
 .main{flex:1;min-width:0;}
 @media(max-width:760px){
   .shell{flex-direction:column;padding:10px;gap:10px;}
@@ -1041,8 +1102,7 @@ textarea.inp{resize:vertical;}
 .corbolinha{width:22px;height:22px;border-radius:50%;border:2px solid transparent;padding:0;}
 .corbolinha.on{border-color:var(--text);}
 .corbolinha:hover{transform:scale(1.12);}
-.legend-nome{flex:1;}
-.legend-x{background:none;border:none;color:var(--faint);font-size:16px;line-height:1;padding:0 2px;}
+.legend-x{background:none;border:none;color:var(--faint);font-size:16px;line-height:1;padding:0 2px;flex:none;cursor:pointer;}
 .legend-x:hover{color:#ef4444;}
 .linha2{display:flex;gap:10px;}
 .campo{flex:1;display:flex;flex-direction:column;}
