@@ -3306,30 +3306,60 @@ function FraseDoDia() {
     <div className="frase-solta">{FRASES[doy % FRASES.length]}</div>
   );
 }
-function DataProva({ data, nome, onSave }) {
-  const [editing, setEditing] = useState(false);
-  const [d, setD] = useState(data || "");
-  const [n, setN] = useState(nome || "");
-  const dias = data ? Math.max(0, Math.ceil((Date.parse(data + "T00:00:00") - Date.now()) / 86400000)) : null;
-  const fmt = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" });
-  if (editing || !data) {
+const dpUid = () => "p" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+// aceita o formato antigo (uma prova só: {data, nome}) e o novo (lista de provas)
+function normProvas(v) {
+  if (Array.isArray(v)) return v.filter((p) => p && p.data).map((p) => ({ id: p.id || dpUid(), nome: p.nome || "", data: p.data }));
+  if (v && v.data) return [{ id: dpUid(), nome: v.nome || "", data: v.data }];
+  return [];
+}
+const dpDias = (iso) => Math.max(0, Math.ceil((Date.parse(iso + "T00:00:00") - Date.now()) / 86400000));
+const dpFmt = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" });
+function DataProva({ provas, onSave }) {
+  const lista = normProvas(provas).sort((a, b) => (a.data < b.data ? -1 : a.data > b.data ? 1 : 0));
+  const [edit, setEdit] = useState(null);   // { id, nome, data } — null = só mostrando
+  const abrirNova = () => setEdit({ id: null, nome: "", data: "" });
+  const abrirEdicao = (p) => setEdit({ id: p.id, nome: p.nome || "", data: p.data });
+  const salvar = (e) => {
+    if (!e.data) return;
+    const p = { id: e.id || dpUid(), nome: (e.nome || "").trim(), data: e.data };
+    onSave(e.id ? lista.map((x) => (x.id === e.id ? p : x)) : [...lista, p]);
+    setEdit(null);
+  };
+  const apagar = (e) => { if (e.id) onSave(lista.filter((x) => x.id !== e.id)); setEdit(null); };
+  if (edit || !lista.length) {
+    const e = edit || { id: null, nome: "", data: "" };
     return (
       <div className="panel dp-card">
-        <div className="dp-lbl">Data da prova</div>
-        <input className="reg-in" placeholder="ex.: TJSC · Juiz" value={n} onChange={(e) => setN(e.target.value)} style={{ margin: "8px 0" }} />
-        <input className="reg-in" type="date" value={d} onChange={(e) => setD(e.target.value)} />
+        <div className="dp-lbl">{e.id ? "Editar prova" : "Nova prova"}</div>
+        <input className="reg-in" placeholder="ex.: TJSC · Juiz" value={e.nome} onChange={(ev) => setEdit({ ...e, nome: ev.target.value })} style={{ margin: "8px 0" }} />
+        <input className="reg-in" type="date" value={e.data} onChange={(ev) => setEdit({ ...e, data: ev.target.value })} />
         <div className="dp-actions">
-          {data && <button className="reg-cancel" onClick={() => { setEditing(false); setD(data); setN(nome || ""); }}>Cancelar</button>}
-          <button className="reg-save" onClick={() => { if (d) { onSave({ data: d, nome: n.trim() }); setEditing(false); } }} disabled={!d}>Salvar</button>
+          {e.id ? <button className="reg-cancel" onClick={() => apagar(e)}>Apagar</button> : null}
+          {lista.length ? <button className="reg-cancel" onClick={() => setEdit(null)}>Cancelar</button> : null}
+          <button className="reg-save" onClick={() => salvar(e)} disabled={!e.data}>Salvar</button>
         </div>
       </div>
     );
   }
+  const prox = lista[0], outras = lista.slice(1);
+  const dias = dpDias(prox.data);
   return (
     <div className="panel dp-card">
-      <div className="dp-lbl">Data da prova{nome ? ` · ${nome}` : ""}</div>
+      <div className="dp-head"><span className="dp-lbl">Contagem regressiva</span><button className="dp-edit" onClick={abrirNova}>+ prova</button></div>
       <div className="dp-big">{dias}<small> {dias === 1 ? "dia" : "dias"}</small></div>
-      <div className="dp-date">{fmt(data)}<button className="dp-edit" onClick={() => setEditing(true)}>editar</button></div>
+      <div className="dp-date"><b className="dp-nome">{prox.nome || "Prova"}</b> · {dpFmt(prox.data)}<button className="dp-edit" onClick={() => abrirEdicao(prox)}>editar</button></div>
+      {outras.length ? (
+        <div className="dp-list">
+          {outras.map((p) => (
+            <div className="dp-item" key={p.id} onClick={() => abrirEdicao(p)} title="Clique para editar">
+              <b>{p.nome || "Prova"}</b>
+              <span className="dp-item-d">{dpFmt(p.data)}</span>
+              <span className="dp-num">{dpDias(p.data)}<small>d</small></span>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -6094,6 +6124,16 @@ export default function App() {
         .dp-date { font-size: 13px; color: var(--muted); display: flex; align-items: center; }
         .dp-edit { background: transparent; border: none; color: var(--gold); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; margin-left: 8px; }
         .dp-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+        .dp-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+        .dp-nome { font-weight: 700; color: var(--text); }
+        .dp-list { margin-top: 10px; padding-top: 2px; border-top: 1px solid var(--line); }
+        .dp-item { display: flex; align-items: baseline; gap: 8px; padding: 7px 0; cursor: pointer; border-bottom: 1px solid var(--line); }
+        .dp-item:last-child { border-bottom: none; }
+        .dp-item:hover { opacity: .72; }
+        .dp-item b { flex: 1; font-size: 13px; font-weight: 700; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .dp-item-d { font-size: 12px; color: var(--faint); white-space: nowrap; }
+        .dp-num { font-size: 15px; font-weight: 800; color: var(--gold); font-variant-numeric: tabular-nums; min-width: 42px; text-align: right; }
+        .dp-num small { font-size: 11px; font-weight: 700; color: var(--muted); }
         .meta-head { display: flex; justify-content: space-between; align-items: center; font-size: 12px; letter-spacing: .4px; text-transform: uppercase; color: var(--faint); font-weight: 700; margin-bottom: 14px; }
         .meta-row { margin-bottom: 14px; }
         .meta-row:last-child { margin-bottom: 0; }
@@ -6834,7 +6874,7 @@ export default function App() {
             <FraseDoDia />
             <Constancia registros={registros} />
             <div className="painel-2col">
-              <DataProva data={dataProva && dataProva.data} nome={dataProva && dataProva.nome} onSave={saveDataProva} />
+              <DataProva provas={dataProva} onSave={saveDataProva} />
               <MetaSemana registros={registros} metas={metas} onSave={saveMetas} />
             </div>
             <div className="sechead-es">Ciclos de hoje</div>
