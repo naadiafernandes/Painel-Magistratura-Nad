@@ -2041,7 +2041,7 @@ function NotaBox({ id, initialHtml, register, onBlur, onKeyDown, onInput, onMous
   );
 }
 
-function TopicNotes({ label, materia, initial, onBack, onSave }) {
+function TopicNotes({ label, materia, initial, backLabel, onBack, onSave }) {
   const [boxes, setBoxes] = useState(() => {
     const arr = initial && initial.length ? initial : [{ id: TN_UID(), html: "", tags: [] }];
     return arr.map((b) => ({ id: b.id || TN_UID(), html: b.html || "", tags: (b.tags || []).map((t) => ({ label: t.label, ci: t.ci || 0 })) }));
@@ -2252,7 +2252,7 @@ function TopicNotes({ label, materia, initial, onBack, onSave }) {
 
   return (
     <section className="tn-page">
-      <button className="edital-back" onClick={back}>← Voltar ao edital</button>
+      <button className="edital-back" onClick={back}>{backLabel || "← Voltar ao edital"}</button>
       {materia && <p className="eyebrow">{materia}</p>}
       <h1 className="serif tn-title">{label}</h1>
 
@@ -2315,6 +2315,79 @@ function TopicNotes({ label, materia, initial, onBack, onSave }) {
       </div>
 
       <button className="tn-add" onClick={addBox}>+ Nova caixinha de texto</button>
+    </section>
+  );
+}
+
+// ===== CADERNO DA MATÉRIA: todas as anotações numa página só, na ordem do edital =====
+// Junta as caixinhas de nota de cada tópico (e as observações do formato antigo) numa leitura
+// corrida, pra rever a matéria inteira sem abrir tópico a tópico. Aqui é só leitura — pra
+// escrever, ela clica em "editar" e cai na página de notas daquele tópico.
+const cadVazia = (html) => !String(html || "").replace(/<[^>]*>/g, " ").replace(/&nbsp;/g, " ").trim();
+function cadernoSecoes(materia, mi, dados) {
+  const out = [];
+  const walk = (node, key, depth, trilha) => {
+    const label = `${node.n ? node.n + " " : ""}${node.txt}`.trim();
+    const cell = editalCell((dados || {})[key]);
+    let notas = (cell.notas || []).filter((b) => !cadVazia(b.html));
+    if (!notas.length && cell.obs && cell.obs.trim()) {
+      notas = [{ id: key + ":obs", html: cell.obs.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/\n/g, "<br>"), tags: [] }];
+    }
+    if (notas.length) out.push({ key, label, depth, trilha, notas: notas.map((b, i) => ({ id: b.id || key + ":" + i, html: b.html, tags: b.tags || [] })) });
+    (node.subs || []).forEach((c, ci) => walk(c, `${key}.${ci}`, depth + 1, trilha.concat(label)));
+  };
+  (materia.itens || []).forEach((it, ii) => walk(it, `${mi}.${ii}`, 0, []));
+  return out;
+}
+
+function CadernoMateria({ nome, secoes, editavel, onBack, onAbrirTopico }) {
+  const total = secoes.reduce((n, s) => n + s.notas.length, 0);
+  const irPara = (key) => {
+    const el = document.getElementById("cad-" + key);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  return (
+    <section className="cad-page">
+      <button className="edital-back" onClick={onBack}>← Voltar ao edital</button>
+      <p className="eyebrow">Caderno da matéria</p>
+      <h1 className="serif cad-title">{nome}</h1>
+      {secoes.length === 0 ? (
+        <p className="desc">Você ainda não tem anotações nesta matéria. Abra um tópico, escreva a sua nota — e ela aparece aqui, na ordem do edital.</p>
+      ) : (
+        <>
+          <p className="cad-sub">
+            {secoes.length} {secoes.length === 1 ? "tópico anotado" : "tópicos anotados"} · {total} {total === 1 ? "anotação" : "anotações"} — na ordem do edital.
+          </p>
+          <div className="cad-sumario">
+            {secoes.map((s) => (
+              <button key={s.key} className={`cad-sum-item d${Math.min(s.depth, 2)}`} onClick={() => irPara(s.key)}>{s.label}</button>
+            ))}
+          </div>
+          {secoes.map((s) => (
+            <article key={s.key} className="cad-sec" id={"cad-" + s.key}>
+              {s.trilha.length > 0 && <div className="cad-trilha">{s.trilha.join(" › ")}</div>}
+              <h2 className="cad-sec-tit">
+                <span>{s.label}</span>
+                {editavel && <button className="cad-edit" title="Abrir este tópico pra escrever" onClick={() => onAbrirTopico(s.key)}>✎ editar</button>}
+              </h2>
+              {s.notas.map((b) => (
+                <div key={b.id} className="cad-box">
+                  {b.tags.length > 0 && (
+                    <div className="tn-tags">
+                      {b.tags.map((t, i) => {
+                        const pair = TN_TAGS[(t.ci || 0) % TN_TAGS.length];
+                        return <span key={i} className="tn-tag" style={{ background: `rgba(${pair[1]},.16)`, color: pair[0] }}>{t.label}</span>;
+                      })}
+                    </div>
+                  )}
+                  <div className="tn-content" dangerouslySetInnerHTML={{ __html: b.html }} />
+                </div>
+              ))}
+            </article>
+          ))}
+          <button className="cad-topo" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>↑ voltar ao início</button>
+        </>
+      )}
     </section>
   );
 }
@@ -4282,6 +4355,7 @@ function App() {
   const [openNote, setOpenNote] = useState(null); // chave do tópico com a caixinha de Observações aberta
   const [noteDraft, setNoteDraft] = useState("");
   const [openTopic, setOpenTopic] = useState(null); // { editalId, key, label, materia } — página de notas do tópico
+  const [openCaderno, setOpenCaderno] = useState(null); // { editalId, mi } — caderno com a matéria inteira anotada
   const [prioridades, setPrioridades] = useState([]);
   const [esCheck, setEsCheck] = useState([]);
   const [esCheckInput, setEsCheckInput] = useState("");
@@ -4538,6 +4612,7 @@ function App() {
       // volta pra EXATA tela onde ela estava (agora que os editais já carregaram, pra a página de notas abrir com o conteúdo certo)
       const nav = readNav();
       if (nav.openTopic) setOpenTopic(nav.openTopic);
+      if (nav.openCaderno) setOpenCaderno(nav.openCaderno);
       if (nav.matAberta) setMatAberta(nav.matAberta);
       setLoaded(true);
     })();
@@ -4993,8 +5068,8 @@ function App() {
   // Só grava depois que tudo carregou, pra não sobrescrever a tela salva antes de restaurá-la.
   useEffect(() => {
     if (!loaded) return;
-    try { localStorage.setItem(NAV_KEY, JSON.stringify({ view, openTopic, matAberta })); } catch {}
-  }, [loaded, view, openTopic, matAberta]);
+    try { localStorage.setItem(NAV_KEY, JSON.stringify({ view, openTopic, openCaderno, matAberta })); } catch {}
+  }, [loaded, view, openTopic, openCaderno, matAberta]);
 
   // marca/desmarca UMA caixinha (Teoria, Lei Seca, Questões, 1ª/2ª/3ª revisão) de um tópico
   const toggleEditalCell = async (editalId, pathKey, field) => {
@@ -5905,6 +5980,37 @@ function App() {
         /* nome do tópico clicável (edital TJSC) */
         .edital-txt-btn { border: none; background: transparent; padding: 0; margin: 0; text-align: left; cursor: pointer; color: inherit; font: inherit; }
         .edital-txt-btn:hover .edital-txt { color: var(--gold); text-decoration: underline; text-underline-offset: 2px; }
+        /* botão CADERNO (topo da matéria) + página do caderno da matéria */
+        .ed-caderno-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 9px 16px; border-top: 1px solid var(--line); background: var(--surface); }
+        .ed-caderno { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; font: inherit; font-size: 11px; font-weight: 800;
+          letter-spacing: .09em; text-transform: uppercase; color: var(--gold); background: rgba(240,200,90,.10);
+          border: 1px solid rgba(240,200,90,.42); border-radius: 999px; padding: 5px 14px; transition: all .14s; }
+        .ed-caderno:hover { background: var(--gold); border-color: var(--gold); color: var(--on-accent); }
+        .ed-caderno-ic { font-size: 12px; line-height: 1; }
+        .ed-caderno-n { font-size: 10.5px; font-weight: 700; letter-spacing: 0; background: var(--green-bg); color: var(--green);
+          border-radius: 99px; padding: 1px 7px; }
+        .ed-caderno:hover .ed-caderno-n { background: rgba(0,0,0,.14); color: inherit; }
+        .ed-caderno-dica { font-size: 11.5px; color: var(--faint); }
+        .cad-page { max-width: 860px; }
+        .cad-title { margin: 2px 0 4px; }
+        .cad-sub { color: var(--muted); font-size: 13px; margin: 0 0 18px; }
+        .cad-sumario { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; margin: 0 0 26px;
+          padding: 12px 14px; background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 14px; }
+        .cad-sum-item { border: none; background: transparent; cursor: pointer; font: inherit; font-size: 12.5px; color: var(--muted);
+          text-align: left; padding: 2px 0; line-height: 1.4; }
+        .cad-sum-item:hover { color: var(--gold); text-decoration: underline; text-underline-offset: 2px; }
+        .cad-sum-item.d1 { padding-left: 16px; } .cad-sum-item.d2 { padding-left: 32px; }
+        .cad-sec { margin: 0 0 30px; scroll-margin-top: 18px; }
+        .cad-trilha { font-size: 11px; color: var(--faint); margin-bottom: 3px; }
+        .cad-sec-tit { display: flex; align-items: baseline; gap: 10px; margin: 0 0 10px; font-size: 15.5px; font-weight: 800;
+          color: var(--coral); line-height: 1.35; padding-bottom: 6px; border-bottom: 1px solid var(--line-2); }
+        .cad-edit { margin-left: auto; flex-shrink: 0; border: none; background: transparent; cursor: pointer; font: inherit;
+          font-size: 11.5px; font-weight: 600; color: var(--faint); }
+        .cad-edit:hover { color: var(--gold); }
+        .cad-box { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; margin: 10px 0; }
+        .cad-topo { display: block; margin: 6px auto 40px; border: 1px solid var(--line-2); background: var(--surface-2); color: var(--muted);
+          border-radius: 999px; padding: 6px 16px; font: inherit; font-size: 12px; cursor: pointer; }
+        .cad-topo:hover { color: var(--gold); border-color: var(--gold); }
         /* página de notas de um tópico (caixinhas arrastáveis) */
         .tn-page { max-width: 860px; }
         .tn-title { margin: 2px 0 4px; }
@@ -5973,6 +6079,8 @@ function App() {
           .ed-vdiv { margin: 0 5px; }
           .ed-head, .ed-band, .ed-row { padding-left: 10px; padding-right: 10px; gap: 8px; }
           .ed-note-edit { padding-left: 12px; padding-right: 10px; }
+          .ed-caderno-row { padding-left: 10px; padding-right: 10px; }
+          .ed-caderno-dica { display: none; }
         }
         .to-top { position: fixed; right: 22px; bottom: 22px; width: 46px; height: 46px; border-radius: 50%;
           border: 1px solid var(--line-2); background: var(--surface-2); color: var(--gold); font-size: 20px; line-height: 1;
@@ -6517,6 +6625,7 @@ function App() {
               const handle = (e) => {
                 e.preventDefault();
                 setOpenTopic(null); // fecha a página de notas do tópico ao navegar pelo menu (senão fica sobreposta)
+                setOpenCaderno(null); // idem pro caderno da matéria
                 if (it.kind === "view") { setView(it.view); window.scrollTo(0, 0); }
                 else if (it.kind === "home") { setView("main"); window.scrollTo({ top: 0, behavior: "smooth" }); }
                 else { setView("main"); setTimeout(() => goTo(it.key), 0); }
@@ -6567,12 +6676,33 @@ function App() {
               label={openTopic.label}
               materia={openTopic.materia}
               initial={initial}
+              backLabel={openCaderno ? "← Voltar ao caderno" : "← Voltar ao edital"}
               onBack={() => setOpenTopic(null)}
               onSave={(notas) => saveEditalNotes(openTopic.editalId, openTopic.key, notas)}
             />
           );
         })()}
-        {view === "editais" && !openTopic && (
+        {view === "editais" && !openTopic && openCaderno && (() => {
+          const ed = EDITAIS.find((e) => e.id === openCaderno.editalId);
+          const m = ed && ed.materias[openCaderno.mi];
+          if (!m) return null;
+          return (
+            <CadernoMateria
+              key={ed.id + ":" + openCaderno.mi}
+              nome={m.nome}
+              secoes={cadernoSecoes(m, openCaderno.mi, editaisData[ed.id] || {})}
+              editavel={ed.id === "tjsc-juiz-2025"}
+              onBack={() => { setOpenCaderno(null); window.scrollTo(0, 0); }}
+              onAbrirTopico={(key) => {
+                const path = String(key).split(".").slice(1).map(Number);
+                let node = m.itens[path[0]];
+                for (let i = 1; i < path.length && node; i++) node = (node.subs || [])[path[i]];
+                if (node) openTopicPage(ed, key, node);
+              }}
+            />
+          );
+        })()}
+        {view === "editais" && !openTopic && !openCaderno && (
           <section className="editais-page">
             <button className="edital-back" onClick={() => setView("es-painel")}>← Voltar ao painel</button>
             <p className="eyebrow">Painel de Estudos</p>
@@ -6720,6 +6850,27 @@ function App() {
                                 <h3>{m.nome}</h3>
                                 <span className="mono edital-count">{done}/{total}</span>
                               </button>
+                              {matOpen && (() => {
+                                // quantas anotações esta matéria já tem (pra mostrar no botão)
+                                const nNotas = cadernoSecoes(m, mi, v).reduce((n, sec) => n + sec.notas.length, 0);
+                                return (
+                                  <div className="ed-caderno-row">
+                                    <button
+                                      type="button"
+                                      className={`ed-caderno${nNotas ? " has" : ""}`}
+                                      title="Ler todas as suas anotações desta matéria de uma vez, na ordem do edital"
+                                      onClick={() => { setOpenCaderno({ editalId: ed.id, mi }); window.scrollTo(0, 0); }}
+                                    >
+                                      <span className="ed-caderno-ic">▤</span>
+                                      CADERNO
+                                      {nNotas > 0 && <span className="ed-caderno-n">{nNotas}</span>}
+                                    </button>
+                                    <span className="ed-caderno-dica">
+                                      {nNotas ? "tudo o que você anotou nesta matéria, na ordem do edital" : "quando você anotar nos tópicos, tudo aparece aqui junto"}
+                                    </span>
+                                  </div>
+                                );
+                              })()}
                               {matOpen && m.itens.map((it, ii) => renderNode(it, `${mi}.${ii}`, 0))}
                             </div>
                           </React.Fragment>
