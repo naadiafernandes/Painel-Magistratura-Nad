@@ -1846,11 +1846,12 @@ function NotaBox({ id, initialHtml, register, onBlur, onKeyDown, onInput, onMous
   );
 }
 
-function TopicNotes({ label, materia, initial, backLabel, onBack, onSave }) {
+function TopicNotes({ label, materia, initial, backLabel, onBack, onSave, materias }) {
   const [boxes, setBoxes] = useState(() => {
     const arr = initial && initial.length ? initial : [{ id: TN_UID(), html: "", tags: [] }];
-    return arr.map((b) => ({ id: b.id || TN_UID(), html: b.html || "", tags: (b.tags || []).map((t) => ({ label: t.label, ci: t.ci || 0 })) }));
+    return arr.map((b) => ({ id: b.id || TN_UID(), html: b.html || "", mat: b.mat || "", tags: (b.tags || []).map((t) => ({ label: t.label, ci: t.ci || 0 })) }));
   });
+  const [filtroMat, setFiltroMat] = useState("");   // só usado quando a página tem matérias (caderno de discursivas)
   const refs = useRef({});
   const savedRange = useRef(null);
   const dragId = useRef(null);
@@ -1902,8 +1903,8 @@ function TopicNotes({ label, materia, initial, backLabel, onBack, onSave }) {
     };
   }, []);
 
-  const collect = () => boxes.map((b) => ({ id: b.id, html: refs.current[b.id] ? refs.current[b.id].innerHTML : b.html, tags: b.tags }));
-  const persist = (arr) => onSave(arr.map((b) => ({ id: b.id, html: b.html, tags: b.tags })));
+  const collect = () => boxes.map((b) => ({ id: b.id, html: refs.current[b.id] ? refs.current[b.id].innerHTML : b.html, mat: b.mat || "", tags: b.tags }));
+  const persist = (arr) => onSave(arr.map((b) => ({ id: b.id, html: b.html, mat: b.mat || "", tags: b.tags })));
   const commit = (arr) => { setBoxes(arr); persist(arr); };
 
   const restore = () => {
@@ -1923,14 +1924,14 @@ function TopicNotes({ label, materia, initial, backLabel, onBack, onSave }) {
   };
 
   const addBox = () => {
-    const nb = { id: TN_UID(), html: "", tags: [] };
+    const nb = { id: TN_UID(), html: "", mat: filtroMat || "", tags: [] };
     const next = [...collect(), nb];
     commit(next);
     setTimeout(() => { const el = refs.current[nb.id]; if (el) el.focus(); }, 0);
   };
   const delBox = (id) => {
     let arr = collect().filter((b) => b.id !== id);
-    if (!arr.length) arr = [{ id: TN_UID(), html: "", tags: [] }];
+    if (!arr.length) arr = [{ id: TN_UID(), html: "", mat: filtroMat || "", tags: [] }];
     delete refs.current[id];
     commit(arr);
   };
@@ -2014,6 +2015,12 @@ function TopicNotes({ label, materia, initial, backLabel, onBack, onSave }) {
     commit(collect().map((b) => (b.id === id ? { ...b, tags: [...b.tags, { label: label.trim(), ci }] } : b)));
   };
   const removeTag = (id, idx) => commit(collect().map((b) => (b.id === id ? { ...b, tags: b.tags.filter((_, i) => i !== idx) } : b)));
+  const setMat = (id, mat) => {
+    commit(collect().map((b) => (b.id === id ? { ...b, mat } : b)));
+    // se o filtro aberto não bate mais com a matéria nova, volta pra "Todas" (senão a caixinha some da tela)
+    const bate = filtroMat === "" || (filtroMat === "__sem" ? !mat : filtroMat === mat);
+    if (!bate) setFiltroMat("");
+  };
 
   const onDragStart = (id) => { dragId.current = id; pending.current = collect(); };
   const onDragEnd = () => { dragId.current = null; pending.current = null; setOverId(null); };
@@ -2061,13 +2068,52 @@ function TopicNotes({ label, materia, initial, backLabel, onBack, onSave }) {
       {materia && <p className="eyebrow">{materia}</p>}
       <h1 className="serif tn-title">{label}</h1>
 
+      {materias && (() => {
+        const conta = (id) => boxes.filter((b) => (b.mat || "") === id).length;
+        const semMat = conta("");
+        return (
+          <div className="tn-filtros">
+            <button type="button" className={`tn-fchip${filtroMat === "" ? " on" : ""}`} onClick={() => setFiltroMat("")}>
+              Todas <span className="tn-fn">{boxes.length}</span>
+            </button>
+            {materias.map((m) => {
+              const n = conta(m.id);
+              if (!n) return null;
+              const on = filtroMat === m.id;
+              return (
+                <button key={m.id} type="button" className={`tn-fchip${on ? " on" : ""}`}
+                  style={{ color: materiaColor(m.id), borderColor: materiaBg(m.id, on ? .9 : .35), background: materiaBg(m.id, on ? .26 : .08) }}
+                  onClick={() => setFiltroMat(on ? "" : m.id)}>
+                  {m.name.replace(/^Direito d?[aeo]s? /i, "").replace(/^Direito /i, "")} <span className="tn-fn">{n}</span>
+                </button>
+              );
+            })}
+            {semMat > 0 && (
+              <button type="button" className={`tn-fchip sem${filtroMat === "__sem" ? " on" : ""}`} onClick={() => setFiltroMat(filtroMat === "__sem" ? "" : "__sem")}>
+                sem matéria <span className="tn-fn">{semMat}</span>
+              </button>
+            )}
+          </div>
+        );
+      })()}
+
       <div className="tn-list">
-        {boxes.map((b) => (
+        {boxes.filter((b) => !materias || !filtroMat || (filtroMat === "__sem" ? !b.mat : b.mat === filtroMat)).map((b) => (
           <div key={b.id} className={`tn-box${overId === b.id ? " over" : ""}`} onDragOver={(e) => onDragOver(e, b.id)} onDrop={(e) => onDrop(e, b.id)}>
             <div className="tn-handle" draggable title="Arrastar" onDragStart={() => onDragStart(b.id)} onDragEnd={onDragEnd}>⠿</div>
             <button className="tn-del" title="Excluir caixinha" onClick={() => delBox(b.id)}>✕</button>
-            {b.tags.length > 0 && (
+            {(b.tags.length > 0 || (materias && b.mat)) && (
               <div className="tn-tags">
+                {materias && b.mat && (() => {
+                  const m = materias.find((x) => x.id === b.mat);
+                  if (!m) return null;
+                  return (
+                    <span className="tn-tag tn-tag-mat" style={{ background: materiaBg(m.id, .18), color: materiaColor(m.id) }}>
+                      {m.name}
+                      <span className="tn-tag-x" title="Tirar a matéria" onClick={() => setMat(b.id, "")}>✕</span>
+                    </span>
+                  );
+                })()}
                 {b.tags.map((t, i) => {
                   const pair = TN_TAGS[t.ci % TN_TAGS.length];
                   return (
@@ -2114,6 +2160,16 @@ function TopicNotes({ label, materia, initial, backLabel, onBack, onSave }) {
               {swatchRow("back")}
               <span className="tn-sep" />
               <button className="tn-tb" title="Adicionar tag" onMouseDown={(e) => e.preventDefault()} onClick={() => addTag(b.id)}>+ tag</button>
+              {materias && (
+                <>
+                  <span className="tn-sep" />
+                  <select className="tn-mat" title="Matéria desta questão" value={b.mat || ""}
+                    onMouseDown={(e) => e.stopPropagation()} onChange={(e) => setMat(b.id, e.target.value)}>
+                    <option value="">matéria…</option>
+                    {materias.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                  </select>
+                </>
+              )}
             </div>
           </div>
         ))}
@@ -5848,6 +5904,18 @@ export default function App() {
           cursor: pointer; font-size: 14px; border-radius: 7px; width: 26px; height: 26px; opacity: 0; transition: .15s; }
         .tn-box:hover .tn-del, .tn-box:focus-within .tn-del { opacity: 1; }
         .tn-del:hover { background: var(--surface-3); color: var(--coral); }
+        /* filtro por matéria (caderno de discursivas) */
+        .tn-filtros { display: flex; flex-wrap: wrap; gap: 7px; margin: 0 0 16px; }
+        .tn-fchip { font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; padding: 5px 12px; border-radius: 999px;
+          background: var(--surface-2); border: 1px solid var(--line-2); color: var(--muted); transition: all .15s; }
+        .tn-fchip:hover { filter: brightness(1.15); }
+        .tn-fchip.on { color: var(--text); border-color: var(--gold); }
+        .tn-fchip.sem { border-style: dashed; }
+        .tn-fn { font-weight: 600; opacity: .65; margin-left: 2px; }
+        .tn-mat { font: inherit; font-size: 12px; font-weight: 600; color: var(--muted); background: var(--surface-2);
+          border: 1px solid var(--line-2); border-radius: 6px; padding: 4px 6px; cursor: pointer; max-width: 190px; }
+        .tn-mat:hover { color: var(--text); }
+        .tn-tag-mat { text-transform: uppercase; letter-spacing: .04em; }
         .tn-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
         .tn-tag { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 99px; }
         .tn-tag-x { cursor: pointer; opacity: .55; font-weight: 700; }
@@ -6545,6 +6613,7 @@ export default function App() {
                   label="Caderno de Discursivas"
                   materia="suas questões discursivas"
                   initial={discNotas}
+                  materias={MATERIAS_SIM}
                   onSave={saveDiscursivas}
                 />
               )
