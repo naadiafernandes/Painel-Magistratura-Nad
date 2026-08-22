@@ -2024,7 +2024,7 @@ const BLOCO_LBL = { 1: "Bloco I", 2: "Bloco II", 3: "Bloco III" };
 
 // caixinha de nota: o conteúdo é escrito no DOM só uma vez (no início) e o React NÃO reescreve
 // depois — assim o acento morto (~ ´ ` ^) e a pontuação compõem normalmente.
-function NotaBox({ id, initialHtml, register, onBlur, onKeyDown, onInput, onMouseDown, onMouseMove }) {
+function NotaBox({ id, initialHtml, register, onBlur, onKeyDown, onInput, onMouseDown, onMouseMove, ph }) {
   const ref = useRef(null);
   useEffect(() => {
     if (ref.current) ref.current.innerHTML = initialHtml || "";
@@ -2037,17 +2037,19 @@ function NotaBox({ id, initialHtml, register, onBlur, onKeyDown, onInput, onMous
     <div className="tn-wrap">
       <div className="tn-content" contentEditable suppressContentEditableWarning ref={ref}
         onBlur={onBlur} onKeyDown={onKeyDown} onInput={onInput} onMouseDown={onMouseDown} onMouseMove={onMouseMove} />
-      <div className="tn-ph" aria-hidden="true">Escreva aqui…</div>
+      <div className="tn-ph" aria-hidden="true">{ph || "Escreva aqui…"}</div>
     </div>
   );
 }
 
-function TopicNotes({ label, materia, initial, backLabel, onBack, onSave, materias }) {
+function TopicNotes({ label, materia, initial, backLabel, onBack, onSave, materias, resposta }) {
   const [boxes, setBoxes] = useState(() => {
     const arr = initial && initial.length ? initial : [{ id: TN_UID(), html: "", tags: [] }];
-    return arr.map((b) => ({ id: b.id || TN_UID(), html: b.html || "", mat: b.mat || "", tags: (b.tags || []).map((t) => ({ label: t.label, ci: t.ci || 0 })) }));
+    return arr.map((b) => ({ id: b.id || TN_UID(), html: b.html || "", resp: b.resp || "", mat: b.mat || "", tags: (b.tags || []).map((t) => ({ label: t.label, ci: t.ci || 0 })) }));
   });
   const [filtroMat, setFiltroMat] = useState("");   // só usado quando a página tem matérias (caderno de discursivas)
+  // respostas começam SEMPRE escondidas (a graça é tentar responder antes de olhar); não fica salvo
+  const [respAberta, setRespAberta] = useState({});
   const refs = useRef({});
   const savedRange = useRef(null);
   const dragId = useRef(null);
@@ -2099,8 +2101,15 @@ function TopicNotes({ label, materia, initial, backLabel, onBack, onSave, materi
     };
   }, []);
 
-  const collect = () => boxes.map((b) => ({ id: b.id, html: refs.current[b.id] ? refs.current[b.id].innerHTML : b.html, mat: b.mat || "", tags: b.tags }));
-  const persist = (arr) => onSave(arr.map((b) => ({ id: b.id, html: b.html, mat: b.mat || "", tags: b.tags })));
+  const RID = (id) => id + "::resp";   // a caixinha da resposta guarda o conteúdo com esta chave
+  const collect = () => boxes.map((b) => ({
+    id: b.id,
+    html: refs.current[b.id] ? refs.current[b.id].innerHTML : b.html,
+    resp: refs.current[RID(b.id)] ? refs.current[RID(b.id)].innerHTML : (b.resp || ""),
+    mat: b.mat || "",
+    tags: b.tags,
+  }));
+  const persist = (arr) => onSave(arr.map((b) => ({ id: b.id, html: b.html, resp: b.resp || "", mat: b.mat || "", tags: b.tags })));
   const commit = (arr) => { setBoxes(arr); persist(arr); };
 
   const restore = () => {
@@ -2211,6 +2220,11 @@ function TopicNotes({ label, materia, initial, backLabel, onBack, onSave, materi
     commit(collect().map((b) => (b.id === id ? { ...b, tags: [...b.tags, { label: label.trim(), ci }] } : b)));
   };
   const removeTag = (id, idx) => commit(collect().map((b) => (b.id === id ? { ...b, tags: b.tags.filter((_, i) => i !== idx) } : b)));
+  const toggleResp = (id) => {
+    const arr = collect();
+    setBoxes(arr); persist(arr);
+    setRespAberta((p) => ({ ...p, [id]: !p[id] }));
+  };
   const setMat = (id, mat) => {
     commit(collect().map((b) => (b.id === id ? { ...b, mat } : b)));
     // se o filtro aberto não bate mais com a matéria nova, volta pra "Todas" (senão a caixinha some da tela)
@@ -2322,7 +2336,27 @@ function TopicNotes({ label, materia, initial, backLabel, onBack, onSave, materi
               </div>
             )}
             <NotaBox id={b.id} initialHtml={b.html} register={registerRef} onBlur={blurBox} onKeyDown={onKeyDownBox} onInput={onInputBox} onMouseDown={onMouseDownBox} onMouseMove={onMouseMoveBox} />
-            {/<table/i.test(b.html) && (
+            {resposta && (() => {
+              const aberta = !!respAberta[b.id];
+              const vazia = !String(b.resp || "").replace(/<[^>]*>/g, " ").replace(/&nbsp;/g, " ").trim();
+              return (
+                <div className="tn-resp-area">
+                  <button type="button" className={`tn-resp-tog${aberta ? " on" : ""}${vazia ? "" : " tem"}`}
+                    title={vazia ? "Abrir um espaço pra escrever a sua resposta" : "Mostrar a resposta que você escreveu"}
+                    onClick={() => toggleResp(b.id)}>
+                    {aberta ? "▾ esconder resposta" : vazia ? "▸ escrever resposta" : "▸ ver resposta"}
+                  </button>
+                  {aberta && (
+                    <div className="tn-resp">
+                      <div className="tn-resp-lbl">resposta</div>
+                      <NotaBox id={RID(b.id)} initialHtml={b.resp} register={registerRef} onBlur={blurBox} onKeyDown={onKeyDownBox}
+                        onInput={onInputBox} onMouseDown={onMouseDownBox} onMouseMove={onMouseMoveBox} ph="Escreva sua resposta…" />
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+            {(/<table/i.test(b.html) || (respAberta[b.id] && /<table/i.test(b.resp || ""))) && (
               <div className="tn-tbltb">
                 <span className="tn-tbltb-lbl">tabela:</span>
                 <button title="Adicionar linha abaixo" onMouseDown={(e) => e.preventDefault()} onClick={tblAddLinha}>+ linha</button>
@@ -6100,6 +6134,15 @@ function App() {
           cursor: pointer; font-size: 14px; border-radius: 7px; width: 26px; height: 26px; opacity: 0; transition: .15s; }
         .tn-box:hover .tn-del, .tn-box:focus-within .tn-del { opacity: 1; }
         .tn-del:hover { background: var(--surface-3); color: var(--coral); }
+        /* resposta escondida embaixo de cada questão (caderno de discursivas) */
+        .tn-resp-area { margin-top: 10px; }
+        .tn-resp-tog { font: inherit; font-size: 11.5px; font-weight: 700; cursor: pointer; color: var(--faint);
+          background: transparent; border: 1px dashed var(--line-2); border-radius: 999px; padding: 3px 11px; letter-spacing: .03em; }
+        .tn-resp-tog:hover { color: var(--gold); border-color: var(--gold); }
+        .tn-resp-tog.tem { color: var(--gold); border-color: color-mix(in srgb, var(--gold) 45%, transparent); }
+        .tn-resp-tog.on { border-style: solid; color: var(--muted); }
+        .tn-resp { margin-top: 9px; padding: 10px 13px; background: var(--surface-2); border-left: 3px solid var(--gold); border-radius: 0 10px 10px 0; }
+        .tn-resp-lbl { font-size: 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); margin-bottom: 5px; }
         /* filtro por matéria (caderno de discursivas) */
         .tn-filtros { display: flex; flex-wrap: wrap; gap: 7px; margin: 0 0 16px; }
         .tn-fchip { font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; padding: 5px 12px; border-radius: 999px;
@@ -6810,6 +6853,7 @@ function App() {
                   materia="suas questões discursivas"
                   initial={discNotas}
                   materias={MATERIAS_SIM}
+                  resposta
                   onSave={saveDiscursivas}
                 />
               )
