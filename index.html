@@ -1133,6 +1133,7 @@ function expandBlocos(topics) {
 
 const CURSO_KEY_PREFIX = "tjsc-cursos-isolados:";
 const EDITAIS_KEY_PREFIX = "tjsc-editais:";
+const DISCURSIVAS_KEY = "tjsc-discursivas:v1";   // caderno de discursivas (fica na aba antes dos editais)
 // colunas de acompanhamento por tópico do edital (estilo Normio): Estudo + Revisões
 const ED_ESTUDO = [
   { f: "t", lbl: "Teoria", full: "Teoria" },
@@ -2252,7 +2253,7 @@ function TopicNotes({ label, materia, initial, backLabel, onBack, onSave }) {
 
   return (
     <section className="tn-page">
-      <button className="edital-back" onClick={back}>{backLabel || "← Voltar ao edital"}</button>
+      {onBack && <button className="edital-back" onClick={back}>{backLabel || "← Voltar ao edital"}</button>}
       {materia && <p className="eyebrow">{materia}</p>}
       <h1 className="serif tn-title">{label}</h1>
 
@@ -4356,6 +4357,8 @@ function App() {
   const [noteDraft, setNoteDraft] = useState("");
   const [openTopic, setOpenTopic] = useState(null); // { editalId, key, label, materia } — página de notas do tópico
   const [openCaderno, setOpenCaderno] = useState(null); // { editalId, mi } — caderno com a matéria inteira anotada
+  const [discNotas, setDiscNotas] = useState([]);       // caixinhas do Caderno de Discursivas
+  const [discLoaded, setDiscLoaded] = useState(false);
   const [prioridades, setPrioridades] = useState([]);
   const [esCheck, setEsCheck] = useState([]);
   const [esCheckInput, setEsCheckInput] = useState("");
@@ -4503,6 +4506,8 @@ function App() {
           eds[e.id] = {};
         }
       }
+      let disc = [];
+      try { const r = await window.storage.get(DISCURSIVAS_KEY); disc = r ? JSON.parse(r.value) : []; } catch { disc = []; }
       let prio = [];
       try { const r = await window.storage.get(PRIORIDADES_KEY); prio = r ? JSON.parse(r.value) : []; } catch { prio = []; }
       let esck = [];
@@ -4595,6 +4600,8 @@ function App() {
       setInfoData(info);
       setCursoData(cursos);
       setEditaisData(eds);
+      setDiscNotas(Array.isArray(disc) ? disc : []);
+      setDiscLoaded(true);
       setPrioridades(prio);
       setEsCheck(esck);
       setRegistros(regs);
@@ -4617,6 +4624,11 @@ function App() {
       setLoaded(true);
     })();
   }, []);
+
+  const saveDiscursivas = (notas) => {
+    setDiscNotas(notas);
+    try { window.storage.set(DISCURSIVAS_KEY, JSON.stringify(notas)); } catch {}
+  };
 
   const savePrioridades = (arr) => {
     setPrioridades(arr);
@@ -5906,6 +5918,10 @@ function App() {
           padding: 9px 16px; font: inherit; font-size: 13px; font-weight: 600; color: var(--muted); transition: all .15s; }
         .edital-tab:hover { color: var(--text); border-color: var(--muted); }
         .edital-tab.active { background: var(--gold); color: var(--on-accent); border-color: var(--gold); }
+        /* a aba do caderno de discursivas não é edital nenhum — fica marcada e um pouco separada */
+        .edital-tab.disc { border-style: dashed; border-color: var(--gold); color: var(--gold); margin-right: 6px; }
+        .edital-tab.disc:hover { color: var(--gold); border-color: var(--gold); }
+        .edital-tab.disc.active { background: var(--gold); color: var(--on-accent); border-style: solid; }
         /* ===== Editais: tabela de acompanhamento (estilo Normio) ===== */
         .edital-table { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
         .ed-head { display: flex; align-items: flex-end; gap: 12px; padding: 12px 16px 10px; background: var(--surface); border-bottom: 1px solid var(--line-2); }
@@ -6707,17 +6723,31 @@ function App() {
             <button className="edital-back" onClick={() => setView("es-painel")}>← Voltar ao painel</button>
             <p className="eyebrow">Painel de Estudos</p>
             <h1 className="serif" style={{ marginBottom: 18 }}>Editais Verticalizados</h1>
-            {EDITAIS.length === 0 ? (
+            <div className="edital-tabs">
+              {/* antes dos editais: o caderno de discursivas (não é prova nenhuma, é dela) */}
+              <button className={`edital-tab disc${openEdital === -1 ? " active" : ""}`} onClick={() => { setOpenEdital(-1); window.scrollTo(0, 0); }}>
+                ✎ CADERNO DE DISCURSIVAS
+              </button>
+              {EDITAIS.map((e, i) => (
+                <button key={e.id} className={`edital-tab${openEdital === i ? " active" : ""}`} onClick={() => setOpenEdital(i)}>
+                  {e.nome}
+                </button>
+              ))}
+            </div>
+            {openEdital === -1 ? (
+              discLoaded && (
+                <TopicNotes
+                  key="discursivas"
+                  label="Caderno de Discursivas"
+                  materia="suas questões discursivas"
+                  initial={discNotas}
+                  onSave={saveDiscursivas}
+                />
+              )
+            ) : EDITAIS.length === 0 ? (
               <p className="desc">Nenhum edital cadastrado ainda.</p>
             ) : (
               <>
-                <div className="edital-tabs">
-                  {EDITAIS.map((e, i) => (
-                    <button key={e.id} className={`edital-tab${openEdital === i ? " active" : ""}`} onClick={() => setOpenEdital(i)}>
-                      {e.nome}
-                    </button>
-                  ))}
-                </div>
                 {(() => {
                   const ed = EDITAIS[openEdital] || EDITAIS[0];
                   const v = editaisData[ed.id] || {};
