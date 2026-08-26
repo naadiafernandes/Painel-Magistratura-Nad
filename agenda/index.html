@@ -59,7 +59,7 @@
 const { useState, useEffect, useRef } = React;
 
 /* versão do app — bater igual ao conteúdo de version.txt; ao trocar as duas, aparece o aviso "Atualizar" */
-const APP_VERSION = '2026-08-14-2';
+const APP_VERSION = '2026-08-26-1';
 
 // cor do texto que contrasta com um fundo sólido (claro -> texto escuro; escuro -> branco)
 const textOn = hex => { const c = (hex||'#000').replace('#',''); const r=parseInt(c.slice(0,2),16)||0, g=parseInt(c.slice(2,4),16)||0, b=parseInt(c.slice(4,6),16)||0; return (0.299*r+0.587*g+0.114*b)/255 > 0.62 ? '#231a05' : '#ffffff'; };
@@ -179,6 +179,19 @@ function normNote(n){ if (Array.isArray(n.entries)) return n; const e = []; if (
 function loadNotes(){ try { return (JSON.parse(localStorage.getItem(NKEY) || '[]')).map(normNote); } catch(e){ return []; } }
 function saveNotes(list){ localStorage.setItem(NKEY, JSON.stringify(list)); }
 
+/* ---------- audiências (mesmo molde das notas/processos, página própria) ---------- */
+const AKEY = 'agenda-audiencias';
+const ACATKEY = 'agenda-audcats';
+const DEFAULT_AUDCATS = [
+  { key:'verde',    nome:'Verde',    cor:'#10b981' },
+  { key:'amarelo',  nome:'Amarelo',  cor:'#eab308' },
+  { key:'vermelho', nome:'Vermelho', cor:'#ef4444' },
+];
+function loadAudCats(){ try { const s = JSON.parse(localStorage.getItem(ACATKEY) || 'null'); return (s && s.length) ? s : DEFAULT_AUDCATS.slice(); } catch(e){ return DEFAULT_AUDCATS.slice(); } }
+function saveAudCats(l){ localStorage.setItem(ACATKEY, JSON.stringify(l)); }
+function loadAudiencias(){ try { return (JSON.parse(localStorage.getItem(AKEY) || '[]')).map(normNote); } catch(e){ return []; } }
+function saveAudiencias(list){ localStorage.setItem(AKEY, JSON.stringify(list)); }
+
 // contador de valor (embaixo de Processos): número puro = define; +/- = soma/subtrai
 const VKEY = 'agenda-valor';
 function loadValor(){ const v = parseFloat(localStorage.getItem(VKEY)); return isNaN(v) ? 0 : v; }
@@ -215,11 +228,18 @@ function App(){
   const [catsOpen, setCatsOpen] = useState(false);
   const [noteView, setNoteView] = useState(null);   // nota aberta so pra ver
   const [noteEdit, setNoteEdit] = useState(null);    // nota em edicao/criacao
+  const [audiencias, setAudiencias] = useState(loadAudiencias);
+  const [audCats, setAudCats] = useState(loadAudCats);
+  const [audCatsOpen, setAudCatsOpen] = useState(false);
+  const [audView, setAudView] = useState(null);      // audiência aberta so pra ver
+  const [audEdit, setAudEdit] = useState(null);      // audiência em edicao/criacao
   const toggleNav = () => setNavHidden(v => { const n = !v; localStorage.setItem('agenda-nav', n ? 'hide' : 'show'); return n; });
   const first = useRef(true);
   const firstT = useRef(true);
   const firstN = useRef(true);
   const firstC = useRef(true);
+  const firstA = useRef(true);
+  const firstAC = useRef(true);
 
   const tipos = userTipos;
   const tipoMap = mapa(tipos);
@@ -232,6 +252,8 @@ function App(){
   useEffect(() => { if (firstC.current){ firstC.current = false; return; } saveNoteCats(noteCats); }, [noteCats]);
   const firstV = useRef(true);
   useEffect(() => { if (firstV.current){ firstV.current = false; return; } saveValor(valor); }, [valor]);
+  useEffect(() => { if (firstA.current){ firstA.current = false; return; } saveAudiencias(audiencias); }, [audiencias]);
+  useEffect(() => { if (firstAC.current){ firstAC.current = false; return; } saveAudCats(audCats); }, [audCats]);
   // avisa quando há versão nova publicada (sem recarregar na mão)
   const [updateReady, setUpdateReady] = useState(false);
   useEffect(() => {
@@ -251,7 +273,7 @@ function App(){
   }, []);
   // recarrega quando a sincronizacao trouxer mudanca de outro aparelho
   useEffect(() => {
-    const h = () => { setEvents(loadEvents()); setUserTipos(loadUserTipos()); setNotes(loadNotes()); setNoteCats(loadNoteCats()); setValor(loadValor()); };
+    const h = () => { setEvents(loadEvents()); setUserTipos(loadUserTipos()); setNotes(loadNotes()); setNoteCats(loadNoteCats()); setValor(loadValor()); setAudiencias(loadAudiencias()); setAudCats(loadAudCats()); };
     window.addEventListener('agenda-pulled', h);
     return () => window.removeEventListener('agenda-pulled', h);
   }, []);
@@ -285,10 +307,27 @@ function App(){
     setNoteView(v => v && v.id === id ? { ...v, arquivado: val } : v);
   };
 
+  const upsertAud = n => setAudiencias(list => { const i = list.findIndex(x => x.id === n.id); if (i === -1) return [...list, n]; const c = list.slice(); c[i] = n; return c; });
+  const removeAud = id => setAudiencias(list => list.filter(x => x.id !== id));
+  const openNewAud = () => setAudEdit({ id:newId(), num:'', color:(audCats[0] && audCats[0].key) || 'verde', entries:[], _new:true });
+  const addAudEntry = (id, text) => {
+    const entry = { id:newId(), date:todayStr(), text };
+    setAudiencias(list => list.map(x => x.id === id ? { ...x, entries:[entry, ...(x.entries||[])] } : x));
+    setAudView(v => v && v.id === id ? { ...v, entries:[entry, ...(v.entries||[])] } : v);
+  };
+  const delAudEntry = (id, eid) => {
+    setAudiencias(list => list.map(x => x.id === id ? { ...x, entries:(x.entries||[]).filter(e => e.id !== eid) } : x));
+    setAudView(v => v && v.id === id ? { ...v, entries:(v.entries||[]).filter(e => e.id !== eid) } : v);
+  };
+  const setAudArchived = (id, val) => {
+    setAudiencias(list => list.map(x => x.id === id ? { ...x, arquivado: val } : x));
+    setAudView(v => v && v.id === id ? { ...v, arquivado: val } : v);
+  };
+
   const openNew = (dateStr) => setEditing({ id:newId(), title:'', type:'compromisso', date: dateStr || todayStr(), time:'', note:'', repeat:{ freq:'none', interval:1, unit:'week' }, _new:true });
 
   const irPara = (dateStr) => { setRefStr(dateStr); setView('mes'); };
-  const onNewGlobal = () => { if (view === 'notas') openNewNote(); else openNew(); };
+  const onNewGlobal = () => { if (view === 'notas') openNewNote(); else if (view === 'audiencias') openNewAud(); else openNew(); };
 
   return (
     <div style={{minHeight:'100vh'}}>
@@ -297,17 +336,17 @@ function App(){
         <Sidebar view={view} setView={setView} onNew={onNewGlobal} tipos={tipos} filtroTipo={filtroTipo} onFiltro={toggleFiltro} onEditTipo={t=>setTipoEdit(t)} onNewTipo={()=>setTipoEdit({ _new:true, nome:'', cor:CORES_TIPO[4] })} onDelTipo={delTipo} />
         <main className="main">
           {navHidden && <CompactNav view={view} setView={setView} onNew={onNewGlobal} />}
-          {view !== 'notas' && filtroTipo && tipoMap[filtroTipo] && (
+          {view !== 'notas' && view !== 'audiencias' && filtroTipo && tipoMap[filtroTipo] && (
             <div className="filtro-bar"><span className="dot" style={{background:tipoMap[filtroTipo].cor}}></span>Mostrando só <b>{tipoMap[filtroTipo].nome}</b><button className="filtro-x" onClick={()=>setFiltroTipo(null)}>ver todos ×</button></div>
           )}
-          {view !== 'notas' && (
+          {view !== 'notas' && view !== 'audiencias' && (
             <div className="buscaWrap agbusca">
               <span className="buscaIco">⌕</span>
               <input className="busca" placeholder="Buscar na agenda…" value={busca} onChange={e=>setBusca(e.target.value)} autoCapitalize="off" autoCorrect="off" spellCheck="false" />
               {busca && <button className="buscaX" onClick={()=>setBusca('')} aria-label="Limpar">×</button>}
             </div>
           )}
-          {view !== 'notas' && busca.trim()
+          {view !== 'notas' && view !== 'audiencias' && busca.trim()
             ? <SearchView query={busca} events={eventosVista} tipoMap={tipoMap} onOpen={setViewing} />
             : <React.Fragment>
                 {view === 'mes'   && <MonthView refStr={refStr} setRefStr={setRefStr} events={eventosVista} tipoMap={tipoMap} onNew={openNew} onOpen={setViewing} onOpenDay={setDayView} />}
@@ -315,6 +354,7 @@ function App(){
                 {view === 'ano'   && <YearView  refStr={refStr} setRefStr={setRefStr} events={eventosVista} tipoMap={tipoMap} onPick={irPara} />}
                 {view === 'lista' && <AgendaView events={eventosVista} tipoMap={tipoMap} onOpen={setViewing} onNew={()=>openNew()} />}
                 {view === 'notas' && <NotesView notes={notes} cats={noteCats} valor={valor} onValor={setValor} onOpen={setNoteView} onNew={openNewNote} onCats={()=>setCatsOpen(true)} />}
+                {view === 'audiencias' && <AudienciasView items={audiencias} cats={audCats} onOpen={setAudView} onNew={openNewAud} onCats={()=>setAudCatsOpen(true)} />}
               </React.Fragment>}
         </main>
       </div>
@@ -324,6 +364,9 @@ function App(){
       {noteView && <NoteView n={noteView} cats={noteCats} onClose={()=>setNoteView(null)} onEdit={()=>{ setNoteEdit(noteView); setNoteView(null); }} onDelete={id=>{ removeNote(id); setNoteView(null); }} onArchive={setArchived} onAddEntry={addEntry} onDelEntry={delEntry} />}
       {noteEdit && <NoteEditor n={noteEdit} cats={noteCats} onOpenCats={()=>setCatsOpen(true)} onClose={()=>setNoteEdit(null)} onSave={n=>{ upsertNote(n); setNoteEdit(null); }} onDelete={id=>{ removeNote(id); setNoteEdit(null); }} />}
       {catsOpen && <CatManager cats={noteCats} onSave={list=>setNoteCats(list)} onClose={()=>setCatsOpen(false)} />}
+      {audView && <AudienciaView n={audView} cats={audCats} onClose={()=>setAudView(null)} onEdit={()=>{ setAudEdit(audView); setAudView(null); }} onDelete={id=>{ removeAud(id); setAudView(null); }} onArchive={setAudArchived} onAddEntry={addAudEntry} onDelEntry={delAudEntry} />}
+      {audEdit && <AudienciaEditor n={audEdit} cats={audCats} onOpenCats={()=>setAudCatsOpen(true)} onClose={()=>setAudEdit(null)} onSave={n=>{ upsertAud(n); setAudEdit(null); }} onDelete={id=>{ removeAud(id); setAudEdit(null); }} />}
+      {audCatsOpen && <CatManager cats={audCats} onSave={list=>setAudCats(list)} onClose={()=>setAudCatsOpen(false)} title="Cores das audiências" subtitle="Renomeie, mude a cor ou crie novas. As audiências ficam agrupadas por elas." defaultCats={DEFAULT_AUDCATS} />}
       {tipoEdit && <TipoEditor tipo={tipoEdit} onClose={()=>setTipoEdit(null)} onSave={(nome,cor)=>{ if(tipoEdit._new) addTipo(nome,cor); else editTipo(tipoEdit.key,nome,cor); setTipoEdit(null); }} />}
       {syncOpen && <SyncModal onClose={()=>setSyncOpen(false)} />}
       {updateReady && (
@@ -348,16 +391,17 @@ function Sidebar({ view, setView, onNew, tipos, filtroTipo, onFiltro, onEditTipo
   return (
     <aside className="sidebar">
       <div className="brand">◷ AgendaNAD</div>
-      <button className="btnNovo" onClick={onNew}>{view==='notas' ? '+ Nova nota' : '+ Novo compromisso'}</button>
+      <button className="btnNovo" onClick={onNew}>{view==='notas' ? '+ Nova nota' : view==='audiencias' ? '+ Nova audiência' : '+ Novo compromisso'}</button>
       <div className="navgroup">Agenda</div>
       {item('mes','▦','Mês')}
       {item('semana','▤','Semana')}
       {item('ano','▦','Ano')}
       {item('lista','☰','Lista')}
-      <div className="navgroup">Notas</div>
+      <div className="navgroup">TJSC</div>
       {item('notas','❏','Processos')}
-      {view!=='notas' && <div className="navgroup">Tipos <span className="navgroup-hint">toque pra filtrar</span></div>}
-      {view!=='notas' && tipos.map(t => (
+      {item('audiencias','❐','Audiências')}
+      {view!=='notas' && view!=='audiencias' && <div className="navgroup">Tipos <span className="navgroup-hint">toque pra filtrar</span></div>}
+      {view!=='notas' && view!=='audiencias' && tipos.map(t => (
         <div key={t.key} className={'legend'+(filtroTipo===t.key?' on':'')+(filtroTipo&&filtroTipo!==t.key?' dim':'')}>
           <button className="legend-main" onClick={()=>onFiltro(t.key)} title="Ver só este tipo no calendário">
             <span className="dot" style={{background:t.cor}}></span><span className="legend-nome">{t.nome}</span>
@@ -366,7 +410,7 @@ function Sidebar({ view, setView, onNew, tipos, filtroTipo, onFiltro, onEditTipo
           <button className="legend-x" title="Apagar tipo" onClick={()=>{ if(confirm('Apagar o tipo "'+t.nome+'"? Os compromissos já marcados com ele continuam na agenda.')) onDelTipo(t.key); }}>×</button>
         </div>
       ))}
-      {view!=='notas' && <button className="legend-add" onClick={onNewTipo}>+ novo tipo</button>}
+      {view!=='notas' && view!=='audiencias' && <button className="legend-add" onClick={onNewTipo}>+ novo tipo</button>}
     </aside>
   );
 }
@@ -376,9 +420,9 @@ function CompactNav({ view, setView, onNew }){
   const tab = (id,label) => <button className={'ctab'+(view===id?' on':'')} onClick={()=>setView(id)}>{label}</button>;
   return (
     <div className="compactnav">
-      {tab('mes','Mês')}{tab('semana','Semana')}{tab('ano','Ano')}{tab('lista','Lista')}{tab('notas','Processos')}
+      {tab('mes','Mês')}{tab('semana','Semana')}{tab('ano','Ano')}{tab('lista','Lista')}{tab('notas','Processos')}{tab('audiencias','Audiências')}
       <span style={{flex:1}}></span>
-      <button className="ctab novo" onClick={onNew}>{view==='notas' ? '+ Nova nota' : '+ Novo'}</button>
+      <button className="ctab novo" onClick={onNew}>{view==='notas' ? '+ Nova nota' : view==='audiencias' ? '+ Nova audiência' : '+ Novo'}</button>
     </div>
   );
 }
@@ -612,6 +656,56 @@ function NotesView({ notes, cats, valor, onValor, onOpen, onNew, onCats }){
   );
 }
 
+/* ---------- AUDIÊNCIAS: página própria, mesmo molde dos Processos, começa vazia ---------- */
+function AudienciasView({ items, cats, onOpen, onNew, onCats }){
+  const [q, setQ] = useState('');
+  const qd = soDigitos(q), ql = q.trim().toLowerCase();
+  const filtradas = items.filter(n => {
+    if (n.arquivado && !ql) return false;   // arquivadas só aparecem quando busca
+    if (!ql) return true;
+    const num = (n.num||'');
+    return (qd && soDigitos(num).includes(qd)) || num.toLowerCase().includes(ql) || (n.entries||[]).some(e => (e.text||'').toLowerCase().includes(ql));
+  });
+  const nArquivadas = items.filter(n => n.arquivado).length;
+  const ultimo = n => { const e = (n.entries||[]); return e.length ? e.slice().sort(cmpEntry)[0] : null; };
+  const grupos = cats.map(c => ({ cat:c, itens: filtradas.filter(n => n.color === c.key) })).filter(g => g.itens.length);
+  const semCat = filtradas.filter(n => !cats.some(c => c.key === n.color));
+  if (semCat.length) grupos.push({ cat:{ key:'__sem', nome:'Sem categoria', cor:'#a1a1aa' }, itens:semCat });
+
+  return (
+    <div>
+      <div className="head">
+        <div className="titulo">Audiências</div>
+        <div className="headbtns"><button className="navbtn" onClick={onCats}>Cores</button></div>
+      </div>
+      <div className="buscaWrap">
+        <span className="buscaIco">⌕</span>
+        <input className="busca" placeholder="Buscar número do processo…" value={q} onChange={e=>setQ(e.target.value)} autoCapitalize="off" autoCorrect="off" spellCheck="false" />
+        {q && <button className="buscaX" onClick={()=>setQ('')} aria-label="Limpar">×</button>}
+      </div>
+      {items.length === 0 && <div className="vazio">Nenhuma audiência ainda. Toque em <b>+ Nova audiência</b> pra guardar a primeira, com o número e a primeira anotação.</div>}
+      {items.length > 0 && filtradas.length === 0 && <div className="vazio">Nada encontrado para "{q}".</div>}
+      {grupos.map(g => (
+        <div key={g.cat.key} className="notegrupo">
+          <div className="grupohead"><span className="dot" style={{background:g.cat.cor}}></span>{g.cat.nome}<span className="grupocount">{g.itens.length}</span></div>
+          <div className="notesgrid">
+            {g.itens.map(n => { const u = ultimo(n); const solid = (typeof n.solido === 'boolean') ? n.solido : !!g.cat.solido; const tc = solid ? textOn(g.cat.cor) : null;
+              return (
+              <button key={n.id} className={'notecard'+(solid?' solido':'')+(n.arquivado?' arquivada':'')} style={solid ? { background:g.cat.cor, borderColor:g.cat.cor, '--c':g.cat.cor, color:tc } : { '--c':g.cat.cor }} onClick={()=>onOpen(n)}>
+                {n.arquivado && <span className="arqtag">arquivado</span>}
+                <span className="note-num" style={solid?{color:tc}:null}>{n.num || '(sem número)'}</span>
+                {u && <span className="note-data" style={solid?{color:tc,opacity:.75}:null}>{fmtData(u.date)}</span>}
+                {u ? <span className="note-prev" style={solid?{color:tc,opacity:.9}:null}>{u.text}</span> : <span className="note-prev" style={solid?{color:tc,opacity:.85,fontStyle:'italic'}:{fontStyle:'italic'}}>sem anotações</span>}
+              </button>
+            );})}
+          </div>
+        </div>
+      ))}
+      {!ql && nArquivadas > 0 && <div className="arqhint">{nArquivadas} {nArquivadas === 1 ? 'audiência arquivada' : 'audiências arquivadas'} — some da lista, mas aparece aqui quando você busca pelo número.</div>}
+    </div>
+  );
+}
+
 /* ---------- NOTAS: caixinha do processo (histórico + anotar) ---------- */
 function NoteView({ n, cats, onClose, onEdit, onDelete, onArchive, onAddEntry, onDelEntry }){
   const c = catNota(cats, n.color);
@@ -632,6 +726,51 @@ function NoteView({ n, cats, onClose, onEdit, onDelete, onArchive, onAddEntry, o
               <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8"/><path d="M10 12h4"/></svg>
             </button>
             <button className="lapis lixeira" onClick={()=>{ if(confirm('Apagar este processo inteiro (o número e todas as anotações)?')) onDelete(n.id); }} title="Apagar processo" aria-label="Apagar processo">
+              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+            </button>
+          </span>
+        </div>
+        <div className="vtitulo">{n.num || '(sem número)'}</div>
+        <div className="hist">
+          {entries.length === 0 && <div className="hist-vazio">Sem anotações ainda. Escreva a primeira embaixo.</div>}
+          {entries.map(e => (
+            <div key={e.id} className="hist-item">
+              <div className="hist-top"><span className="hist-data">{fmtData(e.date)}</span>
+                <button className="hist-x" title="Apagar anotação" onClick={()=>{ if(confirm('Apagar esta anotação?')) onDelEntry(n.id, e.id); }}>×</button>
+              </div>
+              <div className="hist-text">{e.text}</div>
+            </div>
+          ))}
+        </div>
+        <div className="addbox">
+          <textarea className="inp" style={{margin:0}} rows="2" placeholder="Escreva uma anotação de hoje…" value={txt} onChange={e=>setTxt(e.target.value)} />
+          <button className="primary" onClick={add}>Adicionar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- AUDIÊNCIAS: caixinha da audiência (histórico + anotar) ---------- */
+function AudienciaView({ n, cats, onClose, onEdit, onDelete, onArchive, onAddEntry, onDelEntry }){
+  const c = catNota(cats, n.color);
+  const [txt, setTxt] = useState('');
+  const entries = (n.entries||[]).slice().sort(cmpEntry);
+  const add = () => { const t = txt.trim(); if (t){ onAddEntry(n.id, t); setTxt(''); } };
+  return (
+    <div className="modal" onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
+      <div className="card vcard" style={{borderTop:'4px solid '+c.cor}}>
+        <div className="vhead">
+          <span className="vtipo" style={{background:c.cor}}>{c.nome}</span>
+          {n.arquivado && <span className="arqtag">arquivado</span>}
+          <span className="vacts">
+            <button className="lapis" onClick={onEdit} title="Editar audiência" aria-label="Editar">
+              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+            </button>
+            <button className="lapis" onClick={()=>onArchive(n.id, !n.arquivado)} title={n.arquivado ? 'Desarquivar' : 'Arquivar'} aria-label={n.arquivado ? 'Desarquivar' : 'Arquivar'}>
+              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8"/><path d="M10 12h4"/></svg>
+            </button>
+            <button className="lapis lixeira" onClick={()=>{ if(confirm('Apagar esta audiência inteira (o número e todas as anotações)?')) onDelete(n.id); }} title="Apagar audiência" aria-label="Apagar audiência">
               <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
             </button>
           </span>
@@ -702,6 +841,51 @@ function NoteEditor({ n, cats, onOpenCats, onClose, onSave, onDelete }){
   );
 }
 
+/* ---------- AUDIÊNCIAS: editor da audiência (número + cor + 1ª anotação) ---------- */
+function AudienciaEditor({ n, cats, onOpenCats, onClose, onSave, onDelete }){
+  const [num, setNum] = useState(n.num);
+  const [color, setColor] = useState(n.color || (cats[0] && cats[0].key));
+  const catIni = cats.find(c => c.key === (n.color || (cats[0] && cats[0].key))) || {};
+  const [solido, setSolido] = useState(n.solido != null ? n.solido : !!catIni.solido);
+  const [firstText, setFirstText] = useState('');
+  const corSel = (cats.find(c => c.key === color) || {}).cor || '#888';
+  const salvar = () => {
+    const entries = (n.entries||[]).slice();
+    if (n._new && firstText.trim()) entries.unshift({ id:newId(), date:todayStr(), text:firstText.trim() });
+    onSave({ ...n, num, color, entries, solido });
+  };
+  return (
+    <div className="modal" onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
+      <div className="card">
+        <div className="cardhead">
+          <b>{n._new ? 'Nova audiência' : 'Editar audiência'}</b>
+          <button className="x" onClick={onClose} aria-label="Fechar">×</button>
+        </div>
+        <input className="inp" autoFocus placeholder="Número do processo (ex.: 5003734-12.2024.8.24.0000)" value={num} onChange={e=>setNum(e.target.value)} />
+        <div className="tipos">
+          {cats.map(c => (
+            <button key={c.key} className={'tipopill'+(color===c.key?' on':'')}
+              style={color===c.key?{background:c.cor,borderColor:c.cor,color:'#fff'}:{}}
+              onClick={()=>setColor(c.key)}>{c.nome}</button>
+          ))}
+          <button className="tipopill novo" onClick={onOpenCats}>editar cores</button>
+        </div>
+        <label className="fortesw">
+          <button className={'solidtog'+(solido?' on':'')} style={solido?{background:corSel,borderColor:corSel,color:textOn(corSel)}:null} onClick={()=>setSolido(s=>!s)}>fundo forte</button>
+          <span>deixa esta janelinha bem sólida (pra urgência)</span>
+        </label>
+        {n._new && <textarea className="inp" rows="4" placeholder="Primeira anotação (fica com a data de hoje)" value={firstText} onChange={e=>setFirstText(e.target.value)} />}
+        <div className="cardacts">
+          {!n._new && <button className="del" onClick={()=>{ if(confirm('Apagar esta audiência e todas as anotações dela?')) onDelete(n.id); }}>Apagar</button>}
+          <span style={{flex:1}}></span>
+          <button className="ghost" onClick={onClose}>Cancelar</button>
+          <button className="primary" onClick={salvar}>Salvar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ---------- NOTAS: gerenciar as cores (renomear / criar / apagar) ---------- */
 /* ---------- editor de TIPO de compromisso (criar/editar nome + cor) ---------- */
 function TipoEditor({ tipo, onClose, onSave }){
@@ -722,8 +906,8 @@ function TipoEditor({ tipo, onClose, onSave }){
   );
 }
 
-function CatManager({ cats, onSave, onClose }){
-  const [list, setList] = useState(cats.length ? cats : DEFAULT_NOTECATS.slice());
+function CatManager({ cats, onSave, onClose, title, subtitle, defaultCats }){
+  const [list, setList] = useState(cats.length ? cats : (defaultCats || DEFAULT_NOTECATS).slice());
   const setName = (i,v) => setList(l => l.map((c,j) => j===i ? { ...c, nome:v } : c));
   const setCor  = (i,v) => setList(l => l.map((c,j) => j===i ? { ...c, cor:v } : c));
   const setSol  = (i,v) => setList(l => l.map((c,j) => j===i ? { ...c, solido:v } : c));
@@ -734,8 +918,8 @@ function CatManager({ cats, onSave, onClose }){
   return (
     <div className="modal" onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
       <div className="card">
-        <div className="cardhead"><b>Cores das notas</b><button className="x" onClick={onClose} aria-label="Fechar">×</button></div>
-        <p className="sub">Renomeie, mude a cor ou crie novas. Os processos ficam agrupados por elas.</p>
+        <div className="cardhead"><b>{title || 'Cores das notas'}</b><button className="x" onClick={onClose} aria-label="Fechar">×</button></div>
+        <p className="sub">{subtitle || 'Renomeie, mude a cor ou crie novas. Os processos ficam agrupados por elas.'}</p>
         {list.map((c,i) => (
           <div key={c.key} className="catrow">
             <span className="catmove">
@@ -939,7 +1123,7 @@ function Toolbar({ onSync, onToggleNav }){
         const p=JSON.parse(r.result); const d=p.dados||p; let n=0;
         Object.keys(d).forEach(k=>{
           if(k.indexOf('agenda-')!==0) return;
-          if(k==='agenda-events' || k==='agenda-notes') localStorage.setItem(k, mergeArr(localStorage.getItem(k), d[k]));
+          if(k==='agenda-events' || k==='agenda-notes' || k==='agenda-audiencias') localStorage.setItem(k, mergeArr(localStorage.getItem(k), d[k]));
           else localStorage.setItem(k, d[k]);
           n++;
         });
