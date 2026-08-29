@@ -1134,23 +1134,12 @@ function expandBlocos(topics) {
 const CURSO_KEY_PREFIX = "tjsc-cursos-isolados:";
 const EDITAIS_KEY_PREFIX = "tjsc-editais:";
 const DISCURSIVAS_KEY = "tjsc-discursivas:v1";   // caderno de discursivas (fica na aba antes dos editais)
-// colunas de acompanhamento por tópico do edital (estilo Normio): Estudo + Revisões
-const ED_ESTUDO = [
-  { f: "t", lbl: "Teoria", full: "Teoria" },
-  { f: "l", lbl: "Lei Seca", full: "Lei Seca" },
-  { f: "q", lbl: "Questões", full: "Questões" },
-  { f: "j", lbl: "Juris", full: "Jurisprudência" },
-  { f: "a", lbl: "Anki", full: "Anki (criar cards)" },
-];
-const ED_REV = [{ f: "r1", lbl: "1ª" }, { f: "r2", lbl: "2ª" }, { f: "r3", lbl: "3ª" }];
-// normaliza o valor salvo de um tópico: aceita o formato antigo (booleano) e o novo (objeto de 6 flags)
+// normaliza o valor salvo de um tópico: aceita o formato antigo (booleano) e o novo (objeto de flags)
 function editalCell(raw) {
   if (raw && typeof raw === "object") return raw;
   if (raw === true) return { t: true, l: true, q: true }; // dado antigo "concluído" → vira estudo completo
   return {};
 }
-// um tópico conta como "estudado" quando Teoria + Lei Seca + Questões estão marcados
-function editalDone(cell) { return !!(cell.t && cell.l && cell.q); }
 const PRIORIDADES_KEY = "tjsc-prioridades:list";
 const ES_CHECK_KEY = "tjsc-es-checklist:list";
 const REGISTROS_KEY = "tjsc-registros:v1";
@@ -4443,8 +4432,6 @@ function App() {
   const [view, setView] = useState(() => readNav().view || "es-painel");
   const [openEdital, setOpenEdital] = useState(0);
   const [openMat, setOpenMat] = useState({});
-  const [openNote, setOpenNote] = useState(null); // chave do tópico com a caixinha de Observações aberta
-  const [noteDraft, setNoteDraft] = useState("");
   const [openTopic, setOpenTopic] = useState(null); // { editalId, key, label, materia } — página de notas do tópico
   const [openCaderno, setOpenCaderno] = useState(null); // { editalId, mi } — caderno com a matéria inteira anotada
   const [discNotas, setDiscNotas] = useState([]);       // caixinhas do Caderno de Discursivas
@@ -5172,33 +5159,6 @@ function App() {
     if (!loaded) return;
     try { localStorage.setItem(NAV_KEY, JSON.stringify({ view, openTopic, openCaderno, matAberta })); } catch {}
   }, [loaded, view, openTopic, openCaderno, matAberta]);
-
-  // marca/desmarca UMA caixinha (Teoria, Lei Seca, Questões, 1ª/2ª/3ª revisão) de um tópico
-  const toggleEditalCell = async (editalId, pathKey, field) => {
-    const cur = editaisData[editalId] || {};
-    const cell = editalCell(cur[pathKey]);
-    const nextCell = { ...cell, [field]: !cell[field] };
-    const next = { ...cur, [pathKey]: nextCell };
-    setEditaisData((p) => ({ ...p, [editalId]: next }));
-    try {
-      await window.storage.set(EDITAIS_KEY_PREFIX + editalId, JSON.stringify(next));
-    } catch {}
-  };
-
-  // salva (ou limpa) a Observação de um tópico do edital
-  const saveEditalNote = async (editalId, pathKey, text) => {
-    const t = (text || "").trim();
-    const cur = editaisData[editalId] || {};
-    const cell = editalCell(cur[pathKey]);
-    const nextCell = { ...cell };
-    if (t) nextCell.obs = t; else delete nextCell.obs;
-    const next = { ...cur, [pathKey]: nextCell };
-    setEditaisData((p) => ({ ...p, [editalId]: next }));
-    try {
-      await window.storage.set(EDITAIS_KEY_PREFIX + editalId, JSON.stringify(next));
-    } catch {}
-    setOpenNote(null);
-  };
 
   // salva as caixinhas de notas (rich text) de um tópico do edital
   const saveEditalNotes = async (editalId, pathKey, notas) => {
@@ -6016,18 +5976,6 @@ function App() {
         .edital-table { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
         .ed-head { display: flex; align-items: flex-end; gap: 12px; padding: 12px 16px 10px; background: var(--surface); border-bottom: 1px solid var(--line-2); }
         .ed-head-topic { font-size: 11px; font-weight: 700; letter-spacing: .8px; color: var(--muted); text-transform: uppercase; flex: 1; }
-        .ed-checks { display: flex; align-items: center; flex-shrink: 0; }
-        .ed-head .ed-checks { align-items: flex-end; }
-        .ed-grp { display: flex; align-items: center; }
-        .ed-grp.col { flex-direction: column; align-items: stretch; }
-        .ed-grp-title { font-size: 10px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--gold); text-align: center; margin-bottom: 5px; }
-        .ed-cols { display: flex; }
-        .ed-col { display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-        .ed-col.est { width: 58px; }
-        .ed-col.rev { width: 34px; }
-        .ed-collabel { font-size: 10.5px; color: var(--faint); font-weight: 600; text-align: center; line-height: 1.15; }
-        .ed-vdiv { width: 1px; align-self: stretch; background: var(--line-2); margin: 0 9px; }
-        .ed-vdiv.tall { min-height: 32px; }
         .ed-materia + .ed-materia .ed-band, .ed-head + .ed-materia .ed-band { border-top: 1px solid var(--line); }
         .ed-band { width: 100%; display: flex; align-items: center; gap: 10px; padding: 11px 16px; background: var(--surface-2);
           border: none; border-left: 3px solid var(--coral); cursor: pointer; font: inherit; text-align: left; }
@@ -6050,39 +5998,13 @@ function App() {
         .ed-topic { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; font-size: 13px; line-height: 1.4; }
         .ed-row.d1 .ed-topic { padding-left: 22px; }
         .ed-row.d2 .ed-topic { padding-left: 44px; }
-        .ed-row.done .edital-txt { color: var(--muted); }
-        .ed-check { width: 17px; height: 17px; margin: 0; }
         .edital-n { color: var(--gold); font-weight: 700; flex-shrink: 0; min-width: 22px; }
         .edital-txt { font-weight: 400; }
         .edital-txt.b { font-weight: 650; }
-        /* coluna e caixinha de Observações */
-        .ed-col.note { width: 34px; }
-        .ed-note-btn { width: 24px; height: 24px; border-radius: 7px; border: 1px solid var(--line-2);
-          background: var(--surface); color: var(--faint); font-size: 13px; line-height: 1; cursor: pointer;
-          display: flex; align-items: center; justify-content: center; transition: all .13s; }
-        .ed-note-btn:hover { border-color: var(--gold); color: var(--gold); }
-        .ed-note-btn.has { background: var(--gold); border-color: var(--gold); color: var(--on-accent); }
-        .ed-note-btn.open { border-color: var(--gold); color: var(--gold); }
-        .ed-obs-flag { color: var(--gold); font-size: 11px; flex-shrink: 0; }
         .ed-nota-badge { display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700;
           min-width: 20px; padding: 1px 7px; border-radius: 99px; background: var(--green-bg); color: var(--green); flex-shrink: 0; }
         .ed-row.has-notas { background: var(--green-bg); box-shadow: inset 3px 0 0 var(--green); }
         .ed-row.has-notas:hover { filter: brightness(1.03); }
-        .ed-row.has-obs { background: rgba(240,200,90,.10); border-left: 3px solid var(--gold); }
-        .ed-row.has-obs:hover { background: rgba(240,200,90,.16); }
-        .ed-note-edit { padding: 4px 16px 12px 40px; border-top: 1px solid var(--line); background: rgba(240,200,90,.06); }
-        .ed-note-area { width: 100%; min-height: 66px; resize: vertical; box-sizing: border-box; font: inherit; font-size: 13px;
-          line-height: 1.45; color: var(--text); background: var(--surface); border: 1px solid var(--line-2); border-radius: 9px; padding: 9px 11px; }
-        .ed-note-area:focus { outline: none; border-color: var(--gold); }
-        .ed-note-actions { display: flex; gap: 8px; margin-top: 8px; }
-        .ed-note-save { cursor: pointer; border: none; border-radius: 8px; padding: 6px 16px; font: inherit; font-size: 12.5px;
-          font-weight: 700; background: var(--gold); color: var(--on-accent); }
-        .ed-note-save:hover { filter: brightness(1.06); }
-        .ed-note-cancel, .ed-note-clear { cursor: pointer; border: 1px solid var(--line-2); border-radius: 8px; padding: 6px 14px;
-          font: inherit; font-size: 12.5px; font-weight: 600; background: transparent; color: var(--muted); }
-        .ed-note-cancel:hover { border-color: var(--muted); color: var(--text); }
-        .ed-note-clear { color: var(--coral); border-color: transparent; }
-        .ed-note-clear:hover { border-color: var(--coral); }
         /* nome do tópico clicável (edital TJSC) */
         .edital-txt-btn { border: none; background: transparent; padding: 0; margin: 0; text-align: left; cursor: pointer; color: inherit; font: inherit; }
         .edital-txt-btn:hover .edital-txt { color: var(--gold); text-decoration: underline; text-underline-offset: 2px; }
@@ -6198,14 +6120,7 @@ function App() {
           border-radius: 14px; padding: 14px; width: 100%; cursor: pointer; font-size: 14px; font-weight: 500; font-family: inherit; }
         .tn-add:hover { border-color: var(--gold); color: var(--gold); }
         @media (max-width: 720px) {
-          .ed-col.est { width: 40px; }
-          .ed-col.rev { width: 27px; }
-          .ed-col.note { width: 28px; }
-          .ed-note-btn { width: 22px; height: 22px; }
-          .ed-collabel { font-size: 9px; }
-          .ed-vdiv { margin: 0 5px; }
           .ed-head, .ed-band, .ed-row { padding-left: 10px; padding-right: 10px; gap: 8px; }
-          .ed-note-edit { padding-left: 12px; padding-right: 10px; }
           .ed-caderno-row { padding-left: 10px; padding-right: 10px; }
           .ed-caderno-dica { display: none; }
         }
@@ -6883,19 +6798,9 @@ function App() {
                     const bold = depth === 0 || hasKids;
                     const cell = editalCell(v[key]);
                     const hasNotas = !!(cell.notas && cell.notas.length);
-                    const hasObs = !!(cell.obs && cell.obs.trim());
-                    const flag = RICH ? (hasNotas || hasObs) : hasObs;
-                    const noteKey = `${ed.id}|${key}`;
-                    const noteOpen = openNote === noteKey;
-                    const check = (c) => (
-                      <span key={c.f} className={`ed-col ${c.rev ? "rev" : "est"}`}>
-                        <input type="checkbox" className="ed-check" checked={!!cell[c.f]}
-                          onChange={() => toggleEditalCell(ed.id, key, c.f)} aria-label={c.full || c.lbl} title={c.full || c.lbl} />
-                      </span>
-                    );
                     return (
                       <React.Fragment key={key}>
-                        <div className={`ed-row d${depth}${editalDone(cell) ? " done" : ""}${RICH && hasNotas ? " has-notas" : flag ? " has-obs" : ""}`}>
+                        <div className={`ed-row d${depth}${RICH && hasNotas ? " has-notas" : ""}`}>
                           <div className="ed-topic">
                             {node.n && <span className="edital-n">{node.n}</span>}
                             {RICH ? (
@@ -6907,46 +6812,9 @@ function App() {
                             )}
                             {RICH && hasNotas ? (
                               <span className="ed-nota-badge" title={`${cell.notas.length} caixinha(s) de nota`}>✎</span>
-                            ) : flag ? (
-                              <span className="ed-obs-flag" title={RICH ? "Este tópico tem notas" : "Este tópico tem observação"}>✎</span>
                             ) : null}
                           </div>
-                          <div className="ed-checks">
-                            <div className="ed-grp">{ED_ESTUDO.map((c) => check(c))}</div>
-                            <span className="ed-vdiv" />
-                            <div className="ed-grp">{ED_REV.map((c) => check({ ...c, rev: true }))}</div>
-                            <span className="ed-vdiv" />
-                            <span className="ed-col note">
-                              <button
-                                type="button"
-                                className={`ed-note-btn${flag ? " has" : ""}${noteOpen ? " open" : ""}`}
-                                title={RICH ? "Abrir minhas notas deste tópico" : hasObs ? "Ver/editar observação" : "Adicionar observação"}
-                                aria-label="Observações"
-                                onClick={() => {
-                                  if (RICH) { openTopicPage(ed, key, node); return; }
-                                  if (noteOpen) { setOpenNote(null); }
-                                  else { setNoteDraft(cell.obs || ""); setOpenNote(noteKey); }
-                                }}
-                              >✎</button>
-                            </span>
-                          </div>
                         </div>
-                        {!RICH && noteOpen && (
-                          <div className="ed-note-edit">
-                            <textarea
-                              className="ed-note-area"
-                              value={noteDraft}
-                              autoFocus
-                              placeholder="Escreva sua observação sobre este tópico…"
-                              onChange={(e) => setNoteDraft(e.target.value)}
-                            />
-                            <div className="ed-note-actions">
-                              <button type="button" className="ed-note-save" onClick={() => saveEditalNote(ed.id, key, noteDraft)}>Salvar</button>
-                              <button type="button" className="ed-note-cancel" onClick={() => setOpenNote(null)}>Cancelar</button>
-                              {hasObs && <button type="button" className="ed-note-clear" onClick={() => saveEditalNote(ed.id, key, "")}>Apagar</button>}
-                            </div>
-                          </div>
-                        )}
                         {kids.map((c, ci) => renderNode(c, `${key}.${ci}`, depth + 1))}
                       </React.Fragment>
                     );
@@ -6955,30 +6823,14 @@ function App() {
                     <div className="edital-table">
                       <div className="ed-head">
                         <div className="ed-topic ed-head-topic">Tópico</div>
-                        <div className="ed-checks">
-                          <div className="ed-grp col">
-                            <div className="ed-grp-title">Estudo</div>
-                            <div className="ed-cols">{ED_ESTUDO.map((c) => <span key={c.f} className="ed-col est ed-collabel" title={c.full || c.lbl}>{c.lbl}</span>)}</div>
-                          </div>
-                          <span className="ed-vdiv tall" />
-                          <div className="ed-grp col">
-                            <div className="ed-grp-title">Revisões</div>
-                            <div className="ed-cols">{ED_REV.map((c) => <span key={c.f} className="ed-col rev ed-collabel">{c.lbl}</span>)}</div>
-                          </div>
-                          <span className="ed-vdiv tall" />
-                          <div className="ed-grp col">
-                            <div className="ed-grp-title">Obs.</div>
-                            <div className="ed-cols"><span className="ed-col note ed-collabel">nota</span></div>
-                          </div>
-                        </div>
                       </div>
                       {matOrder.map(({ m, mi }, idx) => {
-                        let done = 0, total = 0;
-                        const countNode = (node, key) => {
-                          total++; if (editalDone(editalCell(v[key]))) done++;
-                          (node.subs || []).forEach((c, ci) => countNode(c, `${key}.${ci}`));
+                        let total = 0;
+                        const countNode = (node) => {
+                          total++;
+                          (node.subs || []).forEach((c) => countNode(c));
                         };
-                        m.itens.forEach((it, ii) => countNode(it, `${mi}.${ii}`));
+                        m.itens.forEach((it) => countNode(it));
                         const matKey = `${ed.id}:${mi}`;
                         const matOpen = !!openMat[matKey];
                         const bl = BLOCOS ? BLOCOS[m.nome] : null;
@@ -6991,7 +6843,7 @@ function App() {
                               <button className={`ed-band${matOpen ? " open" : ""}`} onClick={() => setOpenMat((p) => ({ ...p, [matKey]: !p[matKey] }))}>
                                 <span className="mat-arrow">{matOpen ? "▾" : "▸"}</span>
                                 <h3>{m.nome}</h3>
-                                <span className="mono edital-count">{done}/{total}</span>
+                                <span className="mono edital-count">{total}</span>
                               </button>
                               {matOpen && (() => {
                                 // quantas anotações esta matéria já tem (pra mostrar no botão)
