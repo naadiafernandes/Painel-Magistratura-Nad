@@ -1090,6 +1090,38 @@ const MATERIAS_SIM = SECTIONS.flatMap((s) => s.subjects.map((x) => ({ id: x.id, 
 const SUBJ_BY_ID = {};
 SECTIONS.forEach((sec) => sec.subjects.forEach((s) => { SUBJ_BY_ID[s.id] = s; }));
 
+// ---------- Matérias criadas pela Nadia (além das da grade) ----------
+const MAT_EXTRA_KEY = "tjsc-materias-extra:v1";
+let MATS_EXTRA = [];  // [{ id, nome, b }] — b = 1|2|3 (bloco do edital) ou 9 (Outras)
+// avisa as telas abertas que a lista de matérias mudou
+function matsExtraBump() { try { window.dispatchEvent(new Event("mats-extra")); } catch {} }
+function matsExtraSave(arr) {
+  MATS_EXTRA = arr;
+  try { window.storage.set(MAT_EXTRA_KEY, JSON.stringify(arr)); } catch {}
+  matsExtraBump();
+}
+async function matsExtraLoad() {
+  let arr = null;
+  try { const r = await window.storage.get(MAT_EXTRA_KEY); arr = r ? JSON.parse(r.value) : null; } catch { arr = null; }
+  MATS_EXTRA = Array.isArray(arr) ? arr : [];
+  matsExtraBump();
+}
+// redesenha a tela quando ela cria ou apaga uma matéria
+function useMatsExtra() {
+  const [, bump] = useState(0);
+  useEffect(() => {
+    const on = () => bump((n) => n + 1);
+    window.addEventListener("mats-extra", on);
+    return () => window.removeEventListener("mats-extra", on);
+  }, []);
+  return MATS_EXTRA;
+}
+// todas as matérias (as da grade + as dela), em ordem alfabética
+function todasMaterias() {
+  const base = SECTIONS.flatMap((s) => s.subjects.map((x) => x.name));
+  return [...new Set([...base, ...MATS_EXTRA.map((m) => m.nome)])].sort((a, b) => a.localeCompare(b, "pt"));
+}
+
 // duração de uma aula (string tipo "27min" ou "16:05") -> minutos inteiros
 function cursoDurMin(d) {
   if (!d || typeof d !== "string") return 0;
@@ -2828,7 +2860,8 @@ function CronoClock({ crono }) {
 function CronometroView({ crono, onPlay, onPause, onReset, onMode, onField, onPomoCfg, onSalvar, onBack }) {
   const c = crono;
   const now = useTickNow(crono.running);
-  const materias = [...new Set(SECTIONS.flatMap((s) => s.subjects.map((x) => x.name)))].sort();
+  useMatsExtra();
+  const materias = todasMaterias();
   const phaseMs = cronoPhaseMs(c, now);
   const estudoMs = cronoStudiedMs(c, now);
   const estudoMin = Math.round(estudoMs / 60000);
@@ -2929,7 +2962,8 @@ function CronometroView({ crono, onPlay, onPause, onReset, onMode, onField, onPo
 function RegistroModal({ inicial, onClose, onSave }) {
   const init = inicial || {};
   const editando = !!init.id;
-  const materias = [...new Set(SECTIONS.flatMap((s) => s.subjects.map((x) => x.name)))].sort();
+  useMatsExtra();
+  const materias = todasMaterias();
   const localISO = (ts) => { const d = new Date(ts); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
   const whenTs = (ts) => {
     if (!ts) return { q: "hoje", d: "" };
@@ -3585,15 +3619,17 @@ function RegRow({ r, onEdit, onDelete }) {
 
 // ===== ESTUDEI: Matérias =====
 function MateriasGrid({ registros, onOpen, onBack }) {
-  const todas = [...new Set(SECTIONS.flatMap((s) => s.subjects.map((x) => x.name)))].sort();
+  const extras = useMatsExtra();
+  const [nova, setNova] = useState(null);   // janelinha de "nova matéria" aberta
+  const todas = todasMaterias();
   const agg = {};
   for (const r of registros) {
     const k = r.materia; if (!k) continue;
     if (!agg[k]) agg[k] = { tempo: 0, acertos: 0, erros: 0, n: 0 };
     agg[k].tempo += r.tempo || 0; agg[k].acertos += r.acertos || 0; agg[k].erros += r.erros || 0; agg[k].n += 1;
   }
-  const extras = Object.keys(agg).filter((m) => !todas.includes(m)).sort();
-  const lista = [...todas, ...extras];
+  const soltas = Object.keys(agg).filter((m) => !todas.includes(m)).sort();
+  const lista = [...todas, ...soltas];
   // cada matéria: em qual bloco fica (da grade) e qual o peso dela (do edital, pra ordenar)
   const BLOCO_NUM = { "Bloco I": 1, "Bloco II": 2, "Bloco III": 3 };
   const info = {};
@@ -3602,18 +3638,40 @@ function MateriasGrid({ registros, onOpen, onBack }) {
     const imp = (TJSC_BLOCOS[x.name.toUpperCase()] || {}).imp;
     info[x.name] = { b: BLOCO_NUM[x.bloco] || 9, imp: imp == null ? -1 : imp };
   }
+  // as matérias que ela mesma criou entram no bloco que ela escolheu
+  for (const m of extras) { if (!info[m.nome]) info[m.nome] = { b: m.b || 9, imp: -1, extra: m }; }
+  const criarMateria = () => {
+    const nome = ((nova && nova.nome) || "").trim();
+    if (!nome) return;
+    if (!lista.some((m) => diaNorm(m) === diaNorm(nome))) {
+      matsExtraSave([...extras, { id: Date.now(), nome, b: (nova && nova.b) || 9 }]);
+    }
+    setNova(null);
+  };
+  const apagarMateria = (m, ex) => {
+    const temReg = !!agg[m];
+    const aviso = temReg
+      ? `Tirar "${m}" da lista? O que você já registrou nela continua guardado.`
+      : `Tirar "${m}" da lista de matérias?`;
+    if (typeof window !== "undefined" && !window.confirm(aviso)) return;
+    matsExtraSave(extras.filter((x) => x.id !== ex.id));
+  };
   const card = (m) => {
     const a = agg[m]; const q = a ? a.acertos + a.erros : 0;
     const perc = q ? Math.round((a.acertos / q) * 100) : null;
+    const ex = info[m] && info[m].extra;
     return (
-      <button className="mat-card" key={m} onClick={() => onOpen(m)}>
-        <div className="mat-nome">{m}</div>
-        <div className="mat-stats">
-          <span>{a ? fmtTempo(a.tempo) : "sem estudo"}</span>
-          {a ? <span>{a.n} registro{a.n > 1 ? "s" : ""}</span> : null}
-          {perc != null ? <span className="mat-perc">{perc}%</span> : null}
-        </div>
-      </button>
+      <div className={`mat-card-wrap${ex ? " minha" : ""}`} key={m}>
+        <button className="mat-card" onClick={() => onOpen(m)}>
+          <div className="mat-nome">{m}</div>
+          <div className="mat-stats">
+            <span>{a ? fmtTempo(a.tempo) : "sem estudo"}</span>
+            {a ? <span>{a.n} registro{a.n > 1 ? "s" : ""}</span> : null}
+            {perc != null ? <span className="mat-perc">{perc}%</span> : null}
+          </div>
+        </button>
+        {ex ? <button className="mat-del" title="Tirar da lista" onClick={() => apagarMateria(m, ex)}>×</button> : null}
+      </div>
     );
   };
   const cols = [1, 2, 3].map((bn) => ({
@@ -3628,6 +3686,7 @@ function MateriasGrid({ registros, onOpen, onBack }) {
       <p className="eyebrow">ESTUDEI</p>
       <h1 className="serif" style={{ marginBottom: 10 }}>Matérias</h1>
       <p className="es-sub">Cada coluna é um bloco do edital, da matéria que mais pesa pra que menos pesa. Toque numa pra ver tudo que você registrou nela.</p>
+      <button className="mat-add" onClick={() => setNova({ nome: "", b: 9 })}>+ Nova matéria</button>
       <div className="mat-cols">
         {cols.map((c) => (
           <div className="mat-col" key={c.b}>
@@ -3641,6 +3700,31 @@ function MateriasGrid({ registros, onOpen, onBack }) {
           <div className="mat-col-head outras">Outras</div>
           <div className="mat-grid">{outras.map((m) => card(m))}</div>
         </>
+      )}
+      {nova && (
+        <div className="diario-tagmodal-bg" onClick={() => setNova(null)}>
+          <div className="diario-tagmodal" onClick={(ev) => ev.stopPropagation()}>
+            <div className="diario-tagmodal-title">Nova matéria</div>
+            <input
+              className="diario-tagmodal-input"
+              autoFocus
+              placeholder="Ex.: Direito Previdenciário"
+              value={nova.nome}
+              onChange={(ev) => setNova({ ...nova, nome: ev.target.value })}
+              onKeyDown={(ev) => { if (ev.key === "Enter") criarMateria(); }}
+            />
+            <div className="mat-blocos">
+              {[1, 2, 3, 9].map((b) => (
+                <button key={b} className={`mat-bloco-op${nova.b === b ? " on" : ""}`}
+                  onClick={() => setNova({ ...nova, b })}>{BLOCO_LBL[b] || "Outras"}</button>
+              ))}
+            </div>
+            <div className="diario-tagmodal-actions">
+              <button className="diario-tagmodal-cancel" onClick={() => setNova(null)}>Cancelar</button>
+              <button className="diario-tagmodal-ok" onClick={criarMateria} disabled={!nova.nome.trim()}>Criar matéria</button>
+            </div>
+          </div>
+        </div>
       )}
     </section>
   );
@@ -4319,6 +4403,7 @@ export default function App() {
   useEffect(() => {
     (async () => {
       const next = {};
+      await matsExtraLoad();
       for (const section of SECTIONS) {
         for (const s of section.subjects) {
           for (const dim of DIM_ORDER) {
@@ -6311,6 +6396,19 @@ export default function App() {
         .mat-nome { font-size: 14.5px; font-weight: 700; color: var(--coral); }
         .mat-stats { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; font-size: 12.5px; color: var(--muted); }
         .mat-perc { color: var(--gold2); font-weight: 700; }
+        .mat-card-wrap { position: relative; display: flex; }
+        .mat-card-wrap .mat-card { flex: 1; }
+        .mat-card-wrap.minha .mat-card { padding-right: 36px; }
+        .mat-del { position: absolute; top: 9px; right: 9px; cursor: pointer; background: transparent; border: none;
+          color: var(--faint); font-size: 18px; line-height: 1; padding: 2px 5px; border-radius: 7px; }
+        .mat-del:hover { color: var(--coral); background: var(--surface-2); }
+        .mat-add { display: inline-block; margin: 6px 0 2px; cursor: pointer; background: transparent; color: var(--gold2);
+          border: 1px dashed var(--line-2); border-radius: 12px; padding: 9px 15px; font: inherit; font-size: 13px; font-weight: 650; }
+        .mat-add:hover { border-color: var(--gold); color: var(--gold); }
+        .mat-blocos { display: flex; gap: 8px; flex-wrap: wrap; }
+        .mat-bloco-op { cursor: pointer; background: var(--surface-2); color: var(--muted); border: 1px solid var(--line);
+          border-radius: 999px; padding: 6px 12px; font: inherit; font-size: 12.5px; }
+        .mat-bloco-op.on { border-color: var(--gold); color: var(--gold); }
         .mat-topcards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 4px; }
         .mat-topcards .panel { margin-top: 0; }
         .mat-big { font-size: 26px; }
