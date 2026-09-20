@@ -59,7 +59,7 @@
 const { useState, useEffect, useRef } = React;
 
 /* versão do app — bater igual ao conteúdo de version.txt; ao trocar as duas, aparece o aviso "Atualizar" */
-const APP_VERSION = '2026-08-27-1';
+const APP_VERSION = '2026-09-20-1';
 
 // cor do texto que contrasta com um fundo sólido (claro -> texto escuro; escuro -> branco)
 const textOn = hex => { const c = (hex||'#000').replace('#',''); const r=parseInt(c.slice(0,2),16)||0, g=parseInt(c.slice(2,4),16)||0, b=parseInt(c.slice(4,6),16)||0; return (0.299*r+0.587*g+0.114*b)/255 > 0.62 ? '#231a05' : '#ffffff'; };
@@ -179,53 +179,6 @@ function normNote(n){ if (Array.isArray(n.entries)) return n; const e = []; if (
 function loadNotes(){ try { return (JSON.parse(localStorage.getItem(NKEY) || '[]')).map(normNote); } catch(e){ return []; } }
 function saveNotes(list){ localStorage.setItem(NKEY, JSON.stringify(list)); }
 
-/* ---------- audiências (mesmo molde das notas/processos, página própria) ---------- */
-const AKEY = 'agenda-audiencias';
-const ACATKEY = 'agenda-audcats';
-const DEFAULT_AUDCATS = [
-  { key:'verde',    nome:'Verde',    cor:'#10b981' },
-  { key:'amarelo',  nome:'Amarelo',  cor:'#eab308' },
-  { key:'vermelho', nome:'Vermelho', cor:'#ef4444' },
-];
-function loadAudCats(){ try { const s = JSON.parse(localStorage.getItem(ACATKEY) || 'null'); return (s && s.length) ? s : DEFAULT_AUDCATS.slice(); } catch(e){ return DEFAULT_AUDCATS.slice(); } }
-function saveAudCats(l){ localStorage.setItem(ACATKEY, JSON.stringify(l)); }
-function loadAudiencias(){ try { return (JSON.parse(localStorage.getItem(AKEY) || '[]')).map(normNote); } catch(e){ return []; } }
-function saveAudiencias(list){ localStorage.setItem(AKEY, JSON.stringify(list)); }
-
-/* ---------- Roteiros (sub-item de Audiências): caixinhas de texto ricas, igual às discursivas do MagisNAD ---------- */
-const RKEY = 'agenda-roteiros';
-const RN_UID = () => 'b' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-const RN_FORE = ['#e68a8a', '#7fa8e6', '#7bd39a'];
-const RN_BACK = ['none', '#5a3d3d', '#3d4a5a'];
-const RN_CORES_KEY = 'agenda-roteiro-cores';
-const RN_TAGS = [['#a9c4ef','127,168,230'], ['#e6c060','230,192,96'], ['#7bd39a','123,211,154'], ['#e68a8a','230,138,138'], ['#c79bff','199,155,255'], ['#5fbfc0','95,191,192']];
-function loadRoteiros(){ try { const s = JSON.parse(localStorage.getItem(RKEY) || 'null'); return (s && s.length) ? s : [{ id:RN_UID(), html:'', tags:[] }]; } catch(e){ return [{ id:RN_UID(), html:'', tags:[] }]; } }
-function saveRoteiros(list){ localStorage.setItem(RKEY, JSON.stringify(list)); }
-function loadRoteiroCores(){ try { const s = JSON.parse(localStorage.getItem(RN_CORES_KEY) || 'null'); return s || { fore:RN_FORE, back:RN_BACK }; } catch(e){ return { fore:RN_FORE, back:RN_BACK }; } }
-function saveRoteiroCores(v){ localStorage.setItem(RN_CORES_KEY, JSON.stringify(v)); }
-// remove a linha em branco "presa" logo antes de uma tabela (quando ela só quer a tabela)
-function rnLimpa(el){
-  if (!el) return;
-  const branco = n => n && ((n.nodeType===3 && !n.textContent.trim()) || (n.nodeType===1 && n.tagName!=='TABLE' && n.tagName!=='HR' && n.tagName!=='IMG' && !n.textContent.trim() && !n.querySelector('img')));
-  while (el.firstChild && branco(el.firstChild)){
-    const nx = el.firstChild.nextSibling;
-    if (nx && nx.nodeType===1 && nx.tagName==='TABLE') el.removeChild(el.firstChild); else break;
-  }
-}
-// "-->" vira "→" assim que ela digita o ">" (não age durante composição de acento)
-function rnAutoSeta(e){
-  if (e.isComposing) return;
-  const sel = document.getSelection(); if (!sel || !sel.rangeCount) return;
-  const r = sel.getRangeAt(0); const node = r.startContainer;
-  if (node.nodeType !== 3) return;
-  const off = r.startOffset, txt = node.textContent;
-  if (off >= 3 && txt.slice(off-3, off) === '-->'){
-    node.textContent = txt.slice(0, off-3) + '→' + txt.slice(off);
-    const nr = document.createRange(); nr.setStart(node, off-2); nr.collapse(true);
-    sel.removeAllRanges(); sel.addRange(nr);
-  }
-}
-
 // contador de valor (embaixo de Processos): número puro = define; +/- = soma/subtrai
 const VKEY = 'agenda-valor';
 function loadValor(){ const v = parseFloat(localStorage.getItem(VKEY)); return isNaN(v) ? 0 : v; }
@@ -262,20 +215,11 @@ function App(){
   const [catsOpen, setCatsOpen] = useState(false);
   const [noteView, setNoteView] = useState(null);   // nota aberta so pra ver
   const [noteEdit, setNoteEdit] = useState(null);    // nota em edicao/criacao
-  const [audiencias, setAudiencias] = useState(loadAudiencias);
-  const [audCats, setAudCats] = useState(loadAudCats);
-  const [audCatsOpen, setAudCatsOpen] = useState(false);
-  const [audView, setAudView] = useState(null);      // audiência aberta so pra ver
-  const [audEdit, setAudEdit] = useState(null);      // audiência em edicao/criacao
-  const [roteiros, setRoteiros] = useState(loadRoteiros);
   const toggleNav = () => setNavHidden(v => { const n = !v; localStorage.setItem('agenda-nav', n ? 'hide' : 'show'); return n; });
   const first = useRef(true);
   const firstT = useRef(true);
   const firstN = useRef(true);
   const firstC = useRef(true);
-  const firstA = useRef(true);
-  const firstAC = useRef(true);
-  const firstR = useRef(true);
 
   const tipos = userTipos;
   const tipoMap = mapa(tipos);
@@ -288,9 +232,6 @@ function App(){
   useEffect(() => { if (firstC.current){ firstC.current = false; return; } saveNoteCats(noteCats); }, [noteCats]);
   const firstV = useRef(true);
   useEffect(() => { if (firstV.current){ firstV.current = false; return; } saveValor(valor); }, [valor]);
-  useEffect(() => { if (firstA.current){ firstA.current = false; return; } saveAudiencias(audiencias); }, [audiencias]);
-  useEffect(() => { if (firstAC.current){ firstAC.current = false; return; } saveAudCats(audCats); }, [audCats]);
-  useEffect(() => { if (firstR.current){ firstR.current = false; return; } saveRoteiros(roteiros); }, [roteiros]);
   // avisa quando há versão nova publicada (sem recarregar na mão)
   const [updateReady, setUpdateReady] = useState(false);
   useEffect(() => {
@@ -310,7 +251,7 @@ function App(){
   }, []);
   // recarrega quando a sincronizacao trouxer mudanca de outro aparelho
   useEffect(() => {
-    const h = () => { setEvents(loadEvents()); setUserTipos(loadUserTipos()); setNotes(loadNotes()); setNoteCats(loadNoteCats()); setValor(loadValor()); setAudiencias(loadAudiencias()); setAudCats(loadAudCats()); setRoteiros(loadRoteiros()); };
+    const h = () => { setEvents(loadEvents()); setUserTipos(loadUserTipos()); setNotes(loadNotes()); setNoteCats(loadNoteCats()); setValor(loadValor()); };
     window.addEventListener('agenda-pulled', h);
     return () => window.removeEventListener('agenda-pulled', h);
   }, []);
@@ -344,27 +285,10 @@ function App(){
     setNoteView(v => v && v.id === id ? { ...v, arquivado: val } : v);
   };
 
-  const upsertAud = n => setAudiencias(list => { const i = list.findIndex(x => x.id === n.id); if (i === -1) return [...list, n]; const c = list.slice(); c[i] = n; return c; });
-  const removeAud = id => setAudiencias(list => list.filter(x => x.id !== id));
-  const openNewAud = () => setAudEdit({ id:newId(), num:'', color:(audCats[0] && audCats[0].key) || 'verde', entries:[], _new:true });
-  const addAudEntry = (id, text) => {
-    const entry = { id:newId(), date:todayStr(), text };
-    setAudiencias(list => list.map(x => x.id === id ? { ...x, entries:[entry, ...(x.entries||[])] } : x));
-    setAudView(v => v && v.id === id ? { ...v, entries:[entry, ...(v.entries||[])] } : v);
-  };
-  const delAudEntry = (id, eid) => {
-    setAudiencias(list => list.map(x => x.id === id ? { ...x, entries:(x.entries||[]).filter(e => e.id !== eid) } : x));
-    setAudView(v => v && v.id === id ? { ...v, entries:(v.entries||[]).filter(e => e.id !== eid) } : v);
-  };
-  const setAudArchived = (id, val) => {
-    setAudiencias(list => list.map(x => x.id === id ? { ...x, arquivado: val } : x));
-    setAudView(v => v && v.id === id ? { ...v, arquivado: val } : v);
-  };
-
   const openNew = (dateStr) => setEditing({ id:newId(), title:'', type:'compromisso', date: dateStr || todayStr(), time:'', note:'', repeat:{ freq:'none', interval:1, unit:'week' }, _new:true });
 
   const irPara = (dateStr) => { setRefStr(dateStr); setView('mes'); };
-  const onNewGlobal = () => { if (view === 'notas') openNewNote(); else if (view === 'audiencias') openNewAud(); else if (view === 'roteiros') {} else openNew(); };
+  const onNewGlobal = () => { if (view === 'notas') openNewNote(); else openNew(); };
 
   return (
     <div style={{minHeight:'100vh'}}>
@@ -373,17 +297,17 @@ function App(){
         <Sidebar view={view} setView={setView} onNew={onNewGlobal} tipos={tipos} filtroTipo={filtroTipo} onFiltro={toggleFiltro} onEditTipo={t=>setTipoEdit(t)} onNewTipo={()=>setTipoEdit({ _new:true, nome:'', cor:CORES_TIPO[4] })} onDelTipo={delTipo} />
         <main className="main">
           {navHidden && <CompactNav view={view} setView={setView} onNew={onNewGlobal} />}
-          {view !== 'notas' && view !== 'audiencias' && view !== 'roteiros' && filtroTipo && tipoMap[filtroTipo] && (
+          {view !== 'notas' && filtroTipo && tipoMap[filtroTipo] && (
             <div className="filtro-bar"><span className="dot" style={{background:tipoMap[filtroTipo].cor}}></span>Mostrando só <b>{tipoMap[filtroTipo].nome}</b><button className="filtro-x" onClick={()=>setFiltroTipo(null)}>ver todos ×</button></div>
           )}
-          {view !== 'notas' && view !== 'audiencias' && view !== 'roteiros' && (
+          {view !== 'notas' && (
             <div className="buscaWrap agbusca">
               <span className="buscaIco">⌕</span>
               <input className="busca" placeholder="Buscar na agenda…" value={busca} onChange={e=>setBusca(e.target.value)} autoCapitalize="off" autoCorrect="off" spellCheck="false" />
               {busca && <button className="buscaX" onClick={()=>setBusca('')} aria-label="Limpar">×</button>}
             </div>
           )}
-          {view !== 'notas' && view !== 'audiencias' && view !== 'roteiros' && busca.trim()
+          {view !== 'notas' && busca.trim()
             ? <SearchView query={busca} events={eventosVista} tipoMap={tipoMap} onOpen={setViewing} />
             : <React.Fragment>
                 {view === 'mes'   && <MonthView refStr={refStr} setRefStr={setRefStr} events={eventosVista} tipoMap={tipoMap} onNew={openNew} onOpen={setViewing} onOpenDay={setDayView} />}
@@ -391,8 +315,6 @@ function App(){
                 {view === 'ano'   && <YearView  refStr={refStr} setRefStr={setRefStr} events={eventosVista} tipoMap={tipoMap} onPick={irPara} />}
                 {view === 'lista' && <AgendaView events={eventosVista} tipoMap={tipoMap} onOpen={setViewing} onNew={()=>openNew()} />}
                 {view === 'notas' && <NotesView notes={notes} cats={noteCats} valor={valor} onValor={setValor} onOpen={setNoteView} onNew={openNewNote} onCats={()=>setCatsOpen(true)} />}
-                {view === 'audiencias' && <AudienciasView items={audiencias} cats={audCats} onOpen={setAudView} onNew={openNewAud} onCats={()=>setAudCatsOpen(true)} />}
-                {view === 'roteiros' && <RoteirosView initial={roteiros} onSave={setRoteiros} />}
               </React.Fragment>}
         </main>
       </div>
@@ -402,9 +324,6 @@ function App(){
       {noteView && <NoteView n={noteView} cats={noteCats} onClose={()=>setNoteView(null)} onEdit={()=>{ setNoteEdit(noteView); setNoteView(null); }} onDelete={id=>{ removeNote(id); setNoteView(null); }} onArchive={setArchived} onAddEntry={addEntry} onDelEntry={delEntry} />}
       {noteEdit && <NoteEditor n={noteEdit} cats={noteCats} onOpenCats={()=>setCatsOpen(true)} onClose={()=>setNoteEdit(null)} onSave={n=>{ upsertNote(n); setNoteEdit(null); }} onDelete={id=>{ removeNote(id); setNoteEdit(null); }} />}
       {catsOpen && <CatManager cats={noteCats} onSave={list=>setNoteCats(list)} onClose={()=>setCatsOpen(false)} />}
-      {audView && <AudienciaView n={audView} cats={audCats} onClose={()=>setAudView(null)} onEdit={()=>{ setAudEdit(audView); setAudView(null); }} onDelete={id=>{ removeAud(id); setAudView(null); }} onArchive={setAudArchived} onAddEntry={addAudEntry} onDelEntry={delAudEntry} />}
-      {audEdit && <AudienciaEditor n={audEdit} cats={audCats} onOpenCats={()=>setAudCatsOpen(true)} onClose={()=>setAudEdit(null)} onSave={n=>{ upsertAud(n); setAudEdit(null); }} onDelete={id=>{ removeAud(id); setAudEdit(null); }} />}
-      {audCatsOpen && <CatManager cats={audCats} onSave={list=>setAudCats(list)} onClose={()=>setAudCatsOpen(false)} title="Cores das audiências" subtitle="Renomeie, mude a cor ou crie novas. As audiências ficam agrupadas por elas." defaultCats={DEFAULT_AUDCATS} />}
       {tipoEdit && <TipoEditor tipo={tipoEdit} onClose={()=>setTipoEdit(null)} onSave={(nome,cor)=>{ if(tipoEdit._new) addTipo(nome,cor); else editTipo(tipoEdit.key,nome,cor); setTipoEdit(null); }} />}
       {syncOpen && <SyncModal onClose={()=>setSyncOpen(false)} />}
       {updateReady && (
@@ -421,15 +340,15 @@ function App(){
 
 /* ---------- menu lateral ---------- */
 function Sidebar({ view, setView, onNew, tipos, filtroTipo, onFiltro, onEditTipo, onNewTipo, onDelTipo }){
-  const item = (id, icon, label, sub) => (
-    <button className={'navitem'+(view===id?' on':'')+(sub?' subitem':'')} onClick={()=>setView(id)}>
+  const item = (id, icon, label) => (
+    <button className={'navitem'+(view===id?' on':'')} onClick={()=>setView(id)}>
       <span className="ico">{icon}</span>{label}
     </button>
   );
   return (
     <aside className="sidebar">
       <div className="brand">◷ AgendaNAD</div>
-      {view!=='roteiros' && <button className="btnNovo" onClick={onNew}>{view==='notas' ? '+ Nova nota' : view==='audiencias' ? '+ Nova audiência' : '+ Novo compromisso'}</button>}
+      <button className="btnNovo" onClick={onNew}>{view==='notas' ? '+ Nova nota' : '+ Novo compromisso'}</button>
       <div className="navgroup">Agenda</div>
       {item('mes','▦','Mês')}
       {item('semana','▤','Semana')}
@@ -437,10 +356,8 @@ function Sidebar({ view, setView, onNew, tipos, filtroTipo, onFiltro, onEditTipo
       {item('lista','☰','Lista')}
       <div className="navgroup">TJSC</div>
       {item('notas','❏','Processos')}
-      {item('audiencias','❐','Audiências')}
-      {item('roteiros','❦','Roteiros', true)}
-      {view!=='notas' && view!=='audiencias' && view!=='roteiros' && <div className="navgroup">Tipos <span className="navgroup-hint">toque pra filtrar</span></div>}
-      {view!=='notas' && view!=='audiencias' && view!=='roteiros' && tipos.map(t => (
+      {view!=='notas' && <div className="navgroup">Tipos <span className="navgroup-hint">toque pra filtrar</span></div>}
+      {view!=='notas' && tipos.map(t => (
         <div key={t.key} className={'legend'+(filtroTipo===t.key?' on':'')+(filtroTipo&&filtroTipo!==t.key?' dim':'')}>
           <button className="legend-main" onClick={()=>onFiltro(t.key)} title="Ver só este tipo no calendário">
             <span className="dot" style={{background:t.cor}}></span><span className="legend-nome">{t.nome}</span>
@@ -449,7 +366,7 @@ function Sidebar({ view, setView, onNew, tipos, filtroTipo, onFiltro, onEditTipo
           <button className="legend-x" title="Apagar tipo" onClick={()=>{ if(confirm('Apagar o tipo "'+t.nome+'"? Os compromissos já marcados com ele continuam na agenda.')) onDelTipo(t.key); }}>×</button>
         </div>
       ))}
-      {view!=='notas' && view!=='audiencias' && view!=='roteiros' && <button className="legend-add" onClick={onNewTipo}>+ novo tipo</button>}
+      {view!=='notas' && <button className="legend-add" onClick={onNewTipo}>+ novo tipo</button>}
     </aside>
   );
 }
@@ -459,9 +376,9 @@ function CompactNav({ view, setView, onNew }){
   const tab = (id,label) => <button className={'ctab'+(view===id?' on':'')} onClick={()=>setView(id)}>{label}</button>;
   return (
     <div className="compactnav">
-      {tab('mes','Mês')}{tab('semana','Semana')}{tab('ano','Ano')}{tab('lista','Lista')}{tab('notas','Processos')}{tab('audiencias','Audiências')}{tab('roteiros','Roteiros')}
+      {tab('mes','Mês')}{tab('semana','Semana')}{tab('ano','Ano')}{tab('lista','Lista')}{tab('notas','Processos')}
       <span style={{flex:1}}></span>
-      {view!=='roteiros' && <button className="ctab novo" onClick={onNew}>{view==='notas' ? '+ Nova nota' : view==='audiencias' ? '+ Nova audiência' : '+ Novo'}</button>}
+      <button className="ctab novo" onClick={onNew}>{view==='notas' ? '+ Nova nota' : '+ Novo'}</button>
     </div>
   );
 }
@@ -695,56 +612,6 @@ function NotesView({ notes, cats, valor, onValor, onOpen, onNew, onCats }){
   );
 }
 
-/* ---------- AUDIÊNCIAS: página própria, mesmo molde dos Processos, começa vazia ---------- */
-function AudienciasView({ items, cats, onOpen, onNew, onCats }){
-  const [q, setQ] = useState('');
-  const qd = soDigitos(q), ql = q.trim().toLowerCase();
-  const filtradas = items.filter(n => {
-    if (n.arquivado && !ql) return false;   // arquivadas só aparecem quando busca
-    if (!ql) return true;
-    const num = (n.num||'');
-    return (qd && soDigitos(num).includes(qd)) || num.toLowerCase().includes(ql) || (n.entries||[]).some(e => (e.text||'').toLowerCase().includes(ql));
-  });
-  const nArquivadas = items.filter(n => n.arquivado).length;
-  const ultimo = n => { const e = (n.entries||[]); return e.length ? e.slice().sort(cmpEntry)[0] : null; };
-  const grupos = cats.map(c => ({ cat:c, itens: filtradas.filter(n => n.color === c.key) })).filter(g => g.itens.length);
-  const semCat = filtradas.filter(n => !cats.some(c => c.key === n.color));
-  if (semCat.length) grupos.push({ cat:{ key:'__sem', nome:'Sem categoria', cor:'#a1a1aa' }, itens:semCat });
-
-  return (
-    <div>
-      <div className="head">
-        <div className="titulo">Audiências</div>
-        <div className="headbtns"><button className="navbtn" onClick={onCats}>Cores</button></div>
-      </div>
-      <div className="buscaWrap">
-        <span className="buscaIco">⌕</span>
-        <input className="busca" placeholder="Buscar número do processo…" value={q} onChange={e=>setQ(e.target.value)} autoCapitalize="off" autoCorrect="off" spellCheck="false" />
-        {q && <button className="buscaX" onClick={()=>setQ('')} aria-label="Limpar">×</button>}
-      </div>
-      {items.length === 0 && <div className="vazio">Nenhuma audiência ainda. Toque em <b>+ Nova audiência</b> pra guardar a primeira, com o número e a primeira anotação.</div>}
-      {items.length > 0 && filtradas.length === 0 && <div className="vazio">Nada encontrado para "{q}".</div>}
-      {grupos.map(g => (
-        <div key={g.cat.key} className="notegrupo">
-          <div className="grupohead"><span className="dot" style={{background:g.cat.cor}}></span>{g.cat.nome}<span className="grupocount">{g.itens.length}</span></div>
-          <div className="notesgrid">
-            {g.itens.map(n => { const u = ultimo(n); const solid = (typeof n.solido === 'boolean') ? n.solido : !!g.cat.solido; const tc = solid ? textOn(g.cat.cor) : null;
-              return (
-              <button key={n.id} className={'notecard'+(solid?' solido':'')+(n.arquivado?' arquivada':'')} style={solid ? { background:g.cat.cor, borderColor:g.cat.cor, '--c':g.cat.cor, color:tc } : { '--c':g.cat.cor }} onClick={()=>onOpen(n)}>
-                {n.arquivado && <span className="arqtag">arquivado</span>}
-                <span className="note-num" style={solid?{color:tc}:null}>{n.num || '(sem número)'}</span>
-                {u && <span className="note-data" style={solid?{color:tc,opacity:.75}:null}>{fmtData(u.date)}</span>}
-                {u ? <span className="note-prev" style={solid?{color:tc,opacity:.9}:null}>{u.text}</span> : <span className="note-prev" style={solid?{color:tc,opacity:.85,fontStyle:'italic'}:{fontStyle:'italic'}}>sem anotações</span>}
-              </button>
-            );})}
-          </div>
-        </div>
-      ))}
-      {!ql && nArquivadas > 0 && <div className="arqhint">{nArquivadas} {nArquivadas === 1 ? 'audiência arquivada' : 'audiências arquivadas'} — some da lista, mas aparece aqui quando você busca pelo número.</div>}
-    </div>
-  );
-}
-
 /* ---------- NOTAS: caixinha do processo (histórico + anotar) ---------- */
 function NoteView({ n, cats, onClose, onEdit, onDelete, onArchive, onAddEntry, onDelEntry }){
   const c = catNota(cats, n.color);
@@ -765,51 +632,6 @@ function NoteView({ n, cats, onClose, onEdit, onDelete, onArchive, onAddEntry, o
               <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8"/><path d="M10 12h4"/></svg>
             </button>
             <button className="lapis lixeira" onClick={()=>{ if(confirm('Apagar este processo inteiro (o número e todas as anotações)?')) onDelete(n.id); }} title="Apagar processo" aria-label="Apagar processo">
-              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
-            </button>
-          </span>
-        </div>
-        <div className="vtitulo">{n.num || '(sem número)'}</div>
-        <div className="hist">
-          {entries.length === 0 && <div className="hist-vazio">Sem anotações ainda. Escreva a primeira embaixo.</div>}
-          {entries.map(e => (
-            <div key={e.id} className="hist-item">
-              <div className="hist-top"><span className="hist-data">{fmtData(e.date)}</span>
-                <button className="hist-x" title="Apagar anotação" onClick={()=>{ if(confirm('Apagar esta anotação?')) onDelEntry(n.id, e.id); }}>×</button>
-              </div>
-              <div className="hist-text">{e.text}</div>
-            </div>
-          ))}
-        </div>
-        <div className="addbox">
-          <textarea className="inp" style={{margin:0}} rows="2" placeholder="Escreva uma anotação de hoje…" value={txt} onChange={e=>setTxt(e.target.value)} />
-          <button className="primary" onClick={add}>Adicionar</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ---------- AUDIÊNCIAS: caixinha da audiência (histórico + anotar) ---------- */
-function AudienciaView({ n, cats, onClose, onEdit, onDelete, onArchive, onAddEntry, onDelEntry }){
-  const c = catNota(cats, n.color);
-  const [txt, setTxt] = useState('');
-  const entries = (n.entries||[]).slice().sort(cmpEntry);
-  const add = () => { const t = txt.trim(); if (t){ onAddEntry(n.id, t); setTxt(''); } };
-  return (
-    <div className="modal" onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
-      <div className="card vcard" style={{borderTop:'4px solid '+c.cor}}>
-        <div className="vhead">
-          <span className="vtipo" style={{background:c.cor}}>{c.nome}</span>
-          {n.arquivado && <span className="arqtag">arquivado</span>}
-          <span className="vacts">
-            <button className="lapis" onClick={onEdit} title="Editar audiência" aria-label="Editar">
-              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-            </button>
-            <button className="lapis" onClick={()=>onArchive(n.id, !n.arquivado)} title={n.arquivado ? 'Desarquivar' : 'Arquivar'} aria-label={n.arquivado ? 'Desarquivar' : 'Arquivar'}>
-              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8"/><path d="M10 12h4"/></svg>
-            </button>
-            <button className="lapis lixeira" onClick={()=>{ if(confirm('Apagar esta audiência inteira (o número e todas as anotações)?')) onDelete(n.id); }} title="Apagar audiência" aria-label="Apagar audiência">
               <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
             </button>
           </span>
@@ -876,322 +698,6 @@ function NoteEditor({ n, cats, onOpenCats, onClose, onSave, onDelete }){
           <button className="primary" onClick={salvar}>Salvar</button>
         </div>
       </div>
-    </div>
-  );
-}
-
-/* ---------- AUDIÊNCIAS: editor da audiência (número + cor + 1ª anotação) ---------- */
-function AudienciaEditor({ n, cats, onOpenCats, onClose, onSave, onDelete }){
-  const [num, setNum] = useState(n.num);
-  const [color, setColor] = useState(n.color || (cats[0] && cats[0].key));
-  const catIni = cats.find(c => c.key === (n.color || (cats[0] && cats[0].key))) || {};
-  const [solido, setSolido] = useState(n.solido != null ? n.solido : !!catIni.solido);
-  const [firstText, setFirstText] = useState('');
-  const corSel = (cats.find(c => c.key === color) || {}).cor || '#888';
-  const salvar = () => {
-    const entries = (n.entries||[]).slice();
-    if (n._new && firstText.trim()) entries.unshift({ id:newId(), date:todayStr(), text:firstText.trim() });
-    onSave({ ...n, num, color, entries, solido });
-  };
-  return (
-    <div className="modal" onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
-      <div className="card">
-        <div className="cardhead">
-          <b>{n._new ? 'Nova audiência' : 'Editar audiência'}</b>
-          <button className="x" onClick={onClose} aria-label="Fechar">×</button>
-        </div>
-        <input className="inp" autoFocus placeholder="Número do processo (ex.: 5003734-12.2024.8.24.0000)" value={num} onChange={e=>setNum(e.target.value)} />
-        <div className="tipos">
-          {cats.map(c => (
-            <button key={c.key} className={'tipopill'+(color===c.key?' on':'')}
-              style={color===c.key?{background:c.cor,borderColor:c.cor,color:'#fff'}:{}}
-              onClick={()=>setColor(c.key)}>{c.nome}</button>
-          ))}
-          <button className="tipopill novo" onClick={onOpenCats}>editar cores</button>
-        </div>
-        <label className="fortesw">
-          <button className={'solidtog'+(solido?' on':'')} style={solido?{background:corSel,borderColor:corSel,color:textOn(corSel)}:null} onClick={()=>setSolido(s=>!s)}>fundo forte</button>
-          <span>deixa esta janelinha bem sólida (pra urgência)</span>
-        </label>
-        {n._new && <textarea className="inp" rows="4" placeholder="Primeira anotação (fica com a data de hoje)" value={firstText} onChange={e=>setFirstText(e.target.value)} />}
-        <div className="cardacts">
-          {!n._new && <button className="del" onClick={()=>{ if(confirm('Apagar esta audiência e todas as anotações dela?')) onDelete(n.id); }}>Apagar</button>}
-          <span style={{flex:1}}></span>
-          <button className="ghost" onClick={onClose}>Cancelar</button>
-          <button className="primary" onClick={salvar}>Salvar</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ---------- ROTEIROS: caixinha de texto rica (mesmo componente por trás das discursivas do MagisNAD) ---------- */
-function RoteiroBox({ id, initialHtml, register, onBlur, onKeyDown, onInput, onMouseDown, onMouseMove }){
-  const ref = useRef(null);
-  useEffect(() => {
-    if (ref.current) ref.current.innerHTML = initialHtml || '';
-    register(id, ref.current);
-    return () => register(id, null);
-  }, []);
-  return (
-    <div className="rn-wrap">
-      <div className="rn-content" contentEditable suppressContentEditableWarning ref={ref}
-        onBlur={onBlur} onKeyDown={onKeyDown} onInput={onInput} onMouseDown={onMouseDown} onMouseMove={onMouseMove} />
-      <div className="rn-ph" aria-hidden="true">Escreva ou cole o roteiro aqui…</div>
-    </div>
-  );
-}
-
-/* ---------- ROTEIROS: lista de caixinhas (arrastar pra reordenar, cada uma com sua barra de formatação) ---------- */
-function RoteirosView({ initial, onSave }){
-  const [boxes, setBoxes] = useState(() => {
-    const arr = initial && initial.length ? initial : [{ id: RN_UID(), html:'', tags:[] }];
-    return arr.map(b => ({ id: b.id || RN_UID(), html: b.html || '', tags: (b.tags||[]).map(t => ({ label:t.label, ci:t.ci||0 })) }));
-  });
-  const refs = useRef({});
-  const savedRange = useRef(null);
-  const dragId = useRef(null);
-  const pending = useRef(null);
-  const [overId, setOverId] = useState(null);
-  const [recentes, setRecentes] = useState(loadRoteiroCores);
-  const tagCounter = useRef(boxes.reduce((n,b) => n + b.tags.length, 0));
-
-  useEffect(() => { try { document.execCommand('styleWithCSS', false, true); } catch(e){} }, []);
-  useEffect(() => {
-    // NÃO ler a seleção enquanto o acento morto está compondo — senão o Chrome corta a tecla morta (~ ´ etc.)
-    let composing = false;
-    const onCompStart = () => { composing = true; };
-    const onCompEnd = () => { composing = false; };
-    const onSel = () => {
-      if (composing) return;
-      const s = document.getSelection(); if (!s || !s.rangeCount) return;
-      const r = s.getRangeAt(0);
-      for (const id in refs.current){ if (refs.current[id] && refs.current[id].contains(r.commonAncestorContainer)){ savedRange.current = r.cloneRange(); break; } }
-    };
-    document.addEventListener('compositionstart', onCompStart, true);
-    document.addEventListener('compositionend', onCompEnd, true);
-    document.addEventListener('selectionchange', onSel);
-    return () => {
-      document.removeEventListener('compositionstart', onCompStart, true);
-      document.removeEventListener('compositionend', onCompEnd, true);
-      document.removeEventListener('selectionchange', onSel);
-    };
-  }, []);
-
-  const guardarRecente = (kind, color) => {
-    if (!color || color==='reset' || color==='transparent' || !/^#/.test(color)) return;
-    setRecentes(prev => {
-      const atual = (prev[kind]||[]).filter(c => c!=='none');
-      const lista = [color, ...atual.filter(c => c.toLowerCase()!==color.toLowerCase())].slice(0,7);
-      const next = { ...prev, [kind]: kind==='back' ? ['none', ...lista] : lista };
-      saveRoteiroCores(next);
-      return next;
-    });
-  };
-
-  const collect = () => boxes.map(b => ({ id:b.id, html: refs.current[b.id] ? refs.current[b.id].innerHTML : b.html, tags:b.tags }));
-  const persist = arr => onSave(arr.map(b => ({ id:b.id, html:b.html, tags:b.tags })));
-  const commit = arr => { setBoxes(arr); persist(arr); };
-
-  const restore = () => {
-    const r = savedRange.current; if (!r) return;
-    for (const id in refs.current){ if (refs.current[id] && refs.current[id].contains(r.commonAncestorContainer)){ refs.current[id].focus(); break; } }
-    const s = document.getSelection(); s.removeAllRanges(); s.addRange(r);
-  };
-  const exec = cmd => { restore(); try { document.execCommand(cmd, false, null); } catch(e){} };
-  const applyColor = (kind, color) => {
-    restore();
-    const c = color==='reset' ? getComputedStyle(document.body).color : color;
-    try { document.execCommand(kind==='fore' ? 'foreColor' : 'hiliteColor', false, c); } catch(e){}
-  };
-
-  const addBox = () => {
-    const nb = { id: RN_UID(), html:'', tags:[] };
-    const next = [...collect(), nb];
-    commit(next);
-    setTimeout(() => { const el = refs.current[nb.id]; if (el) el.focus(); }, 0);
-  };
-  const delBox = id => {
-    let arr = collect().filter(b => b.id !== id);
-    if (!arr.length) arr = [{ id: RN_UID(), html:'', tags:[] }];
-    delete refs.current[id];
-    commit(arr);
-  };
-  const blurBox = () => { Object.values(refs.current).forEach(rnLimpa); const arr = collect(); setBoxes(arr); persist(arr); };
-  const registerRef = (id, el) => { if (el) refs.current[id] = el; else delete refs.current[id]; };
-
-  const insertHTML = html => { restore(); try { document.execCommand('insertHTML', false, html); } catch(e){} setTimeout(blurBox, 0); };
-  const addLinha = () => insertHTML('<hr>');
-  const setTitulo = tag => { if (!tag) return; restore(); try { document.execCommand('formatBlock', false, tag); } catch(e){} setTimeout(blurBox, 0); };
-  const addTabela = () => {
-    const cell = '<td><br></td>';
-    const row = '<tr>' + cell + cell + '</tr>';
-    insertHTML('<table class="rn-tbl"><tbody>' + row + row + '</tbody></table><p><br></p>');
-  };
-  const onKeyDownBox = e => {
-    if (e.isComposing || e.keyCode === 229) return;
-    if (e.key !== 'Tab' || e.shiftKey) return;
-    const sel = document.getSelection();
-    if (!sel || !sel.rangeCount) return;
-    let td = sel.anchorNode;
-    td = td && (td.nodeType===1 ? td : td.parentElement);
-    while (td && td.tagName!=='TD' && td.tagName!=='TABLE') td = td.parentElement;
-    if (!td || td.tagName!=='TD') return;
-    e.preventDefault();
-    const cells = Array.from(td.closest('table').querySelectorAll('td'));
-    let target = cells[cells.indexOf(td)+1];
-    if (!target){
-      const tr = td.parentElement;
-      const ncols = tr.children.length;
-      const novaTr = document.createElement('tr');
-      for (let i=0;i<ncols;i++){ const c = document.createElement('td'); c.innerHTML='<br>'; novaTr.appendChild(c); }
-      tr.parentElement.appendChild(novaTr);
-      target = novaTr.children[0];
-    }
-    const r = document.createRange();
-    r.selectNodeContents(target); r.collapse(true);
-    sel.removeAllRanges(); sel.addRange(r);
-    setTimeout(blurBox, 0);
-  };
-  const onInputBox = e => rnAutoSeta(e);
-
-  const tblCelula = () => {
-    const s = document.getSelection(); if (!s || !s.rangeCount) return null;
-    let n = s.anchorNode; n = n && (n.nodeType===1 ? n : n.parentElement);
-    while (n && n.tagName!=='TD' && n.tagName!=='TABLE') n = n.parentElement;
-    return n && n.tagName==='TD' ? n : null;
-  };
-  const tblAddLinha = () => { const td = tblCelula(); if (!td) return; const tr = td.parentElement; const nt = document.createElement('tr'); for (let i=0;i<tr.children.length;i++){ const c=document.createElement('td'); c.innerHTML='<br>'; nt.appendChild(c); } tr.after(nt); setTimeout(blurBox, 0); };
-  const tblDelLinha = () => { const td = tblCelula(); if (!td) return; const tr = td.parentElement, tb = tr.parentElement; if (tb.children.length>1) tr.remove(); setTimeout(blurBox, 0); };
-  const tblAddColuna = () => { const td = tblCelula(); if (!td) return; const idx = td.cellIndex, table = td.closest('table'); Array.from(table.rows).forEach(r => { const c = r.insertCell(Math.min(idx+1, r.cells.length)); c.innerHTML='<br>'; }); setTimeout(blurBox, 0); };
-  const tblDelColuna = () => { const td = tblCelula(); if (!td) return; const idx = td.cellIndex, table = td.closest('table'); if (table.rows[0].cells.length>1) Array.from(table.rows).forEach(r => { if (r.cells[idx]) r.deleteCell(idx); }); setTimeout(blurBox, 0); };
-  const tblMesclarDir = () => { const td = tblCelula(); if (!td) return; const nx = td.nextElementSibling; if (!nx) return; td.colSpan = (td.colSpan||1) + (nx.colSpan||1); if (nx.textContent.trim()) td.innerHTML = (td.innerHTML==='<br>' ? '' : td.innerHTML+' ') + nx.innerHTML; nx.remove(); setTimeout(blurBox, 0); };
-  const tblMesclarBaixo = () => { const td = tblCelula(); if (!td) return; const tr = td.parentElement, idx = td.cellIndex, ntr = tr.nextElementSibling; if (!ntr) return; const ab = ntr.cells[idx]; if (!ab) return; td.rowSpan = (td.rowSpan||1) + (ab.rowSpan||1); if (ab.textContent.trim()) td.innerHTML = (td.innerHTML==='<br>' ? '' : td.innerHTML+' ') + ab.innerHTML; ab.remove(); setTimeout(blurBox, 0); };
-  const onMouseDownBox = e => {
-    const td = e.target.closest && e.target.closest('td');
-    if (!td) return;
-    const rect = td.getBoundingClientRect();
-    if (rect.right - e.clientX > 7 || e.clientX - rect.left < 7) return;
-    e.preventDefault();
-    const table = td.closest('table'); table.style.tableLayout = 'fixed';
-    const idx = td.cellIndex, startX = e.clientX, startW = td.offsetWidth;
-    const mover = ev => { const w = Math.max(30, startW + (ev.clientX - startX)); Array.from(table.rows).forEach(r => { if (r.cells[idx]) r.cells[idx].style.width = w+'px'; }); };
-    const soltar = () => { document.removeEventListener('mousemove', mover); document.removeEventListener('mouseup', soltar); setTimeout(blurBox, 0); };
-    document.addEventListener('mousemove', mover); document.addEventListener('mouseup', soltar);
-  };
-  const onMouseMoveBox = e => {
-    const el = e.currentTarget, td = e.target.closest && e.target.closest('td');
-    if (td){ const r = td.getBoundingClientRect(); el.style.cursor = (r.right - e.clientX <= 7 && e.clientX - r.left >= 7) ? 'col-resize' : ''; }
-    else if (el.style.cursor) el.style.cursor = '';
-  };
-
-  const addTag = id => {
-    const label = window.prompt('Nome da tag (ex.: Urgente, Rever):');
-    if (!label || !label.trim()) return;
-    const ci = tagCounter.current++ % RN_TAGS.length;
-    commit(collect().map(b => b.id===id ? { ...b, tags:[...b.tags, { label:label.trim(), ci }] } : b));
-  };
-  const removeTag = (id, idx) => commit(collect().map(b => b.id===id ? { ...b, tags: b.tags.filter((_,i)=>i!==idx) } : b));
-
-  const onDragStart = id => { dragId.current = id; pending.current = collect(); };
-  const onDragEnd = () => { dragId.current = null; pending.current = null; setOverId(null); };
-  const onDragOver = (e, id) => { e.preventDefault(); if (dragId.current && dragId.current !== id) setOverId(id); };
-  const onDrop = (e, id) => {
-    e.preventDefault();
-    const src = dragId.current;
-    const arr = pending.current || collect();
-    if (!src || src===id){ onDragEnd(); return; }
-    const from = arr.findIndex(b => b.id===src);
-    if (from < 0){ onDragEnd(); return; }
-    const r = e.currentTarget.getBoundingClientRect();
-    const after = e.clientY - r.top > r.height/2;
-    const moved = arr.splice(from,1)[0];
-    const to = arr.findIndex(b => b.id===id);
-    arr.splice(after ? to+1 : to, 0, moved);
-    commit(arr);
-    onDragEnd();
-  };
-
-  const swatchRow = kind => (
-    <span className="rn-sw-row">
-      {kind==='fore' && (
-        <span className="rn-sw" style={{background:'var(--text)'}} title="cor padrão" onMouseDown={e=>e.preventDefault()} onClick={()=>applyColor('fore','reset')} />
-      )}
-      {(recentes[kind]||[]).map((c,i) => c==='none' ? (
-        <span key={i} className="rn-sw none" title="sem fundo" onMouseDown={e=>e.preventDefault()} onClick={()=>applyColor('back','transparent')} />
-      ) : (
-        <span key={i} className="rn-sw" style={{background:c}} onMouseDown={e=>e.preventDefault()} onClick={()=>{ applyColor(kind,c); guardarRecente(kind,c); }} />
-      ))}
-      <span className="rn-sw pick" title="qualquer cor — fica salva aqui">
-        <input type="color" onMouseDown={e=>e.stopPropagation()} onChange={e=>applyColor(kind, e.target.value)} onBlur={e=>guardarRecente(kind, e.target.value)} />
-      </span>
-    </span>
-  );
-
-  return (
-    <div>
-      <div className="head">
-        <div className="titulo">Roteiros</div>
-      </div>
-      <p className="rn-hint">Cole ou escreva os roteiros de audiência aqui. Arraste pela alcinha ⠿ pra reordenar.</p>
-      <div className="rn-list">
-        {boxes.map(b => (
-          <div key={b.id} className={'rn-box'+(overId===b.id?' over':'')} onDragOver={e=>onDragOver(e,b.id)} onDrop={e=>onDrop(e,b.id)}>
-            <div className="rn-handle" draggable title="Arrastar" onDragStart={()=>onDragStart(b.id)} onDragEnd={onDragEnd}>⠿</div>
-            <button className="rn-del" title="Excluir caixinha" onClick={()=>delBox(b.id)}>✕</button>
-            {b.tags.length > 0 && (
-              <div className="rn-tags">
-                {b.tags.map((t,i) => {
-                  const pair = RN_TAGS[t.ci % RN_TAGS.length];
-                  return (
-                    <span key={i} className="rn-tag" style={{background:`rgba(${pair[1]},.16)`, color:pair[0]}}>
-                      {t.label}
-                      <span className="rn-tag-x" onClick={()=>removeTag(b.id,i)}>✕</span>
-                    </span>
-                  );
-                })}
-              </div>
-            )}
-            <RoteiroBox id={b.id} initialHtml={b.html} register={registerRef} onBlur={blurBox} onKeyDown={onKeyDownBox} onInput={onInputBox} onMouseDown={onMouseDownBox} onMouseMove={onMouseMoveBox} />
-            {(/<table/i.test(b.html)) && (
-              <div className="rn-tbltb">
-                <span className="rn-tbltb-lbl">tabela:</span>
-                <button title="Adicionar linha abaixo" onMouseDown={e=>e.preventDefault()} onClick={tblAddLinha}>+ linha</button>
-                <button title="Remover a linha atual" onMouseDown={e=>e.preventDefault()} onClick={tblDelLinha}>− linha</button>
-                <button title="Adicionar coluna à direita" onMouseDown={e=>e.preventDefault()} onClick={tblAddColuna}>+ coluna</button>
-                <button title="Remover a coluna atual" onMouseDown={e=>e.preventDefault()} onClick={tblDelColuna}>− coluna</button>
-                <button title="Mesclar com a célula à direita" onMouseDown={e=>e.preventDefault()} onClick={tblMesclarDir}>mesclar →</button>
-                <button title="Mesclar com a célula de baixo" onMouseDown={e=>e.preventDefault()} onClick={tblMesclarBaixo}>mesclar ↓</button>
-                <span className="rn-tbltb-dica">largura: arraste a beira da coluna</span>
-              </div>
-            )}
-            <div className="rn-toolbar">
-              <button className="rn-tb b" title="Negrito" onMouseDown={e=>e.preventDefault()} onClick={()=>exec('bold')}>B</button>
-              <button className="rn-tb i" title="Itálico" onMouseDown={e=>e.preventDefault()} onClick={()=>exec('italic')}>I</button>
-              <button className="rn-tb u" title="Sublinhado" onMouseDown={e=>e.preventDefault()} onClick={()=>exec('underline')}>U</button>
-              <select className="rn-h" title="Título (vira um sumário na caixinha)" value="" onMouseDown={e=>e.stopPropagation()} onChange={e=>setTitulo(e.target.value)}>
-                <option value="">Título…</option>
-                <option value="H1">Título 1</option>
-                <option value="H2">Título 2</option>
-                <option value="H3">Título 3</option>
-                <option value="P">Texto normal</option>
-              </select>
-              <span className="rn-sep" />
-              <button className="rn-tb" title="Tabela (Tab pula célula; na última, cria linha)" onMouseDown={e=>e.preventDefault()} onClick={addTabela}>⊞</button>
-              <button className="rn-tb" title="Linha divisória" onMouseDown={e=>e.preventDefault()} onClick={addLinha}>──</button>
-              <span className="rn-sep" />
-              <span className="rn-lbl">letra</span>
-              {swatchRow('fore')}
-              <span className="rn-sep" />
-              <span className="rn-lbl">fundo</span>
-              {swatchRow('back')}
-              <span className="rn-sep" />
-              <button className="rn-tb" title="Adicionar tag" onMouseDown={e=>e.preventDefault()} onClick={()=>addTag(b.id)}>+ tag</button>
-            </div>
-          </div>
-        ))}
-      </div>
-      <button className="rn-add" onClick={addBox}>+ Nova caixinha de texto</button>
     </div>
   );
 }
@@ -1708,59 +1214,6 @@ textarea.inp{resize:vertical;}
 .mm-dots i{width:4px;height:4px;border-radius:50%;display:block;}
 .mm-day.hoje .mm-dots i{box-shadow:0 0 0 1px var(--on-accent);}
 
-/* ---------- Roteiros: caixinhas de texto ricas (mesmo molde das discursivas do MagisNAD) ---------- */
-.rn-hint{color:var(--muted);font-size:13px;margin:0 0 18px;}
-.rn-list{display:flex;flex-direction:column;}
-.rn-box{position:relative;background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:14px 16px 14px 42px;margin:10px 0;transition:border-color .15s,box-shadow .15s;}
-.rn-box:focus-within{border-color:var(--accent);box-shadow:0 0 0 4px color-mix(in srgb, var(--accent) 20%, transparent);}
-.rn-box.over{box-shadow:0 -3px 0 -1px var(--accent);}
-.rn-handle{position:absolute;left:8px;top:12px;width:24px;height:30px;display:flex;align-items:center;justify-content:center;color:var(--faint);cursor:grab;border-radius:7px;user-select:none;font-size:16px;}
-.rn-handle:hover{background:var(--surface2);color:var(--text);}
-.rn-handle:active{cursor:grabbing;}
-.rn-del{position:absolute;right:10px;top:10px;border:none;background:transparent;color:var(--faint);cursor:pointer;font-size:14px;border-radius:7px;width:26px;height:26px;opacity:0;transition:.15s;}
-.rn-box:hover .rn-del,.rn-box:focus-within .rn-del{opacity:1;}
-.rn-del:hover{background:var(--surface2);color:#ef4444;}
-.rn-tags{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;}
-.rn-tag{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:3px 9px;border-radius:99px;}
-.rn-tag-x{cursor:pointer;opacity:.55;font-weight:700;}
-.rn-tag-x:hover{opacity:1;}
-.rn-wrap{position:relative;}
-.rn-content{outline:none;font-size:15px;line-height:1.62;min-height:24px;color:var(--text);}
-.rn-ph{position:absolute;top:0;left:0;font-size:15px;line-height:1.62;color:var(--faint);pointer-events:none;}
-.rn-content:focus + .rn-ph,.rn-content:not(:empty) + .rn-ph{display:none;}
-.rn-content b,.rn-content strong{font-weight:700;}
-.rn-content u{text-decoration:underline;}
-.rn-content hr{border:none;border-top:1px solid var(--border2);margin:12px 0;}
-.rn-content h1{font-size:18px;font-weight:800;color:var(--accent);margin:12px 0 6px;padding-bottom:3px;border-bottom:1px solid color-mix(in srgb, var(--accent) 30%, transparent);}
-.rn-content h2{font-size:15.5px;font-weight:800;color:var(--text);margin:10px 0 5px;}
-.rn-content h3{font-size:13px;font-weight:700;color:var(--muted);margin:9px 0 4px;text-transform:uppercase;letter-spacing:.05em;}
-.rn-content table.rn-tbl{border-collapse:collapse;margin:10px 0;width:100%;table-layout:fixed;}
-.rn-content table.rn-tbl td{border:1px solid var(--border2);padding:6px 9px;min-width:30px;vertical-align:top;overflow-wrap:anywhere;}
-.rn-content table.rn-tbl td:focus{outline:2px solid color-mix(in srgb, var(--accent) 55%, transparent);outline-offset:-2px;}
-.rn-tbltb{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px;padding:7px 9px;background:var(--surface2);border:1px solid var(--border2);border-radius:9px;}
-.rn-tbltb-lbl{font-size:11px;font-weight:700;color:var(--faint);text-transform:uppercase;letter-spacing:.04em;}
-.rn-tbltb button{font:inherit;font-size:12px;font-weight:600;cursor:pointer;color:var(--muted);background:var(--surface);border:1px solid var(--border2);border-radius:7px;padding:4px 9px;}
-.rn-tbltb button:hover{color:var(--text);border-color:var(--accent);}
-.rn-tbltb-dica{font-size:11px;color:var(--faint);margin-left:4px;}
-.rn-toolbar{display:none;gap:4px;align-items:center;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px dashed var(--border2);}
-.rn-box:focus-within .rn-toolbar{display:flex;}
-.rn-tb{border:1px solid var(--border2);background:var(--surface2);color:var(--text);border-radius:8px;height:30px;min-width:30px;padding:0 8px;cursor:pointer;font-size:13px;display:inline-flex;align-items:center;justify-content:center;font-family:inherit;}
-.rn-tb:hover{background:var(--surface);}
-.rn-tb.b{font-weight:800;} .rn-tb.i{font-style:italic;font-family:Georgia,serif;} .rn-tb.u{text-decoration:underline;}
-.rn-sep{width:1px;height:20px;background:var(--border2);margin:0 3px;}
-.rn-lbl{font-size:11px;color:var(--muted);margin:0 2px 0 4px;}
-.rn-h{font:inherit;font-size:12px;font-weight:600;color:var(--muted);background:var(--surface2);border:1px solid var(--border2);border-radius:6px;padding:4px 6px;cursor:pointer;}
-.rn-h:hover{color:var(--text);}
-.rn-sw-row{display:inline-flex;gap:4px;align-items:center;}
-.rn-sw{width:20px;height:20px;border-radius:6px;cursor:pointer;border:1px solid rgba(128,128,128,.35);position:relative;}
-.rn-sw:hover{transform:scale(1.12);}
-.rn-sw.none{background:transparent;border-style:dashed;}
-.rn-sw.none::after{content:"";position:absolute;left:2px;right:2px;top:9px;height:1.5px;background:#ef4444;transform:rotate(-45deg);}
-.rn-sw.pick{background:conic-gradient(red,orange,yellow,lime,cyan,blue,magenta,red);border-radius:50%;overflow:hidden;}
-.rn-sw.pick input{position:absolute;inset:0;opacity:0;cursor:pointer;padding:0;border:0;width:100%;height:100%;}
-.rn-add{margin-top:14px;border:1.5px dashed var(--border2);background:transparent;color:var(--muted);border-radius:14px;padding:14px;width:100%;cursor:pointer;font-size:14px;font-weight:500;font-family:inherit;}
-.rn-add:hover{border-color:var(--accent);color:var(--accent);}
-.subitem{padding-left:30px !important;}
 `;
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App />);
