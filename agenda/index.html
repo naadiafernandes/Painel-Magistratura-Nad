@@ -59,7 +59,7 @@
 const { useState, useEffect, useRef } = React;
 
 /* versão do app — bater igual ao conteúdo de version.txt; ao trocar as duas, aparece o aviso "Atualizar" */
-const APP_VERSION = '2026-10-06-4';
+const APP_VERSION = '2026-10-06-5';
 
 // cor do texto que contrasta com um fundo sólido (claro -> texto escuro; escuro -> branco)
 const textOn = hex => { const c = (hex||'#000').replace('#',''); const r=parseInt(c.slice(0,2),16)||0, g=parseInt(c.slice(2,4),16)||0, b=parseInt(c.slice(4,6),16)||0; return (0.299*r+0.587*g+0.114*b)/255 > 0.62 ? '#231a05' : '#ffffff'; };
@@ -401,7 +401,8 @@ function sitDoGrupo(grupo, texto){
 // ainda não mexeu nela à mão; datas e valores só preenchem o que está vazio.
 function aplicarNotasJusnad(painel, notas, hoje){
   const procs = { ...painel.procs }; let n = 0;
-  const junta = (a, b) => !b ? (a || '') : !a ? b : (a.indexOf(b) >= 0 ? a : a + ' · ' + b);
+  const so = t => (t || '').toLowerCase().normalize('NFD').replace(/[^a-z0-9]/g, '');
+  const junta = (a, b) => !b ? (a || '') : !a ? b : (so(a).indexOf(so(b)) >= 0 ? a : a + ' · ' + b);
   (notas || []).forEach(x => {
     const key = chaveProc(x.num); if (!key) return;
     if (!procs[key] && x.soSeExistir) return;
@@ -545,7 +546,14 @@ function App(){
   const openNew = (dateStr, tipo, titulo) => setEditing({ id:newId(), title:titulo || '', type:tipo || 'compromisso', date: dateStr || todayStr(), time:'', note:'', repeat:{ freq:'none', interval:1, unit:'week' }, _new:true });
 
   /* ----- painel de trabalho ----- */
-  const hoje = todayStr();
+  // os dias andam sozinhos: na virada do dia (ou ao voltar para o app) tudo é recontado, sem precisar colar nada
+  const [hoje, setHoje] = useState(todayStr());
+  useEffect(() => {
+    const confere = () => { const h = todayStr(); setHoje(v => v === h ? v : h); };
+    const id = setInterval(confere, 60000);
+    window.addEventListener('focus', confere); document.addEventListener('visibilitychange', confere);
+    return () => { clearInterval(id); window.removeEventListener('focus', confere); document.removeEventListener('visibilitychange', confere); };
+  }, []);
   const updProc = (key, patch) => setPainel(p => {
     const cur = p.procs[key]; if (!cur) return p;
     const novo = { ...cur, ...patch };
@@ -641,7 +649,7 @@ function App(){
       {noteEdit && <NoteEditor n={noteEdit} cats={noteCats} onOpenCats={()=>setCatsOpen(true)} onClose={()=>setNoteEdit(null)} onSave={n=>{ upsertNote(n); setNoteEdit(null); }} onDelete={id=>{ removeNote(id); setNoteEdit(null); }} />}
       {catsOpen && <CatManager cats={noteCats} onSave={list=>setNoteCats(list)} onClose={()=>setCatsOpen(false)} />}
       {sitsOpen && <CatManager cats={sits} defaultCats={DEFAULT_SITS} semSolido title="Situações do painel" subtitle="Renomeie, mude a cor ou crie novas. As quatro marcadas com cadeado levam o processo para Sentenças e Despachos e não podem ser apagadas." onSave={list=>setSits(list)} onClose={()=>setSitsOpen(false)} />}
-      {procEdit && painel.procs[procEdit] && <ProcEditor p={painel.procs[procEdit]} sits={sits} hoje={hoje} onClose={()=>setProcEdit(null)} onSalvar={patch=>{ updProc(procEdit, patch); setProcEdit(null); }} onApagar={()=>{ apagarProc(procEdit); setProcEdit(null); }} onSits={()=>setSitsOpen(true)} />}
+      {procEdit && painel.procs[procEdit] && <ProcEditor p={painel.procs[procEdit]} sits={sits} hoje={hoje} onClose={()=>setProcEdit(null)} onSalvar={patch=>{ updProc(procEdit, patch); setProcEdit(null); }} onApagar={()=>{ apagarProc(procEdit); setProcEdit(null); }} onSits={()=>setSitsOpen(true)} onNejulOk={()=>updProc(procEdit, { nejulAtualizar:false })} />}
       {tipoEdit && <TipoEditor tipo={tipoEdit} onClose={()=>setTipoEdit(null)} onSave={(nome,cor)=>{ if(tipoEdit._new) addTipo(nome,cor); else editTipo(tipoEdit.key,nome,cor); setTipoEdit(null); }} />}
       {syncOpen && <SyncModal onClose={()=>setSyncOpen(false)} />}
       {updateReady && (
@@ -1491,9 +1499,18 @@ function PainelView({ painel, lista, sits, hoje, onUpd, onAbrir, onSits, onAviso
             {q && <button className="buscaX" onClick={()=>setQ('')} aria-label="Limpar">×</button>}
           </div>
           {mostrar.length === 0 && <div className="vazio">Nenhum processo neste filtro.</div>}
-          <div className="pgrid">
-            {mostrar.map(p => <ProcCard key={p.key} p={p} sits={sits} hoje={hoje} onUpd={onUpd} onAbrir={onAbrir} />)}
-          </div>
+          {[...sits, { key:'__sem', nome:'Sem situação', cor:'#a1a1aa' }].map(g => {
+            const itens = mostrar.filter(p => g.key === '__sem' ? (!p.sit || !sitDe(sits, p.sit)) : p.sit === g.key);
+            if (!itens.length) return null;
+            return (
+              <div key={g.key} className="notegrupo">
+                <div className="grupohead"><span className="dot" style={{background:g.cor}}></span>{g.nome}<span className="grupocount">{itens.length}</span></div>
+                <div className="notesgrid pgrid2">
+                  {itens.map(p => <ProcMini key={p.key} p={p} cor={g.cor} hoje={hoje} onAbrir={onAbrir} />)}
+                </div>
+              </div>
+            );
+          })}
         </React.Fragment>
       )}
     </div>
@@ -1526,6 +1543,25 @@ function diasDoProc(p, hoje){
   const rec = p.distr || p.remDate || p.criadoEm || hoje;
   const a = antiguidade(p, hoje);
   return { rec:difDias(rec, hoje), aij: a.aij ? a.n : null };
+}
+function ProcMini({ p, cor, hoje, onAbrir }){
+  const d = diasDoProc(p, hoje);
+  const aij = aijMarcada(p);
+  const futura = aij && aij.date > hoje;
+  return (
+    <div role="button" tabIndex={0} className={'notecard pmini'+(p.arquivado?' arquivada':'')} style={{'--c':cor}} onClick={()=>onAbrir(p.key)} onKeyDown={e=>{ if (e.key === 'Enter') onAbrir(p.key); }}>
+      <div className="pmini-top"><span className="note-num">{p.key}</span><CopyBtn txt={p.key} />{p.novo && <span className="pc-novo">novo</span>}</div>
+      <div className="pc-etiq">
+        <TagsPaineis p={p} />
+        <span className={'etq'+(d.rec > 60 ? ' verm' : '')}>{d.rec === 1 ? '1 dia' : d.rec + ' dias'}</span>
+        {d.aij !== null && <span className={'etq '+(d.aij > 60 ? 'verm' : 'verde')}>{d.aij === 0 ? 'AIJ hoje' : (d.aij === 1 ? '1 dia' : d.aij + ' dias') + ' desde a AIJ'}</span>}
+        {futura && <span className="etq azul">AIJ {fmtCurta(aij.date)}{aij.time ? ' ' + aij.time : ''}</span>}
+      </div>
+      {p.pend && <span className="pmini-pend"><b>Pendência:</b> {p.pend}</span>}
+      {p.obs ? <span className="note-prev">{p.obs}</span> : (!p.pend && <span className="note-prev" style={{fontStyle:'italic'}}>sem anotações</span>)}
+      {p.nejulAtualizar && <span className="pmini-nejul">atualizar no NEJUL</span>}
+    </div>
+  );
 }
 function ProcCard({ p, sits, hoje, onUpd, onAbrir }){
   const s = sitDe(sits, p.sit);
@@ -1591,7 +1627,7 @@ function AvisosBox({ avisos, procs, sits, onAviso, onDispensar, onAbrir, onUpd }
 }
 
 /* ---------- editor completo do processo ---------- */
-function ProcEditor({ p, sits, hoje, onClose, onSalvar, onApagar, onSits }){
+function ProcEditor({ p, sits, hoje, onClose, onSalvar, onApagar, onSits, onNejulOk }){
   const [f, setF] = useState({ sit:p.sit || '', pend:p.pend || '', obs:p.obs || '', aijData:(p.aijManual && p.aijManual.date) || '', aijHora:(p.aijManual && p.aijManual.time) || '',
     entregaData:p.entregaData || '', assinada:!!p.assinada, valorTipo:p.valorTipo || '', arquivado:!!p.arquivado });
   const set = (k, v) => setF(o => ({ ...o, [k]:v }));
@@ -1632,6 +1668,12 @@ function ProcEditor({ p, sits, hoje, onClose, onSalvar, onApagar, onSits }){
         )}
         {entregue && <label className="fortesw"><input type="checkbox" checked={f.assinada} onChange={e=>set('assinada', e.target.checked)} /><span>Já foi assinado</span></label>}
         <label className="fortesw"><input type="checkbox" checked={f.arquivado} onChange={e=>set('arquivado', e.target.checked)} /><span>Tirar do painel de trabalho (continua guardado)</span></label>
+        {p.nejulAtualizar && (
+          <div className="pc-nejul" style={{marginBottom:10}}>
+            <div><b>Atualizar no NEJUL:</b> {textoNejul(p, sits) || '(em branco)'}</div>
+            <div className="pc-nejul-b"><CopyBtn txt={textoNejul(p, sits)} label="copiar texto" /><button className="minibtn" onClick={()=>onNejulOk()}>já atualizei</button></div>
+          </div>
+        )}
         {p.obsN && <details className="pe-nejul"><summary>O que o NEJUL mostra</summary><div>{p.obsN}</div></details>}
         <div className="cardacts">
           <button className="del" onClick={()=>{ if (confirm('Apagar este processo do painel? (Se ele ainda estiver nos painéis, volta na próxima colagem.)')) onApagar(); }}>Apagar</button>
@@ -2187,6 +2229,13 @@ textarea.inp{resize:vertical;}
 .fchip .dot{width:8px;height:8px;border-radius:50%;}
 .fchip.on{border-color:var(--c, var(--accent));color:var(--text);background:color-mix(in srgb, var(--c, var(--accent)) 16%, var(--surface2));}
 .fchip-n{font-size:11px;color:var(--faint);font-variant-numeric:tabular-nums;}
+.pgrid2{grid-template-columns:repeat(auto-fill,minmax(250px,1fr));}
+.pmini{gap:6px;min-height:auto;}
+.pmini-top{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.pmini .note-num{font-size:14.5px;font-weight:600;}
+.pmini-pend{font-size:12px;line-height:1.4;color:var(--text);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;}
+.pmini-pend b{font-weight:500;color:var(--accent);}
+.pmini-nejul{align-self:flex-start;font-size:10.5px;font-weight:500;color:#f97316;border:1px solid #f9731688;border-radius:20px;padding:0 8px;}
 .pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px;}
 .cel .pgrid{grid-template-columns:1fr;}
 .pcard{background:color-mix(in srgb, var(--c) 6%, var(--surface2));border:1px solid var(--border);border-left:4px solid var(--c);border-radius:12px;padding:8px 10px;display:flex;flex-direction:column;gap:3px;}
