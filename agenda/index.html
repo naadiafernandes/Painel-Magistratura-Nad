@@ -59,7 +59,7 @@
 const { useState, useEffect, useRef } = React;
 
 /* versão do app — bater igual ao conteúdo de version.txt; ao trocar as duas, aparece o aviso "Atualizar" */
-const APP_VERSION = '2026-10-06-5';
+const APP_VERSION = '2026-10-06-6';
 
 // cor do texto que contrasta com um fundo sólido (claro -> texto escuro; escuro -> branco)
 const textOn = hex => { const c = (hex||'#000').replace('#',''); const r=parseInt(c.slice(0,2),16)||0, g=parseInt(c.slice(2,4),16)||0, b=parseInt(c.slice(4,6),16)||0; return (0.299*r+0.587*g+0.114*b)/255 > 0.62 ? '#231a05' : '#ffffff'; };
@@ -248,18 +248,23 @@ const cDaComplexidade = s => /ALTA/i.test(s || '') ? 'C3' : /M[ÉE]DIA/i.test(s 
 // NEJUL: as células da tabela chegam achatadas, uma por linha. Cada processo vai
 // da linha do número até o próximo número. Âncoras fixas: ENTREGAR e ATENDIMENTO.
 function lerNejul(raw){
-  const L = (raw || '').split('\n').map(l => l.replace(/ /g, ' ').trim());
+  // o Chrome copia uma célula por linha; o Safari junta as células com tabulação — tudo vira uma célula por linha
+  const L = (raw || '').split('\n').reduce((a, l) => a.concat(l.split('\t')), []).map(l => l.replace(/ /g, ' ').trim());
   const PROC = /^\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}$/;
   const idx = []; L.forEach((l, i) => { if (PROC.test(l)) idx.push(i); });
   const out = [];
   idx.forEach((ini, k) => {
     const seg = L.slice(ini, k + 1 < idx.length ? idx[k + 1] : L.length);
-    const iEnt = seg.indexOf('ENTREGAR'), iAt = seg.indexOf('ATENDIMENTO');
+    const iEnt = seg.findIndex(l => /^ENTREGAR\b/.test(l)), iAt = seg.findIndex(l => /(^|\s)ATENDIMENTO$/.test(l));
     const pre = seg.slice(1, iEnt >= 0 ? iEnt : seg.length).filter(Boolean);
-    const distr = pre.find(isBR) || '';
-    const diasLinha = pre.find(l => /^(?:\S+\s+)?\d{1,4}$/.test(l)) || '';
+    // data de chegada: linha que começa com a data (no Safari ela pode vir junto com os dias: "05/07/2026 ⚠️ 93")
+    const linhaData = pre.find(l => /^\d{2}\/\d{2}\/\d{4}(\s|$)/.test(l)) || '';
+    const distr = linhaData.slice(0, 10);
+    const resto = linhaData.slice(10).trim();
+    const diasLinha = /^(?:\S+\s+)?\d{1,4}(\s|$)/.test(resto) ? resto : (pre.find(l => /^(?:\S+\s+)?\d{1,4}$/.test(l)) || '');
     let entrega = iEnt > 0 ? seg[iEnt - 1] : '';
-    if (entrega === diasLinha || entrega === distr) entrega = '';
+    if (entrega === diasLinha || entrega === linhaData) entrega = '';
+    if (!entrega){ const m = resto.match(/(Pendente|Devolvido.*|\d{2}\/\d{2}\/\d{4})$/); if (m) entrega = m[1]; }
     const meio = iEnt >= 0 && iAt > iEnt ? seg.slice(iEnt, iAt) : [];
     const aijDate = meio.find(isBR) || '', aijTime = meio.find(isHora) || '';
     const post = (iAt >= 0 ? seg.slice(iAt + 1) : []).filter(l => l && !/^🔀/.test(l) && l !== 'IMPEDIMENTO' && !/^Voltar ao menu/i.test(l));
