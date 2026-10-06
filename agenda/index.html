@@ -59,7 +59,7 @@
 const { useState, useEffect, useRef } = React;
 
 /* versão do app — bater igual ao conteúdo de version.txt; ao trocar as duas, aparece o aviso "Atualizar" */
-const APP_VERSION = '2026-10-06-2';
+const APP_VERSION = '2026-10-06-3';
 
 // cor do texto que contrasta com um fundo sólido (claro -> texto escuro; escuro -> branco)
 const textOn = hex => { const c = (hex||'#000').replace('#',''); const r=parseInt(c.slice(0,2),16)||0, g=parseInt(c.slice(2,4),16)||0, b=parseInt(c.slice(4,6),16)||0; return (0.299*r+0.587*g+0.114*b)/255 > 0.62 ? '#231a05' : '#ffffff'; };
@@ -577,8 +577,8 @@ function App(){
   const irPara = (dateStr) => { setRefStr(dateStr); setAgView('mes'); setView('agenda'); };
   const onNewGlobal = () => { if (view === 'notas') openNewNote(); else if (view === 'audiencias') openNew(todayStr(), 'audiencia'); else openNew(); };
   const ehAgenda = view === 'agenda';
-  const textoNovo = view === 'notas' ? '+ Nova nota' : view === 'audiencias' ? '+ Audiência à mão' : '+ Novo compromisso';
-  const mostraFab = celular && (ehAgenda || view === 'notas' || view === 'audiencias');
+  const textoNovo = view === 'notas' ? '+ Nova nota' : view === 'audiencias' ? '+ Nova audiência' : '+ Novo compromisso';
+  const mostraFab = celular && (ehAgenda || view === 'notas');
 
   return (
     <div className={celular ? 'cel' : ''} style={{minHeight:'100vh'}}>
@@ -586,7 +586,7 @@ function App(){
         onBusca={ehAgenda ? ()=>setBuscaAberta(b=>{ if (b) setBusca(''); return !b; }) : null}
         onFiltro={ehAgenda ? ()=>setFiltroOpen(true) : null} filtroOn={!!filtroTipo} />
       <div className={'shell'+(navHidden?' nonav':'')}>
-        {!celular && <Sidebar view={view} setView={setView} onNew={onNewGlobal} textoNovo={textoNovo} mostraNovo={ehAgenda || view==='notas' || view==='audiencias'} cont={contagens} />}
+        {!celular && <Sidebar view={view} setView={setView} onNew={onNewGlobal} textoNovo={textoNovo} mostraNovo={ehAgenda || view==='notas'} cont={contagens} />}
         <main className="main">
           {ehAgenda && (
             <AgendaHead agView={agView} setAgView={setAgView} celular={celular} busca={busca} setBusca={setBusca} buscaAberta={buscaAberta}
@@ -1505,22 +1505,33 @@ function SelSituacao({ valor, sits, onEscolher }){
     </select>
   );
 }
+// dias desde que chegou (NEJUL > EPROC > quando entrou na lista) e dias desde a AIJ, se já houve
+function diasDoProc(p, hoje){
+  const rec = p.distr || p.remDate || p.criadoEm || hoje;
+  const a = antiguidade(p, hoje);
+  return { rec:difDias(rec, hoje), aij: a.aij ? a.n : null };
+}
 function ProcCard({ p, sits, hoje, onUpd, onAbrir }){
   const s = sitDe(sits, p.sit);
-  const a = antiguidade(p, hoje);
+  const d = diasDoProc(p, hoje);
   const aij = aijMarcada(p);
-  const futura = aij && aij.date >= hoje;
-  const novo = !!p.novo;
-  const info = [textoAntig(a), futura ? 'AIJ ' + fmtAij(aij) : '', partesTxt(p)].filter(Boolean);
+  const futura = aij && aij.date > hoje;
+  const partes = partesTxt(p);
   return (
     <div className={'pcard'+(p.arquivado?' arquivada':'')} style={{'--c': s ? s.cor : '#a1a1aa'}}>
       <div className="pc-top">
-        <span className="pc-num">{p.key}</span>
+        <span className="pc-num grande">{p.key}</span>
         <CopyBtn txt={p.key} />
-        {novo && <span className="pc-novo">novo</span>}
-        <span className="pc-dir"><TagsPaineis p={p} /><button className="pc-mais" onClick={()=>onAbrir(p.key)} title="Abrir tudo" aria-label="Abrir tudo">⋯</button></span>
+        {p.novo && <span className="pc-novo">novo</span>}
+        <button className="pc-mais" onClick={()=>onAbrir(p.key)} title="Abrir tudo" aria-label="Abrir tudo">⋯</button>
       </div>
-      <div className="pc-info">{info.join(' · ')}</div>
+      <div className="pc-etiq">
+        <TagsPaineis p={p} />
+        <span className={'etq'+(d.rec > 60 ? ' verm' : '')} title="dias desde que chegou">{d.rec === 1 ? '1 dia' : d.rec + ' dias'}</span>
+        {d.aij !== null && <span className={'etq '+(d.aij > 60 ? 'verm' : 'verde')}>{d.aij === 0 ? 'AIJ hoje' : (d.aij === 1 ? '1 dia' : d.aij + ' dias') + ' desde a AIJ'}</span>}
+        {futura && <span className="etq azul">AIJ {fmtCurta(aij.date)}{aij.time ? ' ' + aij.time : ''}</span>}
+      </div>
+      {partes && <div className="pc-partes" title={partes}>{partes}</div>}
       <div className="pc-campo"><span>Situação</span><SelSituacao valor={p.sit} sits={sits} onEscolher={v=>onUpd(p.key, { sit:v })} /></div>
       <div className="pc-campo"><span>Pendência</span><CampoTexto valor={p.pend} placeholder="nenhuma" onGravar={v=>onUpd(p.key, { pend:v })} /></div>
       <div className="pc-campo"><span>Observação</span><CampoTexto multi valor={p.obs} placeholder="—" onGravar={v=>onUpd(p.key, { obs:v })} /></div>
@@ -1591,7 +1602,7 @@ function ProcEditor({ p, sits, hoje, onClose, onSalvar, onApagar, onSits }){
         <label className="campo"><span>Pendência</span><input className="inp" value={f.pend} onChange={e=>set('pend', e.target.value)} placeholder="ex.: pedir vinculação no EPROC" /></label>
         <label className="campo"><span>Observação</span><textarea className="inp" rows="3" value={f.obs} onChange={e=>set('obs', e.target.value)} /></label>
         <div className="linha2">
-          <label className="campo"><span>Audiência (à mão)</span><input className="inp" type="date" value={f.aijData} onChange={e=>set('aijData', e.target.value)} /></label>
+          <label className="campo"><span>Audiência</span><input className="inp" type="date" value={f.aijData} onChange={e=>set('aijData', e.target.value)} /></label>
           <label className="campo"><span>Hora</span><input className="inp" type="time" value={f.aijHora} onChange={e=>set('aijHora', e.target.value)} /></label>
         </div>
         {entregue && (
@@ -1739,9 +1750,9 @@ function AudienciasView({ itens, procs, sits, hoje, onNovo, onAbrirEv, onAbrirPr
             <button className={'segb'+(modo==='lista'?' on':'')} onClick={()=>setModo('lista')}>Lista</button>
             <button className={'segb'+(modo==='mes'?' on':'')} onClick={()=>setModo('mes')}>Mês</button>
           </div>
-          <button className="navbtn soPc" onClick={()=>onNovo()}>+ À mão</button>
         </div>
       </div>
+      <button className="btnaud" onClick={()=>onNovo()}>+ Nova audiência</button>
       {modo === 'lista' && (
         <React.Fragment>
           {futuras.length === 0 && <div className="vazio">Nenhuma audiência daqui para frente.</div>}
@@ -1788,7 +1799,7 @@ function AudMes({ itens, hoje, linha, onNovo }){
         <div className="mc-diatit">{sel === hoje ? 'Hoje — ' : ''}{fmtLongo(sel)}</div>
         {doDia.length === 0 && <div className="mc-vazio">Nenhuma audiência neste dia.</div>}
         {doDia.map(linha)}
-        <button className="mc-novo" onClick={()=>onNovo(sel)}>+ audiência à mão neste dia</button>
+        <button className="mc-novo" onClick={()=>onNovo(sel)}>+ nova audiência</button>
       </div>
     </div>
   );
@@ -1891,7 +1902,7 @@ const CSS = `
 .corsw:hover{transform:scale(1.12);}
 
 .shell{display:flex;gap:16px;max-width:1600px;margin:0 auto;padding:16px;}
-.sidebar{width:222px;flex:none;position:sticky;top:64px;align-self:flex-start;
+.sidebar{width:236px;flex:none;position:sticky;top:64px;align-self:flex-start;
   background:var(--sidebar);border:1px solid var(--border);border-radius:16px;padding:14px 12px;}
 .sidebar .brand{font-weight:500;color:var(--accent);font-size:16px;letter-spacing:-.3px;margin:2px 4px 12px;}
 .btnNovo{width:100%;background:var(--accent);color:var(--on-accent);border:none;border-radius:10px;padding:9px;font-weight:500;font-size:13px;margin-bottom:14px;}
@@ -2162,7 +2173,15 @@ textarea.inp{resize:vertical;}
 .fchip-n{font-size:11px;color:var(--faint);font-variant-numeric:tabular-nums;}
 .pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px;}
 .cel .pgrid{grid-template-columns:1fr;}
-.pcard{background:color-mix(in srgb, var(--c) 6%, var(--surface2));border:1px solid var(--border);border-left:4px solid var(--c);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;}
+.pcard{background:color-mix(in srgb, var(--c) 6%, var(--surface2));border:1px solid var(--border);border-left:4px solid var(--c);border-radius:12px;padding:8px 10px;display:flex;flex-direction:column;gap:3px;}
+.pc-num.grande{font-size:15.5px;font-weight:600;letter-spacing:-.2px;}
+.pc-top .pc-mais{margin-left:auto;}
+.pc-etiq{display:flex;align-items:center;gap:4px;flex-wrap:wrap;}
+.etq{font-size:10.5px;font-weight:500;border-radius:20px;padding:1px 8px;line-height:1.5;color:var(--muted);background:var(--surface);border:1px solid var(--border2);white-space:nowrap;font-variant-numeric:tabular-nums;}
+.etq.verm{color:#fff;background:#dc2626;border-color:#dc2626;}
+.etq.verde{color:#fff;background:#059669;border-color:#059669;}
+.etq.azul{color:#fff;background:#2F6FE4;border-color:#2F6FE4;}
+.pc-partes{font-size:11.5px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .pcard.arquivada{opacity:.6;}
 .pc-top{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
 .pc-num{font-size:13.5px;font-weight:500;font-variant-numeric:tabular-nums;letter-spacing:-.1px;}
@@ -2174,13 +2193,13 @@ textarea.inp{resize:vertical;}
 .pc-mais{background:none;border:none;color:var(--muted);font-size:18px;line-height:1;padding:0 4px;border-radius:6px;}
 .pc-mais:hover{color:var(--accent);background:var(--surface);}
 .pc-info{font-size:12px;color:var(--muted);line-height:1.4;}
-.pc-campo{display:grid;grid-template-columns:82px 1fr;align-items:start;gap:8px;}
-.pc-campo>span{font-size:11px;color:var(--faint);padding-top:7px;}
-.pc-inp{width:100%;font:inherit;font-size:13.5px;line-height:1.45;color:var(--text);background:transparent;border:1px solid transparent;border-radius:8px;padding:5px 7px;resize:none;overflow:hidden;}
+.pc-campo{display:grid;grid-template-columns:74px 1fr;align-items:center;gap:6px;}
+.pc-campo>span{font-size:11px;color:var(--faint);}
+.pc-inp{width:100%;font:inherit;font-size:13px;line-height:1.4;color:var(--text);background:transparent;border:1px solid transparent;border-radius:7px;padding:2px 6px;resize:none;overflow:hidden;}
 .pc-inp:hover{border-color:var(--border);}
 .pc-inp:focus{outline:none;border-color:var(--accent);background:var(--input);}
 .pc-inp::placeholder{color:var(--faint);}
-.pc-sel{font:inherit;font-size:13px;font-weight:500;color:var(--text);background:color-mix(in srgb, var(--c, #a1a1aa) 22%, var(--surface));border:1px solid color-mix(in srgb, var(--c, #a1a1aa) 60%, transparent);border-radius:20px;padding:4px 10px;max-width:100%;}
+.pc-sel{font:inherit;font-size:12.5px;font-weight:500;color:var(--text);background:color-mix(in srgb, var(--c, #a1a1aa) 22%, var(--surface));border:1px solid color-mix(in srgb, var(--c, #a1a1aa) 60%, transparent);border-radius:20px;padding:2px 8px;max-width:100%;justify-self:start;}
 .pc-nejul{font-size:12.5px;line-height:1.45;background:color-mix(in srgb, #f97316 12%, var(--surface));border:1px solid #f9731655;border-radius:9px;padding:8px 10px;color:var(--text);}
 .pc-nejul-b{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;}
 .copybtn{background:none;border:1px solid var(--border2);color:var(--muted);border-radius:7px;font-size:11.5px;padding:1px 7px;line-height:1.6;white-space:nowrap;}
@@ -2236,6 +2255,8 @@ textarea.inp{resize:vertical;}
 .aud-top{display:flex;align-items:center;gap:6px;}
 .aud-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
 .aud-fonte{font-size:10.5px;color:var(--faint);}
+.btnaud{display:block;width:100%;background:var(--accent);color:var(--on-accent);border:none;border-radius:12px;padding:12px;font-size:15px;font-weight:500;margin:0 0 16px;}
+.btnaud:hover{filter:brightness(1.05);}
 .aud-conf{font-size:10.5px;font-weight:500;color:#231a05;background:#f59e0b;border-radius:20px;padding:0 7px;}
 /* colar painéis */
 .colar-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
