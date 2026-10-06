@@ -59,7 +59,7 @@
 const { useState, useEffect, useRef } = React;
 
 /* versão do app — bater igual ao conteúdo de version.txt; ao trocar as duas, aparece o aviso "Atualizar" */
-const APP_VERSION = '2026-10-06-7';
+const APP_VERSION = '2026-10-06-8';
 
 // cor do texto que contrasta com um fundo sólido (claro -> texto escuro; escuro -> branco)
 const textOn = hex => { const c = (hex||'#000').replace('#',''); const r=parseInt(c.slice(0,2),16)||0, g=parseInt(c.slice(2,4),16)||0, b=parseInt(c.slice(4,6),16)||0; return (0.299*r+0.587*g+0.114*b)/255 > 0.62 ? '#231a05' : '#ffffff'; };
@@ -1140,6 +1140,17 @@ function NoteEditor({ n, cats, onOpenCats, onClose, onSave, onDelete }){
 
 /* ---------- NOTAS: gerenciar as cores (renomear / criar / apagar) ---------- */
 /* ---------- editor de TIPO de compromisso (criar/editar nome + cor) ---------- */
+// escolher qualquer cor: abre o seletor completo do aparelho (todas as nuances), não uma lista fixa
+const hex6 = c => { const h = (c || '').trim(); return /^#[0-9a-f]{6}$/i.test(h) ? h.toLowerCase() : /^#[0-9a-f]{3}$/i.test(h) ? ('#' + h.slice(1).split('').map(x => x + x).join('')).toLowerCase() : '#888888'; };
+function CorLivre({ cor, onCor }){
+  return (
+    <label className="corlivre" title="Escolher a cor">
+      <span className="corlivre-amostra" style={{background:hex6(cor)}}></span>
+      <span className="corlivre-txt">mudar cor</span>
+      <input type="color" value={hex6(cor)} onChange={e=>onCor(e.target.value)} />
+    </label>
+  );
+}
 function TipoEditor({ tipo, onClose, onSave }){
   const [nome, setNome] = useState(tipo.nome || '');
   const [cor, setCor] = useState(tipo.cor || CORES_TIPO[0]);
@@ -1150,7 +1161,7 @@ function TipoEditor({ tipo, onClose, onSave }){
         <div className="cardhead"><b>{tipo._new ? 'Novo tipo' : 'Editar tipo'}</b><button className="x" onClick={onClose} aria-label="Fechar">×</button></div>
         <input className="inp" autoFocus placeholder="Nome do tipo (ex.: Pagamento, Reunião)" value={nome} onChange={e=>setNome(e.target.value)} onKeyDown={e=>{ if(e.key==='Enter') salvar(); }} />
         <div className="cores" style={{marginBottom:6}}>
-          {CORES_TIPO.map(c => <button key={c} className={'corbolinha'+(cor===c?' on':'')} style={{background:c}} onClick={()=>setCor(c)} aria-label="cor"></button>)}
+          <CorLivre cor={cor} onCor={setCor} />
         </div>
         <div className="cardacts"><span style={{flex:1}}></span><button className="ghost" onClick={onClose}>Cancelar</button><button className="primary" onClick={salvar}>Salvar</button></div>
       </div>
@@ -1180,7 +1191,7 @@ function CatManager({ cats, onSave, onClose, title, subtitle, defaultCats, semSo
             </span>
             <span className="catdot" style={{background:c.cor}}></span>
             <input className="inp" style={{margin:0,flex:1,minWidth:120}} value={c.nome} onChange={e=>setName(i, e.target.value)} />
-            <div className="cores">{CAT_CORES.map(cc => <button key={cc} className={'corbolinha'+(c.cor===cc?' on':'')} style={{background:cc}} onClick={()=>setCor(i, cc)} aria-label="cor"></button>)}</div>
+            <CorLivre cor={c.cor} onCor={v=>setCor(i, v)} />
             {!semSolido && <button className={'solidtog'+(c.solido?' on':'')} style={c.solido?{background:c.cor,borderColor:c.cor,color:textOn(c.cor)}:null} onClick={()=>setSol(i, !c.solido)} title="Padrão forte pra esta cor (dá pra mudar em cada processo)">sólido</button>}
             {c.fixo ? <span className="cadeado" title="Fixa: leva o processo para Sentenças/Despachos">🔒</span> : <button className="legend-x" onClick={()=>del(i)} title="Apagar">×</button>}
           </div>
@@ -1308,7 +1319,7 @@ function Editor({ ev, tipos, onAddTipo, onClose, onSave, onDelete }){
           <div className="novotipo">
             <input className="inp" style={{margin:0,flex:1}} placeholder="nome do tipo (ex.: Prazo, Perícia)" value={ntNome} onChange={e=>setNtNome(e.target.value)} onKeyDown={e=>{ if(e.key==='Enter') criarTipo(); }} />
             <div className="cores">
-              {CORES_TIPO.map(c => <button key={c} className={'corbolinha'+(ntCor===c?' on':'')} style={{background:c}} onClick={()=>setNtCor(c)} aria-label="cor"></button>)}
+              <CorLivre cor={ntCor} onCor={setNtCor} />
             </div>
             <button className="primary" style={{padding:'8px 14px'}} onClick={criarTipo}>Criar</button>
           </div>
@@ -2051,6 +2062,11 @@ textarea.inp{resize:vertical;}
 .tipopill.novo{border-style:dashed;color:var(--accent);border-color:var(--accent);}
 .novotipo{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:10px;margin-bottom:11px;}
 .cores{display:flex;gap:6px;flex-wrap:wrap;}
+.corlivre{position:relative;display:inline-flex;align-items:center;gap:8px;cursor:pointer;border:1px solid var(--border2);border-radius:20px;padding:4px 12px 4px 4px;background:var(--surface2);flex:none;}
+.corlivre:hover{border-color:var(--accent);}
+.corlivre-amostra{width:26px;height:26px;border-radius:50%;box-shadow:inset 0 0 0 2px rgba(255,255,255,.25);}
+.corlivre-txt{font-size:12.5px;color:var(--muted);}
+.corlivre input{position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer;border:none;padding:0;}
 .corbolinha{width:22px;height:22px;border-radius:50%;border:2px solid transparent;padding:0;}
 .corbolinha.on{border-color:var(--text);}
 .corbolinha:hover{transform:scale(1.12);}
