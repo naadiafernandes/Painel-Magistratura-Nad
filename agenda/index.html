@@ -59,7 +59,7 @@
 const { useState, useEffect, useRef } = React;
 
 /* versão do app — bater igual ao conteúdo de version.txt; ao trocar as duas, aparece o aviso "Atualizar" */
-const APP_VERSION = '2026-10-06-3';
+const APP_VERSION = '2026-10-06-4';
 
 // cor do texto que contrasta com um fundo sólido (claro -> texto escuro; escuro -> branco)
 const textOn = hex => { const c = (hex||'#000').replace('#',''); const r=parseInt(c.slice(0,2),16)||0, g=parseInt(c.slice(2,4),16)||0, b=parseInt(c.slice(4,6),16)||0; return (0.299*r+0.587*g+0.114*b)/255 > 0.62 ? '#231a05' : '#ffffff'; };
@@ -396,14 +396,30 @@ function sitDoGrupo(grupo, texto){
   if (/PEND/.test(g)) return 'pend';
   return 'outros';
 }
+// Junta o que veio do JusNAD/Desenrolar sem apagar nada do que ela escreveu:
+// pendência e observação são somadas (sem repetir); situação só é trocada se ela
+// ainda não mexeu nela à mão; datas e valores só preenchem o que está vazio.
 function aplicarNotasJusnad(painel, notas, hoje){
   const procs = { ...painel.procs }; let n = 0;
+  const junta = (a, b) => !b ? (a || '') : !a ? b : (a.indexOf(b) >= 0 ? a : a + ' · ' + b);
   (notas || []).forEach(x => {
     const key = chaveProc(x.num); if (!key) return;
+    if (!procs[key] && x.soSeExistir) return;
     const p = procs[key] ? { ...procs[key] } : { key, sit:'', pend:'', obs:'', criadoEm:hoje, inN:false, inE:false, inC:false };
-    if (!p.obs && x.texto) p.obs = x.texto;
-    if (!p.pend && x.pend) p.pend = x.pend;
-    if (!p.sit) p.sit = x.sit || sitDoGrupo(x.grupo, x.texto);
+    if (x.pend) p.pend = junta(p.pend, x.pend);
+    const obs = x.obs || x.texto;
+    if (obs) p.obs = x.forte ? junta(p.obs, obs) : (p.obs || obs);
+    if (x.sit && (!p.sit || (x.forte && !p.sitManual))) p.sit = x.sit;
+    else if (!p.sit && (x.grupo || x.texto)) p.sit = sitDoGrupo(x.grupo, x.texto);
+    if (x.aij && x.aij.date){
+      if (x.aij.date >= hoje){ if (!p.aijC && !(p.aijManual && p.aijManual.date)) p.aijManual = x.aij; }
+      else if (!p.realizada) p.realizada = x.aij.date;
+    }
+    if (x.realizada && !p.realizada) p.realizada = x.realizada;
+    if (x.entregaData && !p.entregaData) p.entregaData = x.entregaData;
+    if (x.valorTipo && !p.valorTipo) p.valorTipo = x.valorTipo;
+    if (x.assinada && !p.assinada) p.assinada = true;
+    if (x.arquivado && !(p.inN || p.inE || p.inC)) p.arquivado = true;
     if (/^(sent|desp)-entregue$/.test(p.sit) && !p.entregaData) p.entregaData = hoje;
     procs[key] = p; n++;
   });
@@ -536,7 +552,7 @@ function App(){
     // virou "entregue": guarda o dia da entrega (dá para corrigir depois)
     if (patch.sit && /^(sent|desp)-entregue$/.test(patch.sit) && !novo.entregaData) novo.entregaData = todayStr();
     if (patch.sit && !/^(sent|desp)-entregue$/.test(patch.sit)) { novo.assinada = false; }
-    if (patch.sit) novo.novo = false;
+    if (patch.sit) { novo.novo = false; novo.sitManual = true; }
     // mexeu na situação/pendência/observação de um processo que está no NEJUL: o NEJUL ficou para trás
     const mudouTexto = ['sit','pend','obs'].some(k => k in patch && (patch[k] || '') !== (cur[k] || ''));
     if (mudouTexto && cur.inN && !('nejulAtualizar' in patch)) { novo.nejulAtualizar = true; novo.nejulObsRef = cur.obsN || ''; }
@@ -1820,7 +1836,7 @@ function ColarView({ painel, onLer, onTrazer, onVer }){
     inp.onchange = e => { const file = e.target.files[0]; if (!file) return; const fr = new FileReader();
       fr.onload = () => { try { const d = JSON.parse(fr.result); if (d._app !== 'agendanad-semente') throw 0;
         const n = onTrazer(d); if (d.colagem) setRaw(o => ({ cejusc:o.cejusc || d.colagem.cejusc || '', nejul:o.nejul || d.colagem.nejul || '', eproc:o.eproc || d.colagem.eproc || '' }));
-        setMsg('Trouxe as anotações de ' + n + ' processos. Confira no Painel de trabalho.'); } catch(err){ setMsg('Esse arquivo não é o da primeira carga do painel.'); } };
+        setMsg('Trouxe as informações de ' + n + ' processos. Nada do que você já tinha escrito foi apagado.'); } catch(err){ setMsg('Esse arquivo não é o do Desenrolar.'); } };
       fr.readAsText(file); };
     inp.click();
   };
@@ -1846,8 +1862,8 @@ function ColarView({ painel, onLer, onTrazer, onVer }){
       </div>
       {msg && <div className="colar-msg">{msg}</div>}
       <div className="colar-jus">
-        <b>Primeira carga</b>
-        <span>Traz para cá as anotações do Desenrolar (JusNAD). Só preenche o que estiver vazio.</span>
+        <b>Trazer do Desenrolar</b>
+        <span>Traz situação, pendências com o NEJUL, datas de audiência e entregues do Desenrolar (JusNAD). Soma ao que você já escreveu, sem apagar nada.</span>
         <button className="ghost" onClick={trazer}>Escolher o arquivo</button>
       </div>
     </div>
