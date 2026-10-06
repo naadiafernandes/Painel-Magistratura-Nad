@@ -59,7 +59,7 @@
 const { useState, useEffect, useRef } = React;
 
 /* versão do app — bater igual ao conteúdo de version.txt; ao trocar as duas, aparece o aviso "Atualizar" */
-const APP_VERSION = '2026-09-20-1';
+const APP_VERSION = '2026-10-06-1';
 
 // cor do texto que contrasta com um fundo sólido (claro -> texto escuro; escuro -> branco)
 const textOn = hex => { const c = (hex||'#000').replace('#',''); const r=parseInt(c.slice(0,2),16)||0, g=parseInt(c.slice(2,4),16)||0, b=parseInt(c.slice(4,6),16)||0; return (0.299*r+0.587*g+0.114*b)/255 > 0.62 ? '#231a05' : '#ffffff'; };
@@ -195,16 +195,248 @@ function parseValInput(s){
 }
 function applyVal(cur, input){ const p = parseValInput(input); if (!p) return cur; return +(p.signed ? (cur + p.val) : Math.abs(p.val)).toFixed(2); }
 
+/* =====================================================================
+   PAINEL DE TRABALHO (TJSC)
+   Ela cola as telas do CEJUSC, do NEJUL e do EPROC; o app junta tudo numa
+   lista só (na ordem do NEJUL) e, a cada colagem nova, compara com o que
+   ela já tinha e avisa só o que mudou. Situação, pendência e observação são
+   dela — a colagem nunca reescreve o que ela escreveu.
+   Sentenças, Despachos e Audiências saem sozinhos da situação de cada processo.
+   ===================================================================== */
+const PKEY = 'agenda-painel';          // { procs:{key:proc}, ordem:[key], avisos:[], aud:[], ultimaColagem, contagem }
+const SITKEY = 'agenda-situacoes';
+const RAWKEY = { nejul:'agendaloc-nejul', eproc:'agendaloc-eproc', cejusc:'agendaloc-cejusc' };  // só neste aparelho (não sincroniza)
+// As quatro situações fixas mandam o processo para as telas de Sentenças e Despachos.
+const SIT_FIXAS = { sentenciar:'Para sentenciar', despachar:'Para despachar', 'sent-entregue':'Sentenças entregues', 'desp-entregue':'Despachos entregues' };
+const DEFAULT_SITS = [
+  { key:'sentenciar',    nome:'Sentenciar',                cor:'#10b981', fixo:true },
+  { key:'despachar',     nome:'Despachar',                 cor:'#14b8a6', fixo:true },
+  { key:'aud',           nome:'Aguardando audiência',      cor:'#2F6FE4' },
+  { key:'redesignar',    nome:'Redesignar audiência',      cor:'#7C4DE0' },
+  { key:'pend',          nome:'Minhas pendências',         cor:'#ef4444' },
+  { key:'nejul',         nome:'Aguardando resposta NEJUL', cor:'#f97316' },
+  { key:'sent-entregue', nome:'Sentença entregue',         cor:'#eab308', fixo:true },
+  { key:'desp-entregue', nome:'Despacho entregue',         cor:'#E85D9A', fixo:true },
+  { key:'outros',        nome:'Outros',                    cor:'#64748b' },
+];
+function loadSits(){
+  try { const s = JSON.parse(localStorage.getItem(SITKEY) || 'null'); if (Array.isArray(s) && s.length){
+    const has = new Set(s.map(x => x.key)); const falta = DEFAULT_SITS.filter(d => d.fixo && !has.has(d.key));
+    return [...s.map(x => DEFAULT_SITS.some(d => d.fixo && d.key === x.key) ? { ...x, fixo:true } : x), ...falta]; } } catch(e){}
+  return DEFAULT_SITS.slice();
+}
+function saveSits(l){ localStorage.setItem(SITKEY, JSON.stringify(l)); }
+const PAINEL_VAZIO = { procs:{}, ordem:[], avisos:[], aud:[], ultimaColagem:null, contagem:null };
+function loadPainel(){ try { const p = JSON.parse(localStorage.getItem(PKEY) || 'null'); if (p && p.procs) return { ...PAINEL_VAZIO, ...p }; } catch(e){} return { ...PAINEL_VAZIO }; }
+function savePainel(p){ localStorage.setItem(PKEY, JSON.stringify(p)); }
+const lerLocal = k => { try { return localStorage.getItem(k) || ''; } catch(e){ return ''; } };
+const gravarLocal = (k, v) => { try { localStorage.setItem(k, v); } catch(e){} };
+
+/* ---------- datas do tribunal (DD/MM/AAAA) <-> AAAA-MM-DD ---------- */
+const CNJ_RE = /\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}/;
+const isBR = s => /^\d{2}\/\d{2}\/\d{4}$/.test(s || '');
+const isHora = s => /^\d{2}:\d{2}$/.test(s || '');
+const brYmd = s => { const m = (s || '').match(/(\d{2})\/(\d{2})\/(\d{2,4})/); if (!m) return ''; const y = m[3].length === 2 ? '20' + m[3] : m[3]; return y + '-' + m[2] + '-' + m[1]; };
+const chaveProc = s => { const m = (s || '').match(CNJ_RE); return m ? m[0] : ''; };
+const difDias = (de, ate) => Math.round((parseYmd(ate) - parseYmd(de)) / 86400000);
+const fmtCurta = s => s ? s.slice(8,10) + '/' + s.slice(5,7) : '';
+const brl = v => 'R$ ' + (v || 0).toLocaleString('pt-BR', { minimumFractionDigits:2, maximumFractionDigits:2 });
+const VALOR_C = { C1:44.47, C2:88.94, C3:133.41 };
+const cDaComplexidade = s => /ALTA/i.test(s || '') ? 'C3' : /M[ÉE]DIA/i.test(s || '') ? 'C2' : /BAIXA/i.test(s || '') ? 'C1' : '';
+
+/* ---------- leitura das colagens ---------- */
+// NEJUL: as células da tabela chegam achatadas, uma por linha. Cada processo vai
+// da linha do número até o próximo número. Âncoras fixas: ENTREGAR e ATENDIMENTO.
+function lerNejul(raw){
+  const L = (raw || '').split('\n').map(l => l.replace(/ /g, ' ').trim());
+  const PROC = /^\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}$/;
+  const idx = []; L.forEach((l, i) => { if (PROC.test(l)) idx.push(i); });
+  const out = [];
+  idx.forEach((ini, k) => {
+    const seg = L.slice(ini, k + 1 < idx.length ? idx[k + 1] : L.length);
+    const iEnt = seg.indexOf('ENTREGAR'), iAt = seg.indexOf('ATENDIMENTO');
+    const pre = seg.slice(1, iEnt >= 0 ? iEnt : seg.length).filter(Boolean);
+    const distr = pre.find(isBR) || '';
+    const diasLinha = pre.find(l => /^(?:\S+\s+)?\d{1,4}$/.test(l)) || '';
+    let entrega = iEnt > 0 ? seg[iEnt - 1] : '';
+    if (entrega === diasLinha || entrega === distr) entrega = '';
+    const meio = iEnt >= 0 && iAt > iEnt ? seg.slice(iEnt, iAt) : [];
+    const aijDate = meio.find(isBR) || '', aijTime = meio.find(isHora) || '';
+    const post = (iAt >= 0 ? seg.slice(iAt + 1) : []).filter(l => l && !/^🔀/.test(l) && l !== 'IMPEDIMENTO' && !/^Voltar ao menu/i.test(l));
+    const ehClass = l => /COMPLEXIDADE|EMBARGOS DECLARAT/i.test(l) || /^Selecione/.test(l);
+    const classes = post.filter(l => ehClass(l) && !/^Selecione/.test(l));
+    const obs = post.filter(l => !ehClass(l) && l !== 'AIJ').join('\n');
+    const desig = obs.match(/consta como (?:RE)?DESIGNADA em (\d{2}\/\d{2}\/\d{4})\s*(\d{2}:\d{2})?/i);
+    const feita = obs.match(/(?:consta como REALIZADA em|AUDI[ÊE]NCIA REALIZADA EM)\s*(\d{2}\/\d{2}\/\d{2,4})/i);
+    out.push({ key:seg[0], origin:pre[0] || '', distr:brYmd(distr), dias:parseInt((diasLinha.match(/\d+/) || ['0'])[0], 10),
+      entrega, aij: isBR(aijDate) ? { date:brYmd(aijDate), time:aijTime } : null,
+      aijEproc: desig ? { date:brYmd(desig[1]), time:desig[2] || '' } : null,
+      realizada: feita ? brYmd(feita[1]) : '', classif: classes[classes.length - 1] || '', obsN:obs });
+  });
+  return out;
+}
+// EPROC: vários relatórios colados um embaixo do outro; o mesmo processo pode
+// aparecer mais de uma vez — junta as aparições sem apagar os nomes das partes.
+function lerEproc(raw){
+  const txt = (raw || '').replace(/ /g, ' ');
+  const ms = [...txt.matchAll(/(\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4})\/SC/g)];
+  const m = new Map();
+  ms.forEach((x, i) => {
+    const seg = txt.slice(x.index, i + 1 < ms.length ? ms[i + 1].index : txt.length);
+    const r = { key:x[1], autores:[...seg.matchAll(/([^\n\t]+?)\s*-\s*(AUTOR|REQUERENTE)\b/gi)].map(a => a[1].trim()),
+      reus:[...seg.matchAll(/([^\n\t]+?)\s*-\s*(R[ÉE]U|REQUERIDO)\b/gi)].map(a => a[1].trim()),
+      remDate:brYmd((seg.match(/\d{2}\/\d{2}\/\d{4}/) || [''])[0]), idoso:/Idoso/i.test(seg) };
+    const p = m.get(r.key);
+    m.set(r.key, p ? { ...p, autores:p.autores.length ? p.autores : r.autores, reus:p.reus.length ? p.reus : r.reus, remDate:p.remDate || r.remDate, idoso:p.idoso || r.idoso } : r);
+  });
+  return [...m.values()];
+}
+// CEJUSC: uma linha por horário — "01/10/2026 (Qui) às 13:00 <tab> processo" (ou "(vazio)").
+function lerCejusc(raw){
+  const out = [];
+  (raw || '').split('\n').forEach(l => {
+    const d = l.match(/\b(\d{2}\/\d{2}\/\d{4})\b/), h = l.match(/\b(\d{2}:\d{2})\b/);
+    if (!d || !h) return;
+    const k = chaveProc(l);
+    if (k) out.push({ key:k, date:brYmd(d[1]), time:h[1] });
+  });
+  return out;
+}
+
+/* ---------- audiência e antiguidade de cada processo ---------- */
+// audiência que ainda vai acontecer, pela ordem de confiança: à mão > CEJUSC > NEJUL > texto do NEJUL
+function aijMarcada(p){ return p.aijManual && p.aijManual.date ? p.aijManual : (p.aijC || p.aijN || p.aijEproc || null); }
+const fmtAij = a => a && a.date ? fmtData(a.date) + (a.time ? ' ' + a.time : '') : '';
+// Antiguidade: conta do dia em que chegou; se já teve AIJ, conta só do dia da AIJ.
+function antiguidade(p, hoje){
+  const feitas = [p.aijManual, p.aijC, p.aijN, p.aijEproc].filter(a => a && a.date && a.date <= hoje).map(a => a.date);
+  if (p.realizada) feitas.push(p.realizada);
+  if (feitas.length){ const d = feitas.sort().pop(); return { n:difDias(d, hoje), aij:true, desde:d }; }
+  const rec = p.distr || p.remDate || p.criadoEm || hoje;
+  return { n:difDias(rec, hoje), aij:false, desde:rec };
+}
+const textoAntig = a => a.aij ? (a.n === 0 ? 'AIJ hoje' : a.n === 1 ? '1 dia desde a AIJ' : a.n + ' dias desde a AIJ') : (a.n === 1 ? 'recebido há 1 dia' : 'recebido há ' + a.n + ' dias');
+const valorDe = p => VALOR_C[p.valorTipo || cDaComplexidade(p.classif)] || 0;
+
+/* ---------- colagem nova: junta os três painéis e compara com o que já havia ---------- */
+let _av = 0;
+const avId = () => 'a' + Date.now().toString(36) + (_av++).toString(36);
+function aplicarColagem(painel, raws, hoje){
+  const N = lerNejul(raws.nejul), E = lerEproc(raws.eproc), C = lerCejusc(raws.cejusc);
+  const nMap = new Map(N.map(x => [x.key, x])), eMap = new Map(E.map(x => [x.key, x]));
+  // mesmo processo em mais de um horário: fica a próxima audiência (ou a mais recente, se todas já passaram)
+  const cMap = new Map(); C.forEach(x => { const c = cMap.get(x.key);
+    if (!c || (x.date >= hoje ? (c.date < hoje || x.date < c.date) : (c.date < hoje && x.date > c.date))) cMap.set(x.key, x); });
+  const primeira = Object.keys(painel.procs).length === 0;
+  const procs = { ...painel.procs }, avisos = [];
+  const aviso = (key, tipo, texto) => avisos.push({ id:avId(), key, tipo, texto, em:hoje });
+  const todas = new Set([...nMap.keys(), ...eMap.keys(), ...cMap.keys()]);
+  todas.forEach(key => {
+    const n = nMap.get(key), e = eMap.get(key), c = cMap.get(key);
+    const ant = procs[key];
+    const p = ant ? { ...ant } : { key, sit:'', pend:'', obs:'', criadoEm:hoje };
+    const aijAntes = fmtAij(ant ? (ant.aijC || ant.aijN || ant.aijEproc) : null);
+    const aijAntesFutura = ant && [ant.aijC, ant.aijN, ant.aijEproc].some(a => a && a.date >= hoje);
+    p.inN = !!n; p.inE = !!e; p.inC = !!c;
+    if (n){ Object.assign(p, { origin:n.origin, distr:n.distr, diasN:n.dias, entregaN:n.entrega, aijN:n.aij, aijEproc:n.aijEproc, realizada:n.realizada || p.realizada || '', classif:n.classif || p.classif || '', obsN:n.obsN }); }
+    if (e){ Object.assign(p, { remDate:e.remDate, autores:e.autores.length ? e.autores : (p.autores || []), reus:e.reus.length ? e.reus : (p.reus || []), idoso:e.idoso }); }
+    p.aijC = c ? { date:c.date, time:c.time } : null;
+    if (!n){ p.aijN = null; p.aijEproc = null; }
+    if (!primeira){
+      if (!ant){ p.novo = true; aviso(key, 'novo', 'Apareceu no painel ' + [n && 'NEJUL', e && 'EPROC', c && 'CEJUSC'].filter(Boolean).join(', ') + '. Está em branco para você preencher.'); }
+      else {
+        // tirado da lista (ou já assinado) e reaparece num painel onde não estava: volta para a lista
+        if (ant.arquivado && ((n && !ant.inN) || (e && !ant.inE) || (c && !ant.inC))){ p.arquivado = false; aviso(key, 'voltou', 'Tinha saído e voltou ao painel ' + [n && 'NEJUL', e && 'EPROC', c && 'CEJUSC'].filter(Boolean).join(', ') + '.'); }
+        if (ant.inN && !n) aviso(key, 'saiu', 'Saiu do NEJUL' + (e ? ' (ainda está no EPROC)' : '') + '. Foi assinado?');
+        const aijAgora = fmtAij(p.aijC || p.aijN || p.aijEproc);
+        if (aijAgora !== aijAntes && (aijAgora || aijAntesFutura))
+          aviso(key, 'aij', aijAntes && aijAgora ? 'A audiência mudou: era ' + aijAntes + ', agora ' + aijAgora + '.' : aijAgora ? 'Audiência marcada: ' + aijAgora + '.' : 'A audiência de ' + aijAntes + ' saiu do painel.');
+        const entAntes = ant.entregaN || '', entAgora = p.entregaN || '';
+        if (n && entAgora !== entAntes){
+          if (/Devolvid/i.test(entAgora)) aviso(key, 'devolvido', 'O NEJUL devolveu para ajuste.');
+          else if (isBR(entAgora) && !/^(sent|desp)-entregue$/.test(p.sit)) aviso(key, 'entregueN', 'O NEJUL mostra entregue em ' + entAgora + '.');
+        }
+      }
+    } else if (n && isBR(n.entrega) && !p.sit){ p.sit = 'sent-entregue'; }
+    if (isBR(p.entregaN) && !p.entregaData) p.entregaData = brYmd(p.entregaN);
+    // o AgendaNAD é o mais atual: se ela mexeu aqui e o NEJUL continua com a observação antiga, lembra de atualizar lá
+    if (ant && ant.nejulAtualizar && n){
+      if ((n.obsN || '') !== (ant.nejulObsRef || '')) p.nejulAtualizar = false;
+      else if (!primeira) aviso(key, 'nejul', 'O NEJUL continua desatualizado neste processo. Copie o texto e cole na sua observação de lá.');
+    }
+    procs[key] = p;
+  });
+  // o que estava nos painéis e não veio nesta colagem
+  Object.values(procs).forEach(p => {
+    if (todas.has(p.key) || p.arquivado || !(p.inN || p.inE || p.inC)) return;
+    const estavaN = p.inN;
+    procs[p.key] = { ...p, inN:false, inE:false, inC:false, aijC:null };
+    if (!primeira) aviso(p.key, 'saiu', estavaN ? 'Saiu do NEJUL. Foi assinado?' : 'Saiu dos painéis. Foi assinado ou entregue?');
+  });
+  // ordem: a do NEJUL; depois o que só está no EPROC (mais antigo primeiro); depois só CEJUSC
+  const ordem = N.map(x => x.key);
+  const resto = [...todas].filter(k => !nMap.has(k));
+  resto.sort((a, b) => (eMap.has(b) - eMap.has(a)) || ((procs[a].remDate || '9') < (procs[b].remDate || '9') ? -1 : 1));
+  // audiências que vieram dos painéis
+  const aud = [];
+  C.forEach(x => aud.push({ key:x.key, date:x.date, time:x.time, fonte:'CEJUSC' }));
+  // o CEJUSC manda na data: se o processo está lá, a data escrita no NEJUL (que pode estar atrasada) não entra
+  N.forEach(x => { const a = x.aij || x.aijEproc; if (a && a.date && !aud.some(y => y.key === x.key)) aud.push({ key:x.key, date:a.date, time:a.time, fonte:'NEJUL' }); });
+  const contagem = { nejul:N.length, eproc:E.length, cejusc:C.length, total:todas.size };
+  return { ...painel, procs, ordem:[...ordem, ...resto], aud, avisos:[...avisos, ...painel.avisos.filter(a => !(a.tipo === 'nejul' && avisos.some(b => b.tipo === 'nejul' && b.key === a.key)))], ultimaColagem:new Date().toISOString(), contagem, _novos:avisos.length };
+}
+// Notas do JusNAD (Desenrolar de 06/10): grupo vira situação, texto vira observação. Só preenche o que está vazio.
+function sitDoGrupo(grupo, texto){
+  const g = (grupo || '').toUpperCase(), t = (texto || '').toUpperCase();
+  if (/^REDESIGNAR/.test(t)) return 'redesignar';
+  if (/^SENTENCIAR/.test(t) || /SENTENCIAR/.test(g)) return 'sentenciar';
+  if (/ASSINATURA/.test(g)) return 'sent-entregue';
+  if (/AUDI/.test(g)) return 'aud';
+  if (/NEJUL/.test(g)) return 'nejul';
+  if (/PEND/.test(g)) return 'pend';
+  return 'outros';
+}
+function aplicarNotasJusnad(painel, notas, hoje){
+  const procs = { ...painel.procs }; let n = 0;
+  (notas || []).forEach(x => {
+    const key = chaveProc(x.num); if (!key) return;
+    const p = procs[key] ? { ...procs[key] } : { key, sit:'', pend:'', obs:'', criadoEm:hoje, inN:false, inE:false, inC:false };
+    if (!p.obs && x.texto) p.obs = x.texto;
+    if (!p.pend && x.pend) p.pend = x.pend;
+    if (!p.sit) p.sit = x.sit || sitDoGrupo(x.grupo, x.texto);
+    if (/^(sent|desp)-entregue$/.test(p.sit) && !p.entregaData) p.entregaData = hoje;
+    procs[key] = p; n++;
+  });
+  const ordem = painel.ordem.slice(); Object.keys(procs).forEach(k => { if (ordem.indexOf(k) < 0) ordem.push(k); });
+  return { painel:{ ...painel, procs, ordem }, n };
+}
+
 /* ================= App ================= */
+// telas: 'agenda' (com mês/semana/ano/lista dentro), 'notas' (Processos), 'painel', 'sentenciar',
+// 'sent-entregues', 'despachar', 'desp-entregues', 'audiencias', 'colar' (só no computador)
+const VIEWS_OK = ['agenda','notas','painel','sentenciar','sent-entregues','despachar','desp-entregues','audiencias','colar'];
+function useCelular(){
+  const q = '(max-width: 760px)';
+  const [m, setM] = useState(() => window.matchMedia(q).matches);
+  useEffect(() => { const mq = window.matchMedia(q); const h = () => setM(mq.matches); mq.addEventListener('change', h); return () => mq.removeEventListener('change', h); }, []);
+  return m;
+}
 function App(){
   const [events, setEvents] = useState(loadEvents);
-  const [view, setView] = useState('mes');          // 'mes' | 'semana' | 'ano' | 'lista'
+  const [view, setViewRaw] = useState(() => { const v = lerLocal('agendaloc-view'); return VIEWS_OK.indexOf(v) >= 0 ? v : 'agenda'; });
+  const [agView, setAgViewRaw] = useState(() => { const v = lerLocal('agendaloc-agview'); return ['mes','semana','ano','lista'].indexOf(v) >= 0 ? v : 'mes'; });
+  const setView = v => { setViewRaw(v); gravarLocal('agendaloc-view', v); window.scrollTo(0, 0); };
+  const setAgView = v => { setAgViewRaw(v); gravarLocal('agendaloc-agview', v); };
   const [refStr, setRefStr] = useState(todayStr()); // data de referencia comum a todas as visoes
   const [editing, setEditing] = useState(null);      // evento em edicao/criacao ou null
   const [viewing, setViewing] = useState(null);      // evento aberto so pra ver (ja salvo)
   const [dayView, setDayView] = useState(null);      // data (string) com a lista do dia aberta
   const [busca, setBusca] = useState('');            // busca na agenda (eventos)
+  const [buscaAberta, setBuscaAberta] = useState(false); // celular: campo de busca aparece pelo ícone
   const [syncOpen, setSyncOpen] = useState(false);
+  const [ajustesOpen, setAjustesOpen] = useState(false);
+  const [maisOpen, setMaisOpen] = useState(false);
+  const [filtroOpen, setFiltroOpen] = useState(false);
   const [navHidden, setNavHidden] = useState(() => localStorage.getItem('agenda-nav') === 'hide');
   const [userTipos, setUserTipos] = useState(loadUserTipos);
   const [filtroTipo, setFiltroTipo] = useState(null);   // ver só um tipo no calendário (null = todos)
@@ -215,11 +447,18 @@ function App(){
   const [catsOpen, setCatsOpen] = useState(false);
   const [noteView, setNoteView] = useState(null);   // nota aberta so pra ver
   const [noteEdit, setNoteEdit] = useState(null);    // nota em edicao/criacao
+  const [painel, setPainel] = useState(loadPainel);
+  const [sits, setSits] = useState(loadSits);
+  const [sitsOpen, setSitsOpen] = useState(false);
+  const [procEdit, setProcEdit] = useState(null);    // chave do processo aberto no editor completo
+  const celular = useCelular();
   const toggleNav = () => setNavHidden(v => { const n = !v; localStorage.setItem('agenda-nav', n ? 'hide' : 'show'); return n; });
   const first = useRef(true);
   const firstT = useRef(true);
   const firstN = useRef(true);
   const firstC = useRef(true);
+  const firstP = useRef(true);
+  const firstS = useRef(true);
 
   const tipos = userTipos;
   const tipoMap = mapa(tipos);
@@ -230,6 +469,8 @@ function App(){
   useEffect(() => { if (firstT.current){ firstT.current = false; return; } saveUserTipos(userTipos); }, [userTipos]);
   useEffect(() => { if (firstN.current){ firstN.current = false; return; } saveNotes(notes); }, [notes]);
   useEffect(() => { if (firstC.current){ firstC.current = false; return; } saveNoteCats(noteCats); }, [noteCats]);
+  useEffect(() => { if (firstP.current){ firstP.current = false; return; } savePainel(painel); }, [painel]);
+  useEffect(() => { if (firstS.current){ firstS.current = false; return; } saveSits(sits); }, [sits]);
   const firstV = useRef(true);
   useEffect(() => { if (firstV.current){ firstV.current = false; return; } saveValor(valor); }, [valor]);
   // avisa quando há versão nova publicada (sem recarregar na mão)
@@ -251,7 +492,7 @@ function App(){
   }, []);
   // recarrega quando a sincronizacao trouxer mudanca de outro aparelho
   useEffect(() => {
-    const h = () => { setEvents(loadEvents()); setUserTipos(loadUserTipos()); setNotes(loadNotes()); setNoteCats(loadNoteCats()); setValor(loadValor()); };
+    const h = () => { setEvents(loadEvents()); setUserTipos(loadUserTipos()); setNotes(loadNotes()); setNoteCats(loadNoteCats()); setValor(loadValor()); setPainel(loadPainel()); setSits(loadSits()); };
     window.addEventListener('agenda-pulled', h);
     return () => window.removeEventListener('agenda-pulled', h);
   }, []);
@@ -285,45 +526,106 @@ function App(){
     setNoteView(v => v && v.id === id ? { ...v, arquivado: val } : v);
   };
 
-  const openNew = (dateStr) => setEditing({ id:newId(), title:'', type:'compromisso', date: dateStr || todayStr(), time:'', note:'', repeat:{ freq:'none', interval:1, unit:'week' }, _new:true });
+  const openNew = (dateStr, tipo, titulo) => setEditing({ id:newId(), title:titulo || '', type:tipo || 'compromisso', date: dateStr || todayStr(), time:'', note:'', repeat:{ freq:'none', interval:1, unit:'week' }, _new:true });
 
-  const irPara = (dateStr) => { setRefStr(dateStr); setView('mes'); };
-  const onNewGlobal = () => { if (view === 'notas') openNewNote(); else openNew(); };
+  /* ----- painel de trabalho ----- */
+  const hoje = todayStr();
+  const updProc = (key, patch) => setPainel(p => {
+    const cur = p.procs[key]; if (!cur) return p;
+    const novo = { ...cur, ...patch };
+    // virou "entregue": guarda o dia da entrega (dá para corrigir depois)
+    if (patch.sit && /^(sent|desp)-entregue$/.test(patch.sit) && !novo.entregaData) novo.entregaData = todayStr();
+    if (patch.sit && !/^(sent|desp)-entregue$/.test(patch.sit)) { novo.assinada = false; }
+    if (patch.sit) novo.novo = false;
+    // mexeu na situação/pendência/observação de um processo que está no NEJUL: o NEJUL ficou para trás
+    const mudouTexto = ['sit','pend','obs'].some(k => k in patch && (patch[k] || '') !== (cur[k] || ''));
+    if (mudouTexto && cur.inN && !('nejulAtualizar' in patch)) { novo.nejulAtualizar = true; novo.nejulObsRef = cur.obsN || ''; }
+    return { ...p, procs:{ ...p.procs, [key]:novo } };
+  });
+  const novoProc = (num) => { const key = chaveProc(num); if (!key) return false;
+    setPainel(p => p.procs[key] ? p : { ...p, procs:{ ...p.procs, [key]:{ key, sit:'', pend:'', obs:'', criadoEm:todayStr(), inN:false, inE:false, inC:false, manual:true } }, ordem:[...p.ordem, key] });
+    return key; };
+  const apagarProc = key => setPainel(p => { const procs = { ...p.procs }; delete procs[key]; return { ...p, procs, ordem:p.ordem.filter(k => k !== key), avisos:p.avisos.filter(a => a.key !== key) }; });
+  const resolverAviso = (av, acao) => setPainel(p => {
+    const procs = { ...p.procs }; const cur = procs[av.key];
+    if (cur){
+      const desp = /^desp/.test(cur.sit) || cur.sit === 'despachar';
+      if (acao === 'assinado') procs[av.key] = { ...cur, sit: desp ? 'desp-entregue' : 'sent-entregue', assinada:true, assinadaEm:todayStr(), entregaData:cur.entregaData || todayStr(), arquivado:true };
+      if (acao === 'tirar') procs[av.key] = { ...cur, arquivado:true };
+      if (acao === 'entregar') procs[av.key] = { ...cur, sit: desp ? 'desp-entregue' : 'sent-entregue', entregaData:cur.entregaData || brYmd(cur.entregaN) || todayStr() };
+      if (acao === 'sentenciar') procs[av.key] = { ...cur, sit:'sentenciar', assinada:false };
+    }
+    return { ...p, procs, avisos:p.avisos.filter(a => a.id !== av.id) };
+  });
+  const dispensarAvisos = () => setPainel(p => ({ ...p, avisos:[] }));
+  const lerColagem = raws => { const res = aplicarColagem(painel, raws, todayStr()); const { _novos, ...limpo } = res; setPainel(limpo); return res; };
+  const trazerJusnad = dados => {
+    let atual = painel;
+    if (dados.colagem && Object.keys(painel.procs).length === 0){ const { _novos, ...limpo } = aplicarColagem(atual, dados.colagem, todayStr()); atual = limpo; }
+    const r = aplicarNotasJusnad(atual, dados.notas, todayStr()); const n = r.n; setPainel(r.painel);
+    if (dados.colagem){ Object.keys(RAWKEY).forEach(k => { if (dados.colagem[k] && !lerLocal(RAWKEY[k])) gravarLocal(RAWKEY[k], dados.colagem[k]); }); }
+    return n;
+  };
+
+  const procsLista = painel.ordem.map(k => painel.procs[k]).filter(Boolean);
+  const nSent = procsLista.filter(p => p.sit === 'sentenciar' && !p.arquivado).length;
+  const nDesp = procsLista.filter(p => p.sit === 'despachar' && !p.arquivado).length;
+  const audLista = juntarAudiencias(painel, events, hoje);
+  const nAud = audLista.filter(a => a.date >= hoje).length;
+  const contagens = { painel:procsLista.filter(p => !p.arquivado).length, avisos:painel.avisos.length, sentenciar:nSent, despachar:nDesp, audiencias:nAud };
+
+  const irPara = (dateStr) => { setRefStr(dateStr); setAgView('mes'); setView('agenda'); };
+  const onNewGlobal = () => { if (view === 'notas') openNewNote(); else if (view === 'audiencias') openNew(todayStr(), 'audiencia'); else openNew(); };
+  const ehAgenda = view === 'agenda';
+  const textoNovo = view === 'notas' ? '+ Nova nota' : view === 'audiencias' ? '+ Audiência à mão' : '+ Novo compromisso';
+  const mostraFab = celular && (ehAgenda || view === 'notas' || view === 'audiencias');
 
   return (
-    <div style={{minHeight:'100vh'}}>
-      <Toolbar onSync={()=>setSyncOpen(true)} onToggleNav={toggleNav} />
+    <div className={celular ? 'cel' : ''} style={{minHeight:'100vh'}}>
+      <Toolbar celular={celular} onToggleNav={toggleNav} onAjustes={()=>setAjustesOpen(true)}
+        onBusca={ehAgenda ? ()=>setBuscaAberta(b=>{ if (b) setBusca(''); return !b; }) : null}
+        onFiltro={ehAgenda ? ()=>setFiltroOpen(true) : null} filtroOn={!!filtroTipo} />
       <div className={'shell'+(navHidden?' nonav':'')}>
-        <Sidebar view={view} setView={setView} onNew={onNewGlobal} tipos={tipos} filtroTipo={filtroTipo} onFiltro={toggleFiltro} onEditTipo={t=>setTipoEdit(t)} onNewTipo={()=>setTipoEdit({ _new:true, nome:'', cor:CORES_TIPO[4] })} onDelTipo={delTipo} />
+        {!celular && <Sidebar view={view} setView={setView} onNew={onNewGlobal} textoNovo={textoNovo} mostraNovo={ehAgenda || view==='notas' || view==='audiencias'} cont={contagens} />}
         <main className="main">
-          {navHidden && <CompactNav view={view} setView={setView} onNew={onNewGlobal} />}
-          {view !== 'notas' && filtroTipo && tipoMap[filtroTipo] && (
-            <div className="filtro-bar"><span className="dot" style={{background:tipoMap[filtroTipo].cor}}></span>Mostrando só <b>{tipoMap[filtroTipo].nome}</b><button className="filtro-x" onClick={()=>setFiltroTipo(null)}>ver todos ×</button></div>
+          {ehAgenda && (
+            <AgendaHead agView={agView} setAgView={setAgView} celular={celular} busca={busca} setBusca={setBusca} buscaAberta={buscaAberta}
+              onFiltro={()=>setFiltroOpen(true)} filtroTipo={filtroTipo} tipoMap={tipoMap} onLimparFiltro={()=>setFiltroTipo(null)} />
           )}
-          {view !== 'notas' && (
-            <div className="buscaWrap agbusca">
-              <span className="buscaIco">⌕</span>
-              <input className="busca" placeholder="Buscar na agenda…" value={busca} onChange={e=>setBusca(e.target.value)} autoCapitalize="off" autoCorrect="off" spellCheck="false" />
-              {busca && <button className="buscaX" onClick={()=>setBusca('')} aria-label="Limpar">×</button>}
-            </div>
+          {ehAgenda && busca.trim() && <SearchView query={busca} events={eventosVista} tipoMap={tipoMap} onOpen={setViewing} />}
+          {ehAgenda && !busca.trim() && (
+            <React.Fragment>
+              {agView === 'mes'   && <MonthView refStr={refStr} setRefStr={setRefStr} events={eventosVista} tipoMap={tipoMap} onNew={openNew} onOpen={setViewing} onOpenDay={setDayView} compacto={celular} />}
+              {agView === 'semana'&& <WeekView  refStr={refStr} setRefStr={setRefStr} events={eventosVista} tipoMap={tipoMap} onNew={openNew} onOpen={setViewing} />}
+              {agView === 'ano'   && <YearView  refStr={refStr} setRefStr={setRefStr} events={eventosVista} tipoMap={tipoMap} onPick={irPara} />}
+              {agView === 'lista' && <AgendaView events={eventosVista} tipoMap={tipoMap} onOpen={setViewing} onNew={()=>openNew()} />}
+            </React.Fragment>
           )}
-          {view !== 'notas' && busca.trim()
-            ? <SearchView query={busca} events={eventosVista} tipoMap={tipoMap} onOpen={setViewing} />
-            : <React.Fragment>
-                {view === 'mes'   && <MonthView refStr={refStr} setRefStr={setRefStr} events={eventosVista} tipoMap={tipoMap} onNew={openNew} onOpen={setViewing} onOpenDay={setDayView} />}
-                {view === 'semana'&& <WeekView  refStr={refStr} setRefStr={setRefStr} events={eventosVista} tipoMap={tipoMap} onNew={openNew} onOpen={setViewing} />}
-                {view === 'ano'   && <YearView  refStr={refStr} setRefStr={setRefStr} events={eventosVista} tipoMap={tipoMap} onPick={irPara} />}
-                {view === 'lista' && <AgendaView events={eventosVista} tipoMap={tipoMap} onOpen={setViewing} onNew={()=>openNew()} />}
-                {view === 'notas' && <NotesView notes={notes} cats={noteCats} valor={valor} onValor={setValor} onOpen={setNoteView} onNew={openNewNote} onCats={()=>setCatsOpen(true)} />}
-              </React.Fragment>}
+          {view === 'notas' && <NotesView notes={notes} cats={noteCats} valor={valor} onValor={setValor} onOpen={setNoteView} onNew={openNewNote} onCats={()=>setCatsOpen(true)} />}
+          {view === 'painel' && <PainelView painel={painel} lista={procsLista} sits={sits} hoje={hoje} onUpd={updProc} onAbrir={setProcEdit} onSits={()=>setSitsOpen(true)}
+              onAviso={resolverAviso} onDispensar={dispensarAvisos} onNovo={novoProc} celular={celular} onColar={()=>setView('colar')} />}
+          {view === 'sentenciar' && <FilaView titulo="Para sentenciar" sit="sentenciar" lista={procsLista} sits={sits} hoje={hoje} onAbrir={setProcEdit} />}
+          {view === 'despachar' && <FilaView titulo="Para despachar" sit="despachar" lista={procsLista} sits={sits} hoje={hoje} onAbrir={setProcEdit} />}
+          {view === 'sent-entregues' && <EntreguesView titulo="Sentenças entregues" sit="sent-entregue" comValor procs={painel.procs} onUpd={updProc} onAbrir={setProcEdit} />}
+          {view === 'desp-entregues' && <EntreguesView titulo="Despachos entregues" sit="desp-entregue" procs={painel.procs} onUpd={updProc} onAbrir={setProcEdit} />}
+          {view === 'audiencias' && <AudienciasView itens={audLista} procs={painel.procs} sits={sits} hoje={hoje} tipoMap={tipoMap} onNovo={d=>openNew(d || todayStr(), 'audiencia')} onAbrirEv={setViewing} onAbrirProc={setProcEdit} />}
+          {view === 'colar' && <ColarView painel={painel} onLer={lerColagem} onTrazer={trazerJusnad} onVer={()=>setView('painel')} />}
         </main>
       </div>
+      {mostraFab && <button className="fab" onClick={onNewGlobal} aria-label={textoNovo}>+</button>}
+      {celular && <BottomBar view={view} setView={setView} onMais={()=>setMaisOpen(true)} cont={contagens} />}
+      {maisOpen && <MaisSheet view={view} setView={v=>{ setView(v); setMaisOpen(false); }} onClose={()=>setMaisOpen(false)} cont={contagens} />}
+      {filtroOpen && <FiltroTipos tipos={tipos} filtroTipo={filtroTipo} onFiltro={k=>{ toggleFiltro(k); setFiltroOpen(false); }} onClose={()=>setFiltroOpen(false)} />}
+      {ajustesOpen && <AjustesModal tipos={tipos} onClose={()=>setAjustesOpen(false)} onSync={()=>{ setAjustesOpen(false); setSyncOpen(true); }}
+          onEditTipo={t=>setTipoEdit(t)} onNewTipo={()=>setTipoEdit({ _new:true, nome:'', cor:CORES_TIPO[4] })} onDelTipo={delTipo} onSits={()=>{ setAjustesOpen(false); setSitsOpen(true); }} />}
       {dayView && <DayView dateStr={dayView} events={eventosVista} tipoMap={tipoMap} onClose={()=>setDayView(null)} onOpen={ev=>{ setDayView(null); setViewing(ev); }} onNew={s=>{ setDayView(null); openNew(s); }} />}
       {viewing && <EventView ev={viewing} tipoMap={tipoMap} onClose={()=>setViewing(null)} onEdit={()=>{ setEditing(viewing); setViewing(null); }} onDelete={id=>{ remove(id); setViewing(null); }} />}
       {editing && <Editor ev={editing} tipos={tipos} onAddTipo={addTipo} onClose={()=>setEditing(null)} onSave={ev=>{ upsert(ev); setEditing(null); }} onDelete={id=>{ remove(id); setEditing(null); }} />}
       {noteView && <NoteView n={noteView} cats={noteCats} onClose={()=>setNoteView(null)} onEdit={()=>{ setNoteEdit(noteView); setNoteView(null); }} onDelete={id=>{ removeNote(id); setNoteView(null); }} onArchive={setArchived} onAddEntry={addEntry} onDelEntry={delEntry} />}
       {noteEdit && <NoteEditor n={noteEdit} cats={noteCats} onOpenCats={()=>setCatsOpen(true)} onClose={()=>setNoteEdit(null)} onSave={n=>{ upsertNote(n); setNoteEdit(null); }} onDelete={id=>{ removeNote(id); setNoteEdit(null); }} />}
       {catsOpen && <CatManager cats={noteCats} onSave={list=>setNoteCats(list)} onClose={()=>setCatsOpen(false)} />}
+      {sitsOpen && <CatManager cats={sits} defaultCats={DEFAULT_SITS} semSolido title="Situações do painel" subtitle="Renomeie, mude a cor ou crie novas. As quatro marcadas com cadeado levam o processo para Sentenças e Despachos e não podem ser apagadas." onSave={list=>setSits(list)} onClose={()=>setSitsOpen(false)} />}
+      {procEdit && painel.procs[procEdit] && <ProcEditor p={painel.procs[procEdit]} sits={sits} hoje={hoje} onClose={()=>setProcEdit(null)} onSalvar={patch=>{ updProc(procEdit, patch); setProcEdit(null); }} onApagar={()=>{ apagarProc(procEdit); setProcEdit(null); }} onSits={()=>setSitsOpen(true)} />}
       {tipoEdit && <TipoEditor tipo={tipoEdit} onClose={()=>setTipoEdit(null)} onSave={(nome,cor)=>{ if(tipoEdit._new) addTipo(nome,cor); else editTipo(tipoEdit.key,nome,cor); setTipoEdit(null); }} />}
       {syncOpen && <SyncModal onClose={()=>setSyncOpen(false)} />}
       {updateReady && (
@@ -338,47 +640,105 @@ function App(){
   );
 }
 
-/* ---------- menu lateral ---------- */
-function Sidebar({ view, setView, onNew, tipos, filtroTipo, onFiltro, onEditTipo, onNewTipo, onDelTipo }){
-  const item = (id, icon, label) => (
-    <button className={'navitem'+(view===id?' on':'')} onClick={()=>setView(id)}>
-      <span className="ico">{icon}</span>{label}
+/* ---------- menu lateral (computador) ---------- */
+function Sidebar({ view, setView, onNew, textoNovo, mostraNovo, cont }){
+  const item = (id, icon, label, n, sub, alerta) => (
+    <button className={'navitem'+(view===id?' on':'')+(sub?' sub':'')} onClick={()=>setView(id)}>
+      <span className="ico">{icon}</span><span className="navlbl">{label}</span>
+      {alerta ? <span className="navalerta">{alerta}</span> : (n ? <span className="navn">{n}</span> : null)}
     </button>
   );
   return (
     <aside className="sidebar">
       <div className="brand">◷ AgendaNAD</div>
-      <button className="btnNovo" onClick={onNew}>{view==='notas' ? '+ Nova nota' : '+ Novo compromisso'}</button>
-      <div className="navgroup">Agenda</div>
-      {item('mes','▦','Mês')}
-      {item('semana','▤','Semana')}
-      {item('ano','▦','Ano')}
-      {item('lista','☰','Lista')}
+      {mostraNovo && <button className="btnNovo" onClick={onNew}>{textoNovo}</button>}
+      {item('agenda','▦','Agenda')}
       <div className="navgroup">TJSC</div>
       {item('notas','❏','Processos')}
-      {view!=='notas' && <div className="navgroup">Tipos <span className="navgroup-hint">toque pra filtrar</span></div>}
-      {view!=='notas' && tipos.map(t => (
-        <div key={t.key} className={'legend'+(filtroTipo===t.key?' on':'')+(filtroTipo&&filtroTipo!==t.key?' dim':'')}>
-          <button className="legend-main" onClick={()=>onFiltro(t.key)} title="Ver só este tipo no calendário">
-            <span className="dot" style={{background:t.cor}}></span><span className="legend-nome">{t.nome}</span>
-          </button>
-          <button className="legend-ed" title="Editar tipo" onClick={()=>onEditTipo(t)}>✎</button>
-          <button className="legend-x" title="Apagar tipo" onClick={()=>{ if(confirm('Apagar o tipo "'+t.nome+'"? Os compromissos já marcados com ele continuam na agenda.')) onDelTipo(t.key); }}>×</button>
-        </div>
-      ))}
-      {view!=='notas' && <button className="legend-add" onClick={onNewTipo}>+ novo tipo</button>}
+      {item('painel','☷','Painel de trabalho', cont.painel, false, cont.avisos ? '' + cont.avisos : null)}
+      <div className="navsub">Sentenças</div>
+      {item('sentenciar','✎','Para sentenciar', cont.sentenciar, true)}
+      {item('sent-entregues','✓','Entregues', 0, true)}
+      <div className="navsub">Despachos</div>
+      {item('despachar','✎','Para despachar', cont.despachar, true)}
+      {item('desp-entregues','✓','Entregues', 0, true)}
+      {item('audiencias','⚖','Audiências', cont.audiencias)}
+      <div className="navgroup">Sistema</div>
+      {item('colar','⇩','Colar painéis')}
     </aside>
   );
 }
 
-/* ---------- barrinha de navegacao (quando o menu esta escondido) ---------- */
-function CompactNav({ view, setView, onNew }){
-  const tab = (id,label) => <button className={'ctab'+(view===id?' on':'')} onClick={()=>setView(id)}>{label}</button>;
+/* ---------- celular: barra fixa embaixo + "Mais" ---------- */
+function BottomBar({ view, setView, onMais, cont }){
+  const emMais = ['notas','sentenciar','sent-entregues','despachar','desp-entregues','colar'].indexOf(view) >= 0;
+  const tab = (id, ico, label, on, onClick, n) => (
+    <button className={'btab'+(on?' on':'')} onClick={onClick}><span className="btab-ico">{ico}{n ? <i className="btab-n">{n}</i> : null}</span>{label}</button>
+  );
   return (
-    <div className="compactnav">
-      {tab('mes','Mês')}{tab('semana','Semana')}{tab('ano','Ano')}{tab('lista','Lista')}{tab('notas','Processos')}
-      <span style={{flex:1}}></span>
-      <button className="ctab novo" onClick={onNew}>{view==='notas' ? '+ Nova nota' : '+ Novo'}</button>
+    <nav className="bottombar">
+      {tab('agenda','▦','Agenda', view==='agenda', ()=>setView('agenda'))}
+      {tab('painel','☷','Painel', view==='painel', ()=>setView('painel'), cont.avisos)}
+      {tab('audiencias','⚖','Audiências', view==='audiencias', ()=>setView('audiencias'))}
+      {tab('mais','⋯','Mais', emMais, onMais)}
+    </nav>
+  );
+}
+function MaisSheet({ view, setView, onClose, cont }){
+  const it = (id, label, n) => <button className={'sheetitem'+(view===id?' on':'')} onClick={()=>setView(id)}><span>{label}</span>{n ? <span className="navn">{n}</span> : null}</button>;
+  return (
+    <div className="modal sheetwrap" onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
+      <div className="sheet">
+        <div className="sheetgrip"></div>
+        {it('notas','Processos')}
+        <div className="sheetgrp">Sentenças</div>
+        {it('sentenciar','Para sentenciar', cont.sentenciar)}
+        {it('sent-entregues','Entregues')}
+        <div className="sheetgrp">Despachos</div>
+        {it('despachar','Para despachar', cont.despachar)}
+        {it('desp-entregues','Entregues')}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- cabeçalho da agenda: mês/semana/ano/lista + busca + filtro ---------- */
+function AgendaHead({ agView, setAgView, celular, busca, setBusca, buscaAberta, onFiltro, filtroTipo, tipoMap, onLimparFiltro }){
+  const seg = (id, label) => <button className={'segb'+(agView===id?' on':'')} onClick={()=>setAgView(id)}>{label}</button>;
+  const campo = (
+    <div className="buscaWrap agbusca">
+      <span className="buscaIco">⌕</span>
+      <input className="busca" autoFocus={celular} placeholder="Buscar na agenda…" value={busca} onChange={e=>setBusca(e.target.value)} autoCapitalize="off" autoCorrect="off" spellCheck="false" />
+      {busca && <button className="buscaX" onClick={()=>setBusca('')} aria-label="Limpar">×</button>}
+    </div>
+  );
+  return (
+    <div className="aghead">
+      <div className="aghead-l">
+        <div className="segmented">{seg('mes','Mês')}{seg('semana','Semana')}{seg('ano','Ano')}{seg('lista','Lista')}</div>
+        {!celular && <button className={'navbtn'+(filtroTipo?' ativo':'')} onClick={onFiltro} title="Ver só um tipo">⛃ Tipos</button>}
+        {!celular && campo}
+      </div>
+      {celular && buscaAberta && campo}
+      {filtroTipo && tipoMap[filtroTipo] && (
+        <div className="filtro-bar"><span className="dot" style={{background:tipoMap[filtroTipo].cor}}></span>Mostrando só <b>{tipoMap[filtroTipo].nome}</b><button className="filtro-x" onClick={onLimparFiltro}>ver todos ×</button></div>
+      )}
+    </div>
+  );
+}
+function FiltroTipos({ tipos, filtroTipo, onFiltro, onClose }){
+  return (
+    <div className="modal" onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
+      <div className="card">
+        <div className="cardhead"><b>Ver só um tipo</b><button className="x" onClick={onClose} aria-label="Fechar">×</button></div>
+        {tipos.map(t => (
+          <button key={t.key} className={'sheetitem'+(filtroTipo===t.key?' on':'')} onClick={()=>onFiltro(t.key)}>
+            <span><span className="dot" style={{background:t.cor,display:'inline-block',width:10,height:10,borderRadius:'50%',marginRight:10}}></span>{t.nome}</span>
+            {filtroTipo===t.key && <span className="navn">vendo</span>}
+          </button>
+        ))}
+        <p className="sub" style={{marginTop:10}}>Para criar, renomear ou apagar tipos, vá em Ajustes (a engrenagem).</p>
+      </div>
     </div>
   );
 }
@@ -400,7 +760,54 @@ function ViewHeader({ title, onPrev, onNext, onToday }){
 }
 
 /* ---------- visao de mes ---------- */
-function MonthView({ refStr, setRefStr, events, tipoMap, onNew, onOpen, onOpenDay }){
+function MonthView(props){ return props.compacto ? <MonthCompacto {...props} /> : <MonthGrande {...props} />; }
+// celular: dias com bolinhas coloridas; tocar num dia mostra os compromissos dele logo embaixo
+function MonthCompacto({ refStr, setRefStr, events, tipoMap, onNew, onOpen }){
+  const ref = parseYmd(refStr);
+  const y = ref.getFullYear(), m = ref.getMonth();
+  const primeiro = new Date(y, m, 1);
+  const cells = Array.from({length:42}, (_,i) => new Date(y, m, 1 - primeiro.getDay() + i));
+  const rs = ymd(cells[0]), re = ymd(cells[41]);
+  const hoje = todayStr();
+  const [sel, setSel] = useState(refStr);
+  const porDia = {};
+  events.forEach(ev => occurrences(ev, rs, re).forEach(s => { (porDia[s] = porDia[s] || []).push(ev); }));
+  Object.keys(porDia).forEach(s => porDia[s].sort(cmpHora));
+  const go = delta => { const d = new Date(y, m + delta, 1); setRefStr(ymd(d)); setSel(ymd(d)); };
+  const semanas = cells.slice(35).every(d => d.getMonth() !== m) ? cells.slice(0, 35) : cells;
+  const doDia = porDia[sel] || [];
+  return (
+    <div>
+      <ViewHeader title={cap(MESES[m])+' '+y} onPrev={()=>go(-1)} onNext={()=>go(1)} onToday={()=>{ setRefStr(hoje); setSel(hoje); }} />
+      <div className="mc-week">{DIAS.map(d => <div key={d}>{d[0].toUpperCase()}</div>)}</div>
+      <div className="mc-grid">
+        {semanas.map((d, i) => {
+          const s = ymd(d); const evs = porDia[s] || [];
+          const cores = []; evs.forEach(ev => { const c = (tipoMap[ev.type]||FALLBACK_TIPO).cor; if (cores.indexOf(c) < 0 && cores.length < 4) cores.push(c); });
+          return (
+            <button key={i} className={'mc-day'+(d.getMonth()!==m?' fora':'')+(s===hoje?' hoje':'')+(s===sel?' sel':'')} onClick={()=>setSel(s)}>
+              <span className="mc-num">{d.getDate()}</span>
+              <span className="mc-dots">{cores.map((c,k) => <i key={k} style={{background:c}}></i>)}</span>
+            </button>
+          );
+        })}
+      </div>
+      <div className="mc-dia">
+        <div className="mc-diatit">{sel === hoje ? 'Hoje — ' : ''}{fmtLongo(sel)}</div>
+        {doDia.length === 0 && <div className="mc-vazio">Nada marcado neste dia.</div>}
+        {doDia.map((ev,i) => (
+          <div key={i} className="linha" style={{'--c':(tipoMap[ev.type]||FALLBACK_TIPO).cor}} onClick={()=>onOpen(ev)}>
+            <span className="ltempo">{ev.time || 'dia todo'}</span>
+            <span className="ltit">{ev.title || '(sem título)'}</span>
+            {ev.repeat && ev.repeat.freq!=='none' && <span className="lrep">↻</span>}
+          </div>
+        ))}
+        <button className="mc-novo" onClick={()=>onNew(sel)}>+ novo neste dia</button>
+      </div>
+    </div>
+  );
+}
+function MonthGrande({ refStr, setRefStr, events, tipoMap, onNew, onOpen, onOpenDay }){
   const ref = parseYmd(refStr);
   const y = ref.getFullYear(), m = ref.getMonth();
   const primeiro = new Date(y, m, 1);
@@ -722,14 +1129,14 @@ function TipoEditor({ tipo, onClose, onSave }){
   );
 }
 
-function CatManager({ cats, onSave, onClose, title, subtitle, defaultCats }){
+function CatManager({ cats, onSave, onClose, title, subtitle, defaultCats, semSolido }){
   const [list, setList] = useState(cats.length ? cats : (defaultCats || DEFAULT_NOTECATS).slice());
   const setName = (i,v) => setList(l => l.map((c,j) => j===i ? { ...c, nome:v } : c));
   const setCor  = (i,v) => setList(l => l.map((c,j) => j===i ? { ...c, cor:v } : c));
   const setSol  = (i,v) => setList(l => l.map((c,j) => j===i ? { ...c, solido:v } : c));
   const del     = i => setList(l => l.filter((_,j) => j!==i));
   const move    = (i,d) => setList(l => { const j=i+d; if(j<0||j>=l.length) return l; const c=l.slice(); const t=c[i]; c[i]=c[j]; c[j]=t; return c; });
-  const add     = () => setList(l => [...l, { key:catNewKey(), nome:'Nova cor', cor:CAT_CORES[l.length % CAT_CORES.length] }]);
+  const add     = () => setList(l => [...l, { key:catNewKey(), nome:semSolido ? 'Nova situação' : 'Nova cor', cor:CAT_CORES[l.length % CAT_CORES.length] }]);
   const salvar  = () => { onSave(list.filter(c => (c.nome||'').trim())); onClose(); };
   return (
     <div className="modal" onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
@@ -745,11 +1152,11 @@ function CatManager({ cats, onSave, onClose, title, subtitle, defaultCats }){
             <span className="catdot" style={{background:c.cor}}></span>
             <input className="inp" style={{margin:0,flex:1,minWidth:120}} value={c.nome} onChange={e=>setName(i, e.target.value)} />
             <div className="cores">{CAT_CORES.map(cc => <button key={cc} className={'corbolinha'+(c.cor===cc?' on':'')} style={{background:cc}} onClick={()=>setCor(i, cc)} aria-label="cor"></button>)}</div>
-            <button className={'solidtog'+(c.solido?' on':'')} style={c.solido?{background:c.cor,borderColor:c.cor,color:textOn(c.cor)}:null} onClick={()=>setSol(i, !c.solido)} title="Padrão forte pra esta cor (dá pra mudar em cada processo)">sólido</button>
-            <button className="legend-x" onClick={()=>del(i)} title="Apagar cor">×</button>
+            {!semSolido && <button className={'solidtog'+(c.solido?' on':'')} style={c.solido?{background:c.cor,borderColor:c.cor,color:textOn(c.cor)}:null} onClick={()=>setSol(i, !c.solido)} title="Padrão forte pra esta cor (dá pra mudar em cada processo)">sólido</button>}
+            {c.fixo ? <span className="cadeado" title="Fixa: leva o processo para Sentenças/Despachos">🔒</span> : <button className="legend-x" onClick={()=>del(i)} title="Apagar">×</button>}
           </div>
         ))}
-        <button className="tipopill novo" style={{marginTop:2}} onClick={add}>+ nova cor</button>
+        <button className="tipopill novo" style={{marginTop:2}} onClick={add}>{semSolido ? '+ nova situação' : '+ nova cor'}</button>
         <div className="cardacts"><span style={{flex:1}}></span><button className="ghost" onClick={onClose}>Cancelar</button><button className="primary" onClick={salvar}>Salvar</button></div>
       </div>
     </div>
@@ -912,14 +1319,29 @@ function Editor({ ev, tipos, onAddTipo, onClose, onSave, onDelete }){
   );
 }
 
-/* ---------- barra de cima (tema, cor, sincronizar, backup) ---------- */
-function Toolbar({ onSync, onToggleNav }){
+/* ---------- barra de cima: nome + busca/filtro (celular) + ajustes ---------- */
+function Toolbar({ celular, onToggleNav, onAjustes, onBusca, onFiltro, filtroOn }){
+  return (
+    <div className="toolbar">
+      {!celular && <button className="tbtn hamb" onClick={onToggleNav} title="Esconder/mostrar o menu" aria-label="Esconder ou mostrar o menu">☰</button>}
+      <span className="tbrand">◷ AgendaNAD</span>
+      <span style={{flex:1}}></span>
+      {celular && onBusca && <button className="tico" onClick={onBusca} aria-label="Buscar na agenda">⌕</button>}
+      {celular && onFiltro && <button className={'tico'+(filtroOn?' on':'')} onClick={onFiltro} aria-label="Ver só um tipo">⛃</button>}
+      <button className={celular ? 'tico' : 'tbtn wide'} onClick={onAjustes} aria-label="Ajustes">{celular ? '⚙' : '⚙ Ajustes'}</button>
+    </div>
+  );
+}
+
+/* ---------- Ajustes: aparência, sincronizar, backup, importar, tipos, situações ---------- */
+function AjustesModal({ tipos, onClose, onSync, onEditTipo, onNewTipo, onDelTipo, onSits }){
   const [theme, setTheme] = useState(document.documentElement.getAttribute('data-theme'));
   const [cor, setCor] = useState(document.documentElement.getAttribute('data-cor'));
   const setT = t => { document.documentElement.setAttribute('data-theme', t); localStorage.setItem('agenda-theme', t); setTheme(t); };
   const setC = c => { document.documentElement.setAttribute('data-cor', c); localStorage.setItem('agenda-cor', c); setCor(c); };
   const cores = [['amarelo','#facc15'],['rosa','#E85D9A'],['azul','#2F6FE4'],['roxo','#7C4DE0']];
-
+  const S = window.AgendaSync || {};
+  const ligada = S.isOn ? S.isOn() : false;
   const exportar = () => {
     const dados = {}; for (let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); if(k.indexOf('agenda-')===0 && k.indexOf('agenda-snap:')!==0) dados[k]=localStorage.getItem(k); }
     const blob = new Blob([JSON.stringify({ _app:'agendanad', em:new Date().toISOString(), dados }, null, 2)], { type:'application/json' });
@@ -949,18 +1371,474 @@ function Toolbar({ onSync, onToggleNav }){
       r.readAsText(file); };
     inp.click();
   };
-
   return (
-    <div className="toolbar">
-      <button className="tbtn hamb" onClick={onToggleNav} title="Esconder/mostrar o menu" aria-label="Esconder ou mostrar o menu">☰</button>
-      <span className="tbrand">◷ AgendaNAD</span>
-      <span style={{flex:1}}></span>
-      <span className="corsw-group">{cores.map(([k,c]) => <button key={k} className={'corsw'+(cor===k?' on':'')} style={{background:c}} onClick={()=>setC(k)} title={k}></button>)}</span>
-      <button className={'tbtn'+(theme==='light'?' on':'')} onClick={()=>setT('light')} title="Claro">☀</button>
-      <button className={'tbtn'+(theme!=='light'?' on':'')} onClick={()=>setT('dark')} title="Escuro">☾</button>
-      <button className="tbtn wide" onClick={onSync} title="Sincronizar entre aparelhos">☁ Sincronizar</button>
-      <button className="tbtn wide" onClick={exportar}>Backup</button>
-      <button className="tbtn wide" onClick={importar}>Importar</button>
+    <div className="modal" onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
+      <div className="card">
+        <div className="cardhead"><b>Ajustes</b><button className="x" onClick={onClose} aria-label="Fechar">×</button></div>
+        <div className="ajgrp">Aparência</div>
+        <div className="ajrow">
+          <span className="corsw-group">{cores.map(([k,c]) => <button key={k} className={'corsw'+(cor===k?' on':'')} style={{background:c}} onClick={()=>setC(k)} title={k}></button>)}</span>
+          <span style={{flex:1}}></span>
+          <button className={'tbtn'+(theme==='light'?' on':'')} onClick={()=>setT('light')} title="Claro">☀ Claro</button>
+          <button className={'tbtn'+(theme!=='light'?' on':'')} onClick={()=>setT('dark')} title="Escuro">☾ Escuro</button>
+        </div>
+        <div className="ajgrp">Seus dados</div>
+        <button className="sheetitem" onClick={onSync}><span>☁ Sincronizar entre aparelhos</span><span className={'navn'+(ligada?' verde':'')}>{ligada ? 'ligado' : 'desligado'}</span></button>
+        <button className="sheetitem" onClick={exportar}><span>⇩ Fazer backup</span></button>
+        <button className="sheetitem" onClick={importar}><span>⇧ Importar backup</span></button>
+        <div className="ajgrp">Tipos de compromisso</div>
+        {tipos.map(t => (
+          <div key={t.key} className="ajtipo">
+            <span className="dot" style={{background:t.cor}}></span><span className="legend-nome">{t.nome}</span>
+            <button className="legend-ed" title="Editar tipo" onClick={()=>onEditTipo(t)}>✎</button>
+            <button className="legend-x" title="Apagar tipo" onClick={()=>{ if(confirm('Apagar o tipo "'+t.nome+'"? Os compromissos já marcados com ele continuam na agenda.')) onDelTipo(t.key); }}>×</button>
+          </div>
+        ))}
+        <button className="legend-add" onClick={onNewTipo}>+ novo tipo</button>
+        <div className="ajgrp">Painel de trabalho</div>
+        <button className="sheetitem" onClick={onSits}><span>Situações dos processos</span><span className="navn">editar</span></button>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- botão de copiar ---------- */
+function copiar(txt){
+  const fb = () => { try { const t = document.createElement('textarea'); t.value = txt; t.style.position='fixed'; t.style.opacity='0'; document.body.appendChild(t); t.select(); document.execCommand('copy'); t.remove(); } catch(e){} };
+  try { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).catch(fb); else fb(); } catch(e){ fb(); }
+}
+function CopyBtn({ txt, label }){
+  const [ok, setOk] = useState(false);
+  return <button className={'copybtn'+(ok?' ok':'')} title="Copiar" onClick={e=>{ e.stopPropagation(); copiar(txt); setOk(true); setTimeout(()=>setOk(false), 1300); }}>{ok ? '✓ copiado' : (label || '⧉')}</button>;
+}
+const sitDe = (sits, k) => sits.find(s => s.key === k) || null;
+const textoNejul = (p, sits) => { const s = sitDe(sits, p.sit); return [s && s.nome.toUpperCase(), p.pend, p.obs].filter(Boolean).join(' — '); };
+const partesTxt = p => (p.autores && p.autores.length) ? p.autores[0] + (p.reus && p.reus.length ? ' x ' + p.reus[0] : '') : '';
+function TagsPaineis({ p }){
+  const algum = p.inN || p.inE || p.inC;
+  return <span className="pc-tags">{p.inN && <i>NEJUL</i>}{p.inE && <i>EPROC</i>}{p.inC && <i>CEJUSC</i>}{!algum && <i className="off">fora dos painéis</i>}</span>;
+}
+
+/* ---------- PAINEL DE TRABALHO ---------- */
+function PainelView({ painel, lista, sits, hoje, onUpd, onAbrir, onSits, onAviso, onDispensar, onNovo, celular, onColar }){
+  const [filtro, setFiltro] = useState(() => lerLocal('agendaloc-filtro') || 'todos');
+  const [q, setQ] = useState('');
+  const escolher = f => { setFiltro(f); gravarLocal('agendaloc-filtro', f); };
+  const ativos = lista.filter(p => !p.arquivado);
+  const arquivados = lista.filter(p => p.arquivado);
+  const contaSit = k => ativos.filter(p => p.sit === k).length;
+  const semSit = ativos.filter(p => !p.sit || !sitDe(sits, p.sit)).length;
+  const nNejul = ativos.filter(p => p.nejulAtualizar).length;
+  let base = filtro === '__arq' ? arquivados : ativos;
+  if (filtro === '__sem') base = ativos.filter(p => !p.sit || !sitDe(sits, p.sit));
+  else if (filtro === '__nejul') base = ativos.filter(p => p.nejulAtualizar);
+  else if (filtro !== 'todos' && filtro !== '__arq') base = ativos.filter(p => p.sit === filtro);
+  const qd = soDigitos(q), ql = q.trim().toLowerCase();
+  const mostrar = !ql ? base : base.filter(p => (qd.length >= 3 && soDigitos(p.key).includes(qd)) ||
+    [p.pend, p.obs, partesTxt(p), (sitDe(sits, p.sit) || {}).nome].some(t => (t || '').toLowerCase().includes(ql)));
+  const chip = (id, label, n, cor) => (
+    <button key={id} className={'fchip'+(filtro===id?' on':'')} style={cor ? {'--c':cor} : null} onClick={()=>escolher(id)}>
+      {cor && <span className="dot" style={{background:cor}}></span>}{label}<span className="fchip-n">{n}</span>
+    </button>
+  );
+  const novo = () => { const num = prompt('Número do processo (vai para o fim da lista):'); if (!num) return; if (!onNovo(num)) alert('Não reconheci o número. Use o formato 0000000-00.0000.0.00.0000.'); };
+  const c = painel.contagem;
+  const ult = painel.ultimaColagem ? new Date(painel.ultimaColagem) : null;
+  return (
+    <div>
+      <div className="head">
+        <div>
+          <div className="titulo">Painel de trabalho</div>
+          {ult && <div className="subtit">Última colagem: {pad(ult.getDate())}/{pad(ult.getMonth()+1)} às {pad(ult.getHours())}:{pad(ult.getMinutes())}{c ? ' · NEJUL ' + c.nejul + ' · EPROC ' + c.eproc + ' · CEJUSC ' + c.cejusc : ''}</div>}
+        </div>
+        <div className="headbtns">
+          <button className="navbtn" onClick={onSits}>Situações</button>
+          <button className="navbtn" onClick={novo}>+ Processo</button>
+        </div>
+      </div>
+      {lista.length === 0 && (
+        <div className="vazio">Ainda não há processos aqui. {celular ? 'No computador, abra "Colar painéis" e cole as telas do CEJUSC, do NEJUL e do EPROC.' : <span>Abra <button className="linkbtn" onClick={onColar}>Colar painéis</button> e cole as telas do CEJUSC, do NEJUL e do EPROC.</span>}</div>
+      )}
+      {painel.avisos.length > 0 && <AvisosBox avisos={painel.avisos} procs={painel.procs} sits={sits} onAviso={onAviso} onDispensar={onDispensar} onAbrir={onAbrir} onUpd={onUpd} />}
+      {lista.length > 0 && (
+        <React.Fragment>
+          <div className="fchips">
+            {chip('todos', 'Todos', ativos.length)}
+            {sits.filter(s => contaSit(s.key) > 0).map(s => chip(s.key, s.nome, contaSit(s.key), s.cor))}
+            {semSit > 0 && chip('__sem', 'Sem situação', semSit, '#a1a1aa')}
+            {nNejul > 0 && chip('__nejul', 'Atualizar no NEJUL', nNejul, '#f97316')}
+            {arquivados.length > 0 && chip('__arq', 'Fora da lista', arquivados.length)}
+          </div>
+          <div className="buscaWrap">
+            <span className="buscaIco">⌕</span>
+            <input className="busca" placeholder="Buscar número, parte ou anotação…" value={q} onChange={e=>setQ(e.target.value)} autoCapitalize="off" autoCorrect="off" spellCheck="false" />
+            {q && <button className="buscaX" onClick={()=>setQ('')} aria-label="Limpar">×</button>}
+          </div>
+          {mostrar.length === 0 && <div className="vazio">Nenhum processo neste filtro.</div>}
+          <div className="pgrid">
+            {mostrar.map(p => <ProcCard key={p.key} p={p} sits={sits} hoje={hoje} onUpd={onUpd} onAbrir={onAbrir} />)}
+          </div>
+        </React.Fragment>
+      )}
+    </div>
+  );
+}
+
+// campo de texto que só grava ao sair dele (não regrava a cada letra)
+function CampoTexto({ valor, onGravar, multi, placeholder }){
+  const [v, setV] = useState(valor || '');
+  const ref = useRef(null);
+  useEffect(() => { setV(valor || ''); }, [valor]);
+  const ajusta = () => { const el = ref.current; if (el && multi){ el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; } };
+  useEffect(ajusta, [v]);
+  const gravar = () => { if ((v || '') !== (valor || '')) onGravar(v.trim()); };
+  return multi
+    ? <textarea ref={ref} className="pc-inp" rows="1" value={v} placeholder={placeholder} onChange={e=>setV(e.target.value)} onBlur={gravar} />
+    : <input ref={ref} className="pc-inp" value={v} placeholder={placeholder} onChange={e=>setV(e.target.value)} onBlur={gravar} onKeyDown={e=>{ if (e.key === 'Enter') e.target.blur(); }} />;
+}
+function SelSituacao({ valor, sits, onEscolher }){
+  const s = sitDe(sits, valor);
+  return (
+    <select className="pc-sel" value={s ? valor : ''} style={s ? {'--c':s.cor} : null} onChange={e=>onEscolher(e.target.value)}>
+      <option value="">— escolher —</option>
+      {sits.map(x => <option key={x.key} value={x.key}>{x.nome}</option>)}
+    </select>
+  );
+}
+function ProcCard({ p, sits, hoje, onUpd, onAbrir }){
+  const s = sitDe(sits, p.sit);
+  const a = antiguidade(p, hoje);
+  const aij = aijMarcada(p);
+  const futura = aij && aij.date >= hoje;
+  const novo = !!p.novo;
+  const info = [textoAntig(a), futura ? 'AIJ ' + fmtAij(aij) : '', partesTxt(p)].filter(Boolean);
+  return (
+    <div className={'pcard'+(p.arquivado?' arquivada':'')} style={{'--c': s ? s.cor : '#a1a1aa'}}>
+      <div className="pc-top">
+        <span className="pc-num">{p.key}</span>
+        <CopyBtn txt={p.key} />
+        {novo && <span className="pc-novo">novo</span>}
+        <span className="pc-dir"><TagsPaineis p={p} /><button className="pc-mais" onClick={()=>onAbrir(p.key)} title="Abrir tudo" aria-label="Abrir tudo">⋯</button></span>
+      </div>
+      <div className="pc-info">{info.join(' · ')}</div>
+      <div className="pc-campo"><span>Situação</span><SelSituacao valor={p.sit} sits={sits} onEscolher={v=>onUpd(p.key, { sit:v })} /></div>
+      <div className="pc-campo"><span>Pendência</span><CampoTexto valor={p.pend} placeholder="nenhuma" onGravar={v=>onUpd(p.key, { pend:v })} /></div>
+      <div className="pc-campo"><span>Observação</span><CampoTexto multi valor={p.obs} placeholder="—" onGravar={v=>onUpd(p.key, { obs:v })} /></div>
+      {p.nejulAtualizar && (
+        <div className="pc-nejul">
+          <div><b>Atualizar no NEJUL:</b> {textoNejul(p, sits) || '(em branco)'}</div>
+          <div className="pc-nejul-b"><CopyBtn txt={textoNejul(p, sits)} label="copiar texto" /><button className="minibtn" onClick={()=>onUpd(p.key, { nejulAtualizar:false })}>já atualizei</button></div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------- avisos da colagem: o que mudou de um dia para o outro ---------- */
+function AvisosBox({ avisos, procs, sits, onAviso, onDispensar, onAbrir, onUpd }){
+  const btn = (av, acao, label, forte) => <button className={forte ? 'minibtn forte' : 'minibtn'} onClick={()=>onAviso(av, acao)}>{label}</button>;
+  return (
+    <div className="avisos">
+      <div className="avisos-h"><b>O que mudou na colagem ({avisos.length})</b><button className="linkbtn" onClick={()=>{ if (confirm('Dispensar todos os avisos?')) onDispensar(); }}>dispensar todos</button></div>
+      {avisos.map(av => {
+        const p = procs[av.key] || { key:av.key };
+        const s = sitDe(sits, p.sit);
+        return (
+          <div key={av.id} className={'aviso t-'+av.tipo}>
+            <div className="aviso-top"><span className="pc-num">{av.key}</span><CopyBtn txt={av.key} />{s && <span className="sitchip" style={{'--c':s.cor}}>{s.nome}</span>}</div>
+            <div className="aviso-txt">{av.texto}</div>
+            {av.tipo === 'nejul' && <div className="aviso-txt" style={{opacity:.9}}>Texto: <i>{textoNejul(p, sits)}</i></div>}
+            <div className="aviso-b">
+              {av.tipo === 'saiu' && <React.Fragment>{btn(av, 'assinado', 'Sim, foi assinado', true)}{btn(av, 'tirar', 'Tirar da lista')}{btn(av, 'ok', 'Não, deixar')}</React.Fragment>}
+              {av.tipo === 'novo' && <React.Fragment><button className="minibtn forte" onClick={()=>{ onAbrir(av.key); onAviso(av, 'ok'); }}>Preencher</button>{btn(av, 'ok', 'Ok')}</React.Fragment>}
+              {av.tipo === 'devolvido' && <React.Fragment>{btn(av, 'sentenciar', 'Voltar para Sentenciar', true)}{btn(av, 'ok', 'Ok')}</React.Fragment>}
+              {av.tipo === 'entregueN' && <React.Fragment>{btn(av, 'entregar', 'Mover para entregues', true)}{btn(av, 'ok', 'Ok')}</React.Fragment>}
+              {av.tipo === 'nejul' && <React.Fragment><CopyBtn txt={textoNejul(p, sits)} label="copiar texto" /><button className="minibtn" onClick={()=>{ onUpd(av.key, { nejulAtualizar:false }); onAviso(av, 'ok'); }}>Já atualizei</button></React.Fragment>}
+              {(av.tipo === 'aij' || av.tipo === 'voltou') && btn(av, 'ok', 'Ok, visto')}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ---------- editor completo do processo ---------- */
+function ProcEditor({ p, sits, hoje, onClose, onSalvar, onApagar, onSits }){
+  const [f, setF] = useState({ sit:p.sit || '', pend:p.pend || '', obs:p.obs || '', aijData:(p.aijManual && p.aijManual.date) || '', aijHora:(p.aijManual && p.aijManual.time) || '',
+    entregaData:p.entregaData || '', assinada:!!p.assinada, valorTipo:p.valorTipo || '', arquivado:!!p.arquivado });
+  const set = (k, v) => setF(o => ({ ...o, [k]:v }));
+  const entregue = /^(sent|desp)-entregue$/.test(f.sit);
+  const a = antiguidade(p, hoje);
+  const aijP = p.aijC || p.aijN || p.aijEproc;
+  const salvar = () => onSalvar({ sit:f.sit, pend:f.pend.trim(), obs:f.obs.trim(), aijManual: f.aijData ? { date:f.aijData, time:f.aijHora } : null,
+    entregaData:f.entregaData, assinada:f.assinada, assinadaEm: f.assinada && !p.assinada ? hoje : p.assinadaEm, valorTipo:f.valorTipo, arquivado:f.arquivado });
+  return (
+    <div className="modal" onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
+      <div className="card pecard">
+        <div className="cardhead"><b className="pc-num" style={{fontSize:15}}>{p.key}</b><span style={{display:'flex',gap:6,alignItems:'center'}}><CopyBtn txt={p.key} /><button className="x" onClick={onClose} aria-label="Fechar">×</button></span></div>
+        <div className="pe-info">
+          <TagsPaineis p={p} />
+          <div>{textoAntig(a)}{p.distr ? ' · chegou no NEJUL em ' + fmtData(p.distr) : p.remDate ? ' · remessa do EPROC em ' + fmtData(p.remDate) : ''}</div>
+          {partesTxt(p) && <div>{partesTxt(p)}</div>}
+          {p.origin && <div>{p.origin}</div>}
+          {aijP && <div>Audiência no painel: {fmtAij(aijP)}</div>}
+          {p.classif && <div>NEJUL: {p.classif}</div>}
+        </div>
+        <label className="campo"><span>Situação</span>
+          <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:11}}><SelSituacao valor={f.sit} sits={sits} onEscolher={v=>set('sit', v)} /><button className="linkbtn" onClick={onSits}>editar situações</button></div>
+        </label>
+        <label className="campo"><span>Pendência</span><input className="inp" value={f.pend} onChange={e=>set('pend', e.target.value)} placeholder="ex.: pedir vinculação no EPROC" /></label>
+        <label className="campo"><span>Observação</span><textarea className="inp" rows="3" value={f.obs} onChange={e=>set('obs', e.target.value)} /></label>
+        <div className="linha2">
+          <label className="campo"><span>Audiência (à mão)</span><input className="inp" type="date" value={f.aijData} onChange={e=>set('aijData', e.target.value)} /></label>
+          <label className="campo"><span>Hora</span><input className="inp" type="time" value={f.aijHora} onChange={e=>set('aijHora', e.target.value)} /></label>
+        </div>
+        {entregue && (
+          <div className="linha2">
+            <label className="campo"><span>Entregue em</span><input className="inp" type="date" value={f.entregaData} onChange={e=>set('entregaData', e.target.value)} /></label>
+            {f.sit === 'sent-entregue' && <label className="campo"><span>Valor</span>
+              <select className="inp" value={f.valorTipo || cDaComplexidade(p.classif)} onChange={e=>set('valorTipo', e.target.value)}>
+                <option value="">—</option>{Object.keys(VALOR_C).map(k => <option key={k} value={k}>{k} · {brl(VALOR_C[k])}</option>)}
+              </select></label>}
+          </div>
+        )}
+        {entregue && <label className="fortesw"><input type="checkbox" checked={f.assinada} onChange={e=>set('assinada', e.target.checked)} /><span>Já foi assinado</span></label>}
+        <label className="fortesw"><input type="checkbox" checked={f.arquivado} onChange={e=>set('arquivado', e.target.checked)} /><span>Tirar do painel de trabalho (continua guardado)</span></label>
+        {p.obsN && <details className="pe-nejul"><summary>O que o NEJUL mostra</summary><div>{p.obsN}</div></details>}
+        <div className="cardacts">
+          <button className="del" onClick={()=>{ if (confirm('Apagar este processo do painel? (Se ele ainda estiver nos painéis, volta na próxima colagem.)')) onApagar(); }}>Apagar</button>
+          <span style={{flex:1}}></span>
+          <button className="ghost" onClick={onClose}>Cancelar</button>
+          <button className="primary" onClick={salvar}>Salvar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Para sentenciar / Para despachar: antiguidade (o mais velho em cima) ---------- */
+function FilaView({ titulo, sit, lista, sits, hoje, onAbrir }){
+  const itens = lista.filter(p => p.sit === sit && !p.arquivado).map(p => ({ p, a:antiguidade(p, hoje) })).sort((x, y) => y.a.n - x.a.n);
+  const nomeSit = (sitDe(sits, sit) || {}).nome || sit;
+  return (
+    <div>
+      <div className="head"><div><div className="titulo">{titulo}</div><div className="subtit">{itens.length} {itens.length === 1 ? 'processo' : 'processos'} · do mais antigo para o mais novo</div></div></div>
+      {itens.length === 0 && <div className="vazio">Nada aqui. O processo entra sozinho quando você marca a situação <b>{nomeSit}</b> no Painel de trabalho.</div>}
+      {itens.map(({ p, a }) => {
+        const aij = aijMarcada(p); const futura = aij && aij.date >= hoje;
+        const nivel = a.n >= 50 ? 'alto' : a.n >= 30 ? 'medio' : '';
+        return (
+          <div key={p.key} className="filarow" onClick={()=>onAbrir(p.key)}>
+            <div className={'fila-dias '+nivel}><b>{a.n}</b><span>{a.aij ? 'dias desde a AIJ' : 'dias'}</span></div>
+            <div className="fila-corpo">
+              <div className="pc-top"><span className="pc-num">{p.key}</span><CopyBtn txt={p.key} /></div>
+              <div className="pc-info">{textoAntig(a)}{futura ? ' · AIJ marcada ' + fmtAij(aij) : ''}{partesTxt(p) ? ' · ' + partesTxt(p) : ''}</div>
+              {p.pend && <div className="fila-pend"><b>Pendência:</b> {p.pend}</div>}
+              {p.obs && <div className="fila-obs">{p.obs}</div>}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ---------- Entregues: por mês, aguardando assinatura × assinadas ---------- */
+function EntreguesView({ titulo, sit, comValor, procs, onUpd, onAbrir }){
+  const itens = Object.values(procs).filter(p => p.sit === sit);
+  const meses = {};
+  itens.forEach(p => { const k = (p.entregaData || '').slice(0, 7) || 'sem'; (meses[k] = meses[k] || []).push(p); });
+  const chaves = Object.keys(meses).sort().reverse();
+  const nomeMes = k => k === 'sem' ? 'Sem data de entrega' : cap(MESES[+k.slice(5, 7) - 1]) + ' ' + k.slice(0, 4);
+  const linha = p => (
+    <div key={p.key} className="entrow">
+      <div className="ent-main" onClick={()=>onAbrir(p.key)}>
+        <span className="pc-num">{p.key}</span><CopyBtn txt={p.key} />
+        <span className="ent-data">{p.entregaData ? 'entregue ' + fmtCurta(p.entregaData) : ''}{p.assinada && p.assinadaEm ? ' · assinado ' + fmtCurta(p.assinadaEm) : ''}</span>
+      </div>
+      {comValor && (
+        <select className="ent-c" value={p.valorTipo || cDaComplexidade(p.classif)} onChange={e=>onUpd(p.key, { valorTipo:e.target.value })} title="Tipo (valor)">
+          <option value="">—</option>{Object.keys(VALOR_C).map(k => <option key={k} value={k}>{k}</option>)}
+        </select>
+      )}
+      {comValor && <span className="ent-val">{brl(valorDe(p))}</span>}
+      <button className={'ent-ass'+(p.assinada?' on':'')} onClick={()=>onUpd(p.key, { assinada:!p.assinada, assinadaEm: !p.assinada ? todayStr() : '' })}>{p.assinada ? '✓ assinado' : 'aguardando'}</button>
+    </div>
+  );
+  return (
+    <div>
+      <div className="head"><div><div className="titulo">{titulo}</div><div className="subtit">Entram sozinhos quando a situação vira <b>{sit === 'sent-entregue' ? 'Sentença entregue' : 'Despacho entregue'}</b> ou quando você confirma que foi assinado.</div></div></div>
+      {itens.length === 0 && <div className="vazio">Nada entregue ainda.</div>}
+      {chaves.map(k => {
+        const l = meses[k]; const ag = l.filter(p => !p.assinada), as = l.filter(p => p.assinada);
+        const soma = arr => arr.reduce((t, p) => t + valorDe(p), 0);
+        return (
+          <div key={k} className="entmes">
+            <div className="entmes-h"><b>{nomeMes(k)}</b><span>{l.length} {l.length === 1 ? 'entregue' : 'entregues'}{comValor ? ' · total ' + brl(soma(l)) : ''}</span></div>
+            {comValor && <div className="entmes-tot"><span>Assinadas: <b>{brl(soma(as))}</b></span><span>Aguardando: <b>{brl(soma(ag))}</b></span></div>}
+            {ag.length > 0 && <div className="entsub">Aguardando assinatura ({ag.length})</div>}
+            {ag.map(linha)}
+            {as.length > 0 && <div className="entsub">Assinadas ({as.length})</div>}
+            {as.map(linha)}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ---------- Audiências: CEJUSC + NEJUL + as que ela põe à mão (na agenda ou no processo) ---------- */
+function juntarAudiencias(painel, events, hoje){
+  const out = (painel.aud || []).map(a => ({ ...a }));
+  const tem = (key, date) => out.find(x => x.key && x.key === key && x.date === date);
+  Object.values(painel.procs).forEach(p => {
+    if (p.aijManual && p.aijManual.date && !tem(p.key, p.aijManual.date)) out.push({ key:p.key, date:p.aijManual.date, time:p.aijManual.time || '', fonte:'à mão' });
+  });
+  const ini = ymd(addDays(parseYmd(hoje), -400)), fim = ymd(addDays(parseYmd(hoje), 730));
+  events.filter(ev => ev.type === 'audiencia').forEach(ev => {
+    const key = chaveProc((ev.title || '') + ' ' + (ev.note || ''));
+    occurrences(ev, ini, fim).forEach(d => {
+      const ja = key && tem(key, d);
+      if (ja) { ja.ev = ev; if (!ja.time && ev.time) ja.time = ev.time; return; }
+      out.push({ key, date:d, time:ev.time || '', fonte:'agenda', ev, titulo:ev.title });
+    });
+  });
+  out.sort((a, b) => a.date === b.date ? (a.time || '').localeCompare(b.time || '') : a.date.localeCompare(b.date));
+  // conflito de pauta: duas audiências no mesmo dia com menos de 1h30 entre elas (a pauta anda de 1h30 em 1h30)
+  const min = t => { const m = (t || '').match(/(\d{2}):(\d{2})/); return m ? +m[1] * 60 + +m[2] : null; };
+  out.forEach((a, i) => { a.conflito = out.some((b, j) => j !== i && b.date === a.date && min(a.time) !== null && min(b.time) !== null && Math.abs(min(a.time) - min(b.time)) < 90); });
+  return out;
+}
+function AudienciasView({ itens, procs, sits, hoje, onNovo, onAbrirEv, onAbrirProc }){
+  const [modo, setModoRaw] = useState(() => lerLocal('agendaloc-audmodo') || 'lista');
+  const setModo = m => { setModoRaw(m); gravarLocal('agendaloc-audmodo', m); };
+  const [passadas, setPassadas] = useState(false);
+  const futuras = itens.filter(a => a.date >= hoje);
+  const velhas = itens.filter(a => a.date < hoje).reverse();
+  const abrir = a => { if (a.ev) onAbrirEv(a.ev); else if (a.key && procs[a.key]) onAbrirProc(a.key); };
+  const linha = (a, i) => {
+    const p = a.key && procs[a.key]; const s = p && sitDe(sits, p.sit);
+    return (
+      <div key={i} className={'audrow'+(a.conflito?' conflito':'')} onClick={()=>abrir(a)}>
+        <span className="ltempo">{a.time || '—'}</span>
+        <span className="aud-corpo">
+          {a.key ? <span className="aud-top"><span className="pc-num">{a.key}</span><CopyBtn txt={a.key} /></span> : <span className="ltit">{a.titulo || 'Audiência'}</span>}
+          <span className="aud-meta">{s && <span className="sitchip" style={{'--c':s.cor}}>{s.nome}</span>}<span className="aud-fonte">{a.fonte}</span>{a.conflito && <span className="aud-conf">mesmo horário</span>}</span>
+        </span>
+      </div>
+    );
+  };
+  const porDia = lista => { const g = []; lista.forEach(a => { let x = g[g.length - 1]; if (!x || x.d !== a.date){ x = { d:a.date, l:[] }; g.push(x); } x.l.push(a); }); return g; };
+  return (
+    <div>
+      <div className="head">
+        <div><div className="titulo">Audiências</div><div className="subtit">{futuras.length} daqui para frente</div></div>
+        <div className="headbtns">
+          <div className="segmented">
+            <button className={'segb'+(modo==='lista'?' on':'')} onClick={()=>setModo('lista')}>Lista</button>
+            <button className={'segb'+(modo==='mes'?' on':'')} onClick={()=>setModo('mes')}>Mês</button>
+          </div>
+          <button className="navbtn soPc" onClick={()=>onNovo()}>+ À mão</button>
+        </div>
+      </div>
+      {modo === 'lista' && (
+        <React.Fragment>
+          {futuras.length === 0 && <div className="vazio">Nenhuma audiência daqui para frente.</div>}
+          {porDia(futuras).map(g => (
+            <div key={g.d} className="diagrp">
+              <div className={'diahead'+(g.d===hoje?' ehoje':'')}>{g.d===hoje?'Hoje — ':''}{fmtLongo(g.d)}</div>
+              {g.l.map(linha)}
+            </div>
+          ))}
+          {velhas.length > 0 && <button className="ghost" style={{marginTop:6}} onClick={()=>setPassadas(v=>!v)}>{passadas ? 'Esconder as que já passaram' : 'Ver as que já passaram (' + velhas.length + ')'}</button>}
+          {passadas && <div style={{marginTop:14,opacity:.8}}>{porDia(velhas).map(g => (
+            <div key={g.d} className="diagrp"><div className="diahead">{fmtLongo(g.d)} · {fmtData(g.d).slice(-4)}</div>{g.l.map(linha)}</div>
+          ))}</div>}
+        </React.Fragment>
+      )}
+      {modo === 'mes' && <AudMes itens={itens} hoje={hoje} linha={linha} onNovo={onNovo} />}
+    </div>
+  );
+}
+function AudMes({ itens, hoje, linha, onNovo }){
+  const [ref, setRef] = useState(hoje);
+  const [sel, setSel] = useState(hoje);
+  const r = parseYmd(ref); const y = r.getFullYear(), m = r.getMonth();
+  const primeiro = new Date(y, m, 1);
+  let cells = Array.from({length:42}, (_,i) => new Date(y, m, 1 - primeiro.getDay() + i));
+  if (cells.slice(35).every(d => d.getMonth() !== m)) cells = cells.slice(0, 35);
+  const porDia = {}; itens.forEach(a => { (porDia[a.date] = porDia[a.date] || []).push(a); });
+  const go = d => { const n = new Date(y, m + d, 1); setRef(ymd(n)); setSel(ymd(n)); };
+  const doDia = porDia[sel] || [];
+  return (
+    <div>
+      <ViewHeader title={cap(MESES[m]) + ' ' + y} onPrev={()=>go(-1)} onNext={()=>go(1)} onToday={()=>{ setRef(hoje); setSel(hoje); }} />
+      <div className="mc-week">{DIAS.map(d => <div key={d}>{d[0].toUpperCase()}</div>)}</div>
+      <div className="mc-grid">
+        {cells.map((d, i) => { const s = ymd(d); const n = (porDia[s] || []).length; const conf = (porDia[s] || []).some(a => a.conflito);
+          return (
+            <button key={i} className={'mc-day'+(d.getMonth()!==m?' fora':'')+(s===hoje?' hoje':'')+(s===sel?' sel':'')} onClick={()=>setSel(s)}>
+              <span className="mc-num">{d.getDate()}</span>
+              <span className="mc-dots">{n > 0 && <span className={'mc-cont'+(conf?' conf':'')}>{n}</span>}</span>
+            </button>
+          ); })}
+      </div>
+      <div className="mc-dia">
+        <div className="mc-diatit">{sel === hoje ? 'Hoje — ' : ''}{fmtLongo(sel)}</div>
+        {doDia.length === 0 && <div className="mc-vazio">Nenhuma audiência neste dia.</div>}
+        {doDia.map(linha)}
+        <button className="mc-novo" onClick={()=>onNovo(sel)}>+ audiência à mão neste dia</button>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Colar painéis (só no computador) ---------- */
+function ColarView({ painel, onLer, onTrazer, onVer }){
+  const [raw, setRaw] = useState(() => ({ cejusc:lerLocal(RAWKEY.cejusc), nejul:lerLocal(RAWKEY.nejul), eproc:lerLocal(RAWKEY.eproc) }));
+  const [msg, setMsg] = useState('');
+  const muda = (k, v) => { setRaw(o => ({ ...o, [k]:v })); gravarLocal(RAWKEY[k], v); };
+  const ler = () => {
+    if (!raw.nejul.trim() && !raw.eproc.trim() && !raw.cejusc.trim()){ setMsg('Cole pelo menos uma das telas primeiro.'); return; }
+    const r = onLer(raw); const c = r.contagem;
+    setMsg('Pronto: ' + c.nejul + ' processos no NEJUL, ' + c.eproc + ' no EPROC e ' + c.cejusc + ' horários no CEJUSC. ' + (r._novos ? r._novos + (r._novos === 1 ? ' mudança' : ' mudanças') + ' para você ver no Painel de trabalho.' : 'Nada mudou desde a última colagem.'));
+  };
+  const trazer = () => {
+    const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'application/json,.json';
+    inp.onchange = e => { const file = e.target.files[0]; if (!file) return; const fr = new FileReader();
+      fr.onload = () => { try { const d = JSON.parse(fr.result); if (d._app !== 'agendanad-semente') throw 0;
+        const n = onTrazer(d); if (d.colagem) setRaw(o => ({ cejusc:o.cejusc || d.colagem.cejusc || '', nejul:o.nejul || d.colagem.nejul || '', eproc:o.eproc || d.colagem.eproc || '' }));
+        setMsg('Trouxe as anotações de ' + n + ' processos. Confira no Painel de trabalho.'); } catch(err){ setMsg('Esse arquivo não é o da primeira carga do painel.'); } };
+      fr.readAsText(file); };
+    inp.click();
+  };
+  const caixa = (k, nome, dica) => (
+    <div className="colar-cx">
+      <div className="colar-h"><b>{nome}</b><span>{raw[k] ? raw[k].length.toLocaleString('pt-BR') + ' caracteres' : 'vazio'}</span>{raw[k] && <button className="linkbtn" onClick={()=>muda(k, '')}>limpar</button>}</div>
+      <textarea className="inp colar-ta" value={raw[k]} onChange={e=>muda(k, e.target.value)} placeholder={dica} spellCheck="false" />
+    </div>
+  );
+  const ult = painel.ultimaColagem ? new Date(painel.ultimaColagem) : null;
+  return (
+    <div>
+      <div className="head"><div><div className="titulo">Colar painéis</div><div className="subtit">{ult ? 'Última colagem: ' + pad(ult.getDate()) + '/' + pad(ult.getMonth()+1) + ' às ' + pad(ult.getHours()) + ':' + pad(ult.getMinutes()) : 'Ainda não colou nenhuma vez.'}</div></div></div>
+      <p className="sub">Em cada sistema, selecione a tela inteira (Cmd+A), copie (Cmd+C) e cole aqui. Depois toque em <b>Ler os painéis</b>: o app compara com o que você já tinha e mostra só o que mudou.</p>
+      <div className="colar-grid">
+        {caixa('cejusc', 'CEJUSC', 'Cole aqui a pauta do CEJUSC')}
+        {caixa('nejul', 'NEJUL', 'Cole aqui o painel do NEJUL')}
+        {caixa('eproc', 'EPROC', 'Cole aqui os relatórios do EPROC, um embaixo do outro')}
+      </div>
+      <div className="cardacts" style={{marginTop:12}}>
+        <button className="primary" onClick={ler}>Ler os painéis</button>
+        {msg && <button className="ghost" onClick={onVer}>Ver o painel de trabalho</button>}
+      </div>
+      {msg && <div className="colar-msg">{msg}</div>}
+      <div className="colar-jus">
+        <b>Primeira carga</b>
+        <span>Traz para cá as anotações do Desenrolar (JusNAD). Só preenche o que estiver vazio.</span>
+        <button className="ghost" onClick={trazer}>Escolher o arquivo</button>
+      </div>
     </div>
   );
 }
@@ -1007,14 +1885,13 @@ const CSS = `
 .tbtn.on{border-color:var(--accent);color:var(--accent);}
 .tbtn.wide{white-space:nowrap;}
 @media(max-width:640px){ .tbtn.wide{padding:6px 8px;font-size:11px;} }
-@media(max-width:560px){ .toolbar{flex-wrap:wrap;justify-content:flex-end;} .tbrand{flex:1 0 100%;} }
 .corsw-group{display:inline-flex;gap:6px;margin-right:2px;}
 .corsw{width:20px;height:20px;border-radius:50%;border:2px solid transparent;padding:0;}
 .corsw.on{border-color:var(--text);}
 .corsw:hover{transform:scale(1.12);}
 
 .shell{display:flex;gap:16px;max-width:1600px;margin:0 auto;padding:16px;}
-.sidebar{width:190px;flex:none;position:sticky;top:64px;align-self:flex-start;
+.sidebar{width:222px;flex:none;position:sticky;top:64px;align-self:flex-start;
   background:var(--sidebar);border:1px solid var(--border);border-radius:16px;padding:14px 12px;}
 .sidebar .brand{font-weight:500;color:var(--accent);font-size:16px;letter-spacing:-.3px;margin:2px 4px 12px;}
 .btnNovo{width:100%;background:var(--accent);color:var(--on-accent);border:none;border-radius:10px;padding:9px;font-weight:500;font-size:13px;margin-bottom:14px;}
@@ -1213,6 +2090,164 @@ textarea.inp{resize:vertical;}
 .mm-dots{position:absolute;bottom:2px;display:flex;gap:1.5px;}
 .mm-dots i{width:4px;height:4px;border-radius:50%;display:block;}
 .mm-day.hoje .mm-dots i{box-shadow:0 0 0 1px var(--on-accent);}
+
+/* ---------- navegação nova ---------- */
+.tico{background:none;border:none;color:var(--muted);font-size:20px;line-height:1;width:38px;height:38px;border-radius:10px;display:inline-grid;place-items:center;}
+.tico:hover,.tico.on{color:var(--accent);background:var(--surface2);}
+.navitem .navlbl{flex:1;}
+.navitem.sub{padding-left:22px;font-size:13px;}
+.navn{font-size:11px;color:var(--muted);background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:0 7px;font-variant-numeric:tabular-nums;}
+.navn.verde{color:#10b981;border-color:#10b98155;}
+.navalerta{font-size:10.5px;font-weight:500;color:var(--on-accent);background:var(--accent);border-radius:20px;padding:1px 7px;white-space:nowrap;}
+.navsub{font-size:11px;color:var(--faint);margin:8px 10px 2px;}
+.aghead{margin-bottom:12px;}
+.aghead-l{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.aghead .buscaWrap{margin:0;flex:1;min-width:200px;}
+.aghead .filtro-bar{margin:10px 0 0;}
+.segmented{display:inline-flex;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:2px;gap:2px;}
+.segb{background:none;border:none;color:var(--muted);font-size:13px;font-weight:500;padding:6px 14px;border-radius:8px;}
+.segb.on{background:var(--surface);color:var(--text);box-shadow:0 1px 2px rgba(0,0,0,.25);}
+.navbtn.ativo{border-color:var(--accent);color:var(--accent);}
+.subtit{font-size:12.5px;color:var(--muted);margin-top:3px;}
+.linkbtn{background:none;border:none;color:var(--accent);font:inherit;font-size:12.5px;font-weight:500;padding:0 2px;cursor:pointer;}
+.bottombar{position:fixed;left:0;right:0;bottom:0;z-index:600;display:flex;background:color-mix(in srgb, var(--bg) 92%, transparent);backdrop-filter:blur(12px);
+  border-top:1px solid var(--border);padding-bottom:env(safe-area-inset-bottom);}
+.btab{flex:1;background:none;border:none;color:var(--faint);font-size:11px;padding:7px 0 8px;display:flex;flex-direction:column;align-items:center;gap:2px;}
+.btab.on{color:var(--accent);}
+.btab-ico{font-size:19px;line-height:1.1;position:relative;}
+.btab-n{position:absolute;top:-4px;right:-12px;font-style:normal;font-size:9.5px;font-weight:500;background:var(--accent);color:var(--on-accent);border-radius:10px;padding:0 5px;}
+.fab{position:fixed;right:18px;bottom:calc(72px + env(safe-area-inset-bottom));z-index:610;width:54px;height:54px;border-radius:50%;border:none;
+  background:var(--accent);color:var(--on-accent);font-size:28px;line-height:1;box-shadow:0 8px 22px rgba(0,0,0,.35);}
+.cel .shell{padding:10px 12px calc(84px + env(safe-area-inset-bottom));}
+.cel .updbar{bottom:calc(76px + env(safe-area-inset-bottom));}
+.cel .head{flex-wrap:wrap;}
+.cel .segmented{width:100%;}
+.cel .segb{flex:1;padding:7px 4px;}
+.cel .soPc{display:none;}
+.sheetwrap{align-items:flex-end;padding:0;}
+.sheet{background:var(--surface);border:1px solid var(--border);border-radius:18px 18px 0 0;width:100%;max-width:520px;padding:8px 14px calc(18px + env(safe-area-inset-bottom));}
+.sheetgrip{width:40px;height:4px;border-radius:4px;background:var(--border2);margin:2px auto 10px;}
+.sheetgrp{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.4px;margin:12px 6px 4px;}
+.sheetitem{display:flex;align-items:center;justify-content:space-between;width:100%;background:none;border:none;border-bottom:1px solid var(--border);color:var(--text);font-size:14.5px;padding:12px 6px;text-align:left;}
+.sheetitem.on{color:var(--accent);font-weight:500;}
+.sheetitem:hover{background:var(--surface2);}
+.ajgrp{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.4px;margin:16px 2px 6px;}
+.ajrow{display:flex;align-items:center;gap:8px;}
+.ajtipo{display:flex;align-items:center;gap:8px;padding:8px 4px;border-bottom:1px solid var(--border);font-size:14px;}
+.ajtipo .dot{width:10px;height:10px;border-radius:50%;flex:none;}
+.cadeado{font-size:13px;opacity:.7;flex:none;padding:0 3px;}
+/* mês no celular */
+.mc-week{display:grid;grid-template-columns:repeat(7,1fr);font-size:11px;color:var(--faint);text-align:center;margin-bottom:4px;}
+.mc-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;}
+.mc-day{position:relative;background:none;border:none;color:var(--text);border-radius:10px;height:46px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding-top:6px;}
+.mc-day.fora{color:var(--faint);opacity:.45;}
+.mc-day.hoje .mc-num{color:var(--accent);font-weight:500;}
+.mc-day.sel{background:color-mix(in srgb, var(--accent) 16%, transparent);}
+.mc-day.sel .mc-num{color:var(--text);font-weight:500;}
+.mc-num{font-size:15px;font-variant-numeric:tabular-nums;}
+.mc-dots{display:flex;gap:3px;margin-top:5px;min-height:6px;}
+.mc-dots i{width:6px;height:6px;border-radius:50%;display:block;}
+.mc-cont{font-size:10px;font-weight:500;background:#2F6FE4;color:#fff;border-radius:10px;padding:0 6px;line-height:15px;}
+.mc-cont.conf{background:#f59e0b;color:#231a05;}
+.mc-dia{margin-top:14px;border-top:1px solid var(--border);padding-top:10px;}
+.mc-diatit{font-size:13px;font-weight:500;color:var(--muted);margin-bottom:8px;}
+.mc-vazio{font-size:13px;color:var(--faint);padding:4px 0 8px;}
+.mc-novo{background:none;border:1px dashed var(--border2);color:var(--accent);border-radius:10px;padding:9px;width:100%;font-size:13px;margin-top:4px;}
+/* painel de trabalho */
+.fchips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;}
+.cel .fchips{flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px;margin-right:-12px;}
+.fchip{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;background:var(--surface2);border:1px solid var(--border2);color:var(--muted);border-radius:20px;padding:6px 11px;font-size:12.5px;}
+.fchip .dot{width:8px;height:8px;border-radius:50%;}
+.fchip.on{border-color:var(--c, var(--accent));color:var(--text);background:color-mix(in srgb, var(--c, var(--accent)) 16%, var(--surface2));}
+.fchip-n{font-size:11px;color:var(--faint);font-variant-numeric:tabular-nums;}
+.pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px;}
+.cel .pgrid{grid-template-columns:1fr;}
+.pcard{background:color-mix(in srgb, var(--c) 6%, var(--surface2));border:1px solid var(--border);border-left:4px solid var(--c);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;}
+.pcard.arquivada{opacity:.6;}
+.pc-top{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.pc-num{font-size:13.5px;font-weight:500;font-variant-numeric:tabular-nums;letter-spacing:-.1px;}
+.pc-tags{display:inline-flex;gap:3px;}
+.pc-dir{display:inline-flex;align-items:center;gap:4px;margin-left:auto;}
+.pc-tags i{font-style:normal;font-size:9.5px;font-weight:500;letter-spacing:.3px;color:var(--muted);border:1px solid var(--border2);border-radius:5px;padding:1px 4px;}
+.pc-tags i.off{color:#ef4444;border-color:#ef444455;}
+.pc-novo{font-size:10px;font-weight:500;background:var(--accent);color:var(--on-accent);border-radius:20px;padding:1px 7px;}
+.pc-mais{background:none;border:none;color:var(--muted);font-size:18px;line-height:1;padding:0 4px;border-radius:6px;}
+.pc-mais:hover{color:var(--accent);background:var(--surface);}
+.pc-info{font-size:12px;color:var(--muted);line-height:1.4;}
+.pc-campo{display:grid;grid-template-columns:82px 1fr;align-items:start;gap:8px;}
+.pc-campo>span{font-size:11px;color:var(--faint);padding-top:7px;}
+.pc-inp{width:100%;font:inherit;font-size:13.5px;line-height:1.45;color:var(--text);background:transparent;border:1px solid transparent;border-radius:8px;padding:5px 7px;resize:none;overflow:hidden;}
+.pc-inp:hover{border-color:var(--border);}
+.pc-inp:focus{outline:none;border-color:var(--accent);background:var(--input);}
+.pc-inp::placeholder{color:var(--faint);}
+.pc-sel{font:inherit;font-size:13px;font-weight:500;color:var(--text);background:color-mix(in srgb, var(--c, #a1a1aa) 22%, var(--surface));border:1px solid color-mix(in srgb, var(--c, #a1a1aa) 60%, transparent);border-radius:20px;padding:4px 10px;max-width:100%;}
+.pc-nejul{font-size:12.5px;line-height:1.45;background:color-mix(in srgb, #f97316 12%, var(--surface));border:1px solid #f9731655;border-radius:9px;padding:8px 10px;color:var(--text);}
+.pc-nejul-b{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;}
+.copybtn{background:none;border:1px solid var(--border2);color:var(--muted);border-radius:7px;font-size:11.5px;padding:1px 7px;line-height:1.6;white-space:nowrap;}
+.copybtn:hover{color:var(--accent);border-color:var(--accent);}
+.copybtn.ok{color:#10b981;border-color:#10b981;}
+.minibtn{background:var(--surface);border:1px solid var(--border2);color:var(--text);border-radius:8px;font-size:12px;font-weight:500;padding:5px 10px;}
+.minibtn.forte{background:var(--accent);color:var(--on-accent);border-color:var(--accent);}
+.sitchip{font-size:11px;font-weight:500;color:var(--text);background:color-mix(in srgb, var(--c) 22%, transparent);border:1px solid color-mix(in srgb, var(--c) 55%, transparent);border-radius:20px;padding:0 8px;white-space:nowrap;}
+.avisos{background:var(--surface);border:1px solid var(--accent);border-radius:14px;padding:10px 12px;margin-bottom:14px;}
+.avisos-h{display:flex;align-items:center;justify-content:space-between;font-size:14px;margin-bottom:6px;}
+.aviso{border-top:1px solid var(--border);padding:9px 0;}
+.aviso-top{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.aviso-txt{font-size:13px;color:var(--text);margin:4px 0 6px;line-height:1.45;}
+.aviso-b{display:flex;gap:6px;flex-wrap:wrap;}
+.aviso.t-saiu .aviso-txt,.aviso.t-devolvido .aviso-txt{color:var(--accent);font-weight:500;}
+.pecard{width:520px;}
+.pe-info{font-size:12.5px;color:var(--muted);line-height:1.6;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:8px 10px;margin-bottom:12px;}
+.pe-nejul{font-size:12.5px;color:var(--muted);margin:4px 0 10px;}
+.pe-nejul summary{cursor:pointer;color:var(--accent);}
+.pe-nejul div{white-space:pre-wrap;line-height:1.5;margin-top:6px;max-height:200px;overflow:auto;background:var(--surface2);border-radius:8px;padding:8px;}
+.fortesw input{width:17px;height:17px;accent-color:var(--accent);}
+/* filas (para sentenciar / despachar) */
+.filarow{display:flex;gap:12px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:10px 12px;margin-bottom:8px;cursor:pointer;}
+.filarow:hover{background:var(--surface);}
+.fila-dias{flex:none;width:64px;border-radius:10px;background:var(--surface);border:1px solid var(--border);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6px 2px;text-align:center;}
+.fila-dias b{font-size:22px;font-weight:500;font-variant-numeric:tabular-nums;line-height:1.1;}
+.fila-dias span{font-size:9.5px;color:var(--muted);line-height:1.2;}
+.fila-dias.medio{border-color:#f59e0b;background:color-mix(in srgb, #f59e0b 14%, var(--surface));}
+.fila-dias.alto{border-color:#ef4444;background:color-mix(in srgb, #ef4444 16%, var(--surface));}
+.fila-corpo{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;}
+.fila-pend{font-size:13px;color:var(--text);}
+.fila-pend b{font-weight:500;color:var(--accent);}
+.fila-obs{font-size:12.5px;color:var(--muted);line-height:1.45;white-space:pre-wrap;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;}
+/* entregues */
+.entmes{background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:10px 12px;margin-bottom:14px;}
+.entmes-h{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:15px;}
+.entmes-h span{font-size:12.5px;color:var(--muted);}
+.entmes-tot{display:flex;gap:16px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);margin-top:4px;}
+.entmes-tot b{color:var(--text);font-weight:500;}
+.entsub{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.4px;margin:12px 0 4px;}
+.entrow{display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid var(--border);flex-wrap:wrap;}
+.ent-main{flex:1;min-width:200px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;cursor:pointer;}
+.ent-data{font-size:11.5px;color:var(--faint);}
+.ent-c{font:inherit;font-size:12px;background:var(--input);color:var(--text);border:1px solid var(--border2);border-radius:7px;padding:3px 5px;}
+.ent-val{font-size:13px;font-variant-numeric:tabular-nums;min-width:86px;text-align:right;}
+.ent-ass{background:var(--surface);border:1px solid var(--border2);color:var(--muted);border-radius:20px;font-size:11.5px;font-weight:500;padding:3px 10px;}
+.ent-ass.on{color:#10b981;border-color:#10b98188;}
+/* audiências */
+.audrow{display:flex;align-items:center;gap:12px;padding:9px 12px;border-radius:10px;background:var(--surface2);border:1px solid var(--border);border-left:3px solid #2F6FE4;margin-bottom:6px;cursor:pointer;}
+.audrow:hover{background:var(--surface);}
+.audrow.conflito{border-left-color:#f59e0b;}
+.aud-corpo{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;}
+.aud-top{display:flex;align-items:center;gap:6px;}
+.aud-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.aud-fonte{font-size:10.5px;color:var(--faint);}
+.aud-conf{font-size:10.5px;font-weight:500;color:#231a05;background:#f59e0b;border-radius:20px;padding:0 7px;}
+/* colar painéis */
+.colar-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
+@media(max-width:1000px){ .colar-grid{grid-template-columns:1fr;} }
+.colar-cx{display:flex;flex-direction:column;}
+.colar-h{display:flex;align-items:baseline;gap:8px;margin-bottom:6px;font-size:14px;}
+.colar-h span{font-size:11.5px;color:var(--faint);flex:1;}
+.colar-ta{height:220px;font-size:12px;font-family:ui-monospace,Menlo,monospace;margin:0;}
+.colar-msg{margin-top:12px;font-size:14px;line-height:1.5;background:color-mix(in srgb, var(--accent) 12%, var(--surface2));border:1px solid var(--accent);border-radius:12px;padding:12px 14px;}
+.colar-jus{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:22px;padding-top:14px;border-top:1px solid var(--border);font-size:13px;color:var(--muted);}
+.colar-jus b{color:var(--text);font-weight:500;}
+.colar-jus span{flex:1;min-width:200px;}
 
 `;
 
