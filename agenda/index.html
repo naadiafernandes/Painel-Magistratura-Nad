@@ -59,7 +59,7 @@
 const { useState, useEffect, useRef } = React;
 
 /* versão do app — bater igual ao conteúdo de version.txt; ao trocar as duas, aparece o aviso "Atualizar" */
-const APP_VERSION = '2026-10-06-8';
+const APP_VERSION = '2026-10-06-9';
 
 // cor do texto que contrasta com um fundo sólido (claro -> texto escuro; escuro -> branco)
 const textOn = hex => { const c = (hex||'#000').replace('#',''); const r=parseInt(c.slice(0,2),16)||0, g=parseInt(c.slice(2,4),16)||0, b=parseInt(c.slice(4,6),16)||0; return (0.299*r+0.587*g+0.114*b)/255 > 0.62 ? '#231a05' : '#ffffff'; };
@@ -653,8 +653,8 @@ function App(){
       {noteView && <NoteView n={noteView} cats={noteCats} onClose={()=>setNoteView(null)} onEdit={()=>{ setNoteEdit(noteView); setNoteView(null); }} onDelete={id=>{ removeNote(id); setNoteView(null); }} onArchive={setArchived} onAddEntry={addEntry} onDelEntry={delEntry} />}
       {noteEdit && <NoteEditor n={noteEdit} cats={noteCats} onOpenCats={()=>setCatsOpen(true)} onClose={()=>setNoteEdit(null)} onSave={n=>{ upsertNote(n); setNoteEdit(null); }} onDelete={id=>{ removeNote(id); setNoteEdit(null); }} />}
       {catsOpen && <CatManager cats={noteCats} onSave={list=>setNoteCats(list)} onClose={()=>setCatsOpen(false)} />}
-      {sitsOpen && <CatManager cats={sits} defaultCats={DEFAULT_SITS} semSolido title="Situações do painel" subtitle="Renomeie, mude a cor ou crie novas. As quatro marcadas com cadeado levam o processo para Sentenças e Despachos e não podem ser apagadas." onSave={list=>setSits(list)} onClose={()=>setSitsOpen(false)} />}
       {procEdit && painel.procs[procEdit] && <ProcEditor p={painel.procs[procEdit]} sits={sits} hoje={hoje} onClose={()=>setProcEdit(null)} onSalvar={patch=>{ updProc(procEdit, patch); setProcEdit(null); }} onApagar={()=>{ apagarProc(procEdit); setProcEdit(null); }} onSits={()=>setSitsOpen(true)} onNejulOk={()=>updProc(procEdit, { nejulAtualizar:false })} />}
+      {sitsOpen && <CatManager cats={sits} defaultCats={DEFAULT_SITS} semSolido title="Situações do painel" subtitle="Renomeie, mude a cor ou crie novas. As quatro marcadas com cadeado levam o processo para Sentenças e Despachos e não podem ser apagadas." onSave={list=>setSits(list)} onClose={()=>setSitsOpen(false)} />}
       {tipoEdit && <TipoEditor tipo={tipoEdit} onClose={()=>setTipoEdit(null)} onSave={(nome,cor)=>{ if(tipoEdit._new) addTipo(nome,cor); else editTipo(tipoEdit.key,nome,cor); setTipoEdit(null); }} />}
       {syncOpen && <SyncModal onClose={()=>setSyncOpen(false)} />}
       {updateReady && (
