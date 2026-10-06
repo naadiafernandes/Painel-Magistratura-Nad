@@ -59,7 +59,7 @@
 const { useState, useEffect, useRef } = React;
 
 /* versão do app — bater igual ao conteúdo de version.txt; ao trocar as duas, aparece o aviso "Atualizar" */
-const APP_VERSION = '2026-10-06-1';
+const APP_VERSION = '2026-10-06-2';
 
 // cor do texto que contrasta com um fundo sólido (claro -> texto escuro; escuro -> branco)
 const textOn = hex => { const c = (hex||'#000').replace('#',''); const r=parseInt(c.slice(0,2),16)||0, g=parseInt(c.slice(2,4),16)||0, b=parseInt(c.slice(4,6),16)||0; return (0.299*r+0.587*g+0.114*b)/255 > 0.62 ? '#231a05' : '#ffffff'; };
@@ -1693,7 +1693,7 @@ function juntarAudiencias(painel, events, hoje){
   const out = (painel.aud || []).map(a => ({ ...a }));
   const tem = (key, date) => out.find(x => x.key && x.key === key && x.date === date);
   Object.values(painel.procs).forEach(p => {
-    if (p.aijManual && p.aijManual.date && !tem(p.key, p.aijManual.date)) out.push({ key:p.key, date:p.aijManual.date, time:p.aijManual.time || '', fonte:'à mão' });
+    if (p.aijManual && p.aijManual.date && !tem(p.key, p.aijManual.date)) out.push({ key:p.key, date:p.aijManual.date, time:p.aijManual.time || '', fonte:'inserido manualmente' });
   });
   const ini = ymd(addDays(parseYmd(hoje), -400)), fim = ymd(addDays(parseYmd(hoje), 730));
   events.filter(ev => ev.type === 'audiencia').forEach(ev => {
@@ -1701,7 +1701,7 @@ function juntarAudiencias(painel, events, hoje){
     occurrences(ev, ini, fim).forEach(d => {
       const ja = key && tem(key, d);
       if (ja) { ja.ev = ev; if (!ja.time && ev.time) ja.time = ev.time; return; }
-      out.push({ key, date:d, time:ev.time || '', fonte:'agenda', ev, titulo:ev.title });
+      out.push({ key, date:d, time:ev.time || '', fonte:'inserido manualmente', ev, titulo:ev.title });
     });
   });
   out.sort((a, b) => a.date === b.date ? (a.time || '').localeCompare(b.time || '') : a.date.localeCompare(b.date));
