@@ -59,7 +59,7 @@
 const { useState, useEffect, useRef } = React;
 
 /* versão do app — bater igual ao conteúdo de version.txt; ao trocar as duas, aparece o aviso "Atualizar" */
-const APP_VERSION = '2026-10-06-16';
+const APP_VERSION = '2026-10-06-17';
 
 // cor do texto que contrasta com um fundo sólido (claro -> texto escuro; escuro -> branco)
 const textOn = hex => { const c = (hex||'#000').replace('#',''); const r=parseInt(c.slice(0,2),16)||0, g=parseInt(c.slice(2,4),16)||0, b=parseInt(c.slice(4,6),16)||0; return (0.299*r+0.587*g+0.114*b)/255 > 0.62 ? '#231a05' : '#ffffff'; };
@@ -440,7 +440,7 @@ function aplicarNotasJusnad(painel, notas, hoje){
 /* ================= App ================= */
 // telas: 'agenda' (com mês/semana/ano/lista dentro), 'notas' (Processos), 'painel', 'sentenciar',
 // 'sent-entregues', 'despachar', 'desp-entregues', 'audiencias', 'colar' (só no computador)
-const VIEWS_OK = ['agenda','notas','painel','sentenciar','sent-entregues','despachar','desp-entregues','audiencias','colar'];
+const VIEWS_OK = ['agenda','painel','sentenciar','sent-entregues','despachar','desp-entregues','audiencias','colar'];
 function useCelular(){
   const q = '(max-width: 760px)';
   const [m, setM] = useState(() => window.matchMedia(q).matches);
@@ -697,7 +697,6 @@ function Sidebar({ view, setView, onNew, textoNovo, mostraNovo, cont }){
       {mostraNovo && <button className="btnNovo" onClick={onNew}>{textoNovo}</button>}
       {item('agenda','▦','Agenda')}
       <div className="navgroup">TJSC</div>
-      {item('notas','❏','Processos')}
       {item('painel','☷','Painel de trabalho', cont.painel, false, cont.avisos ? '' + cont.avisos : null)}
       <div className="navsub">Sentenças</div>
       {item('sentenciar','✎','Para sentenciar', cont.sentenciar, true)}
@@ -733,7 +732,6 @@ function MaisSheet({ view, setView, onClose, cont }){
     <div className="modal sheetwrap" onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
       <div className="sheet">
         <div className="sheetgrip"></div>
-        {it('notas','Processos')}
         <div className="sheetgrp">Sentenças</div>
         {it('sentenciar','Para sentenciar', cont.sentenciar)}
         {it('sent-entregues','Entregues')}
