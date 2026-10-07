@@ -59,7 +59,7 @@
 const { useState, useEffect, useRef } = React;
 
 /* versão do app — bater igual ao conteúdo de version.txt; ao trocar as duas, aparece o aviso "Atualizar" */
-const APP_VERSION = '2026-10-06-15';
+const APP_VERSION = '2026-10-06-16';
 
 // cor do texto que contrasta com um fundo sólido (claro -> texto escuro; escuro -> branco)
 const textOn = hex => { const c = (hex||'#000').replace('#',''); const r=parseInt(c.slice(0,2),16)||0, g=parseInt(c.slice(2,4),16)||0, b=parseInt(c.slice(4,6),16)||0; return (0.299*r+0.587*g+0.114*b)/255 > 0.62 ? '#231a05' : '#ffffff'; };
@@ -310,12 +310,16 @@ function lerCejusc(raw){
 
 /* ---------- audiência e antiguidade de cada processo ---------- */
 // audiência que ainda vai acontecer, pela ordem de confiança: à mão > CEJUSC > NEJUL > texto do NEJUL
-function aijMarcada(p){ return p.aijManual && p.aijManual.date ? p.aijManual : (p.aijC || p.aijN || p.aijEproc || null); }
+function aijMarcada(p){ return p.aijManual && p.aijManual.date ? p.aijManual : (p.aijC || p.aijN || p.aijEproc || p.aijAgendaFutura || null); }
+// "AUDIÊNCIA REALIZADA EM 27/08/2026" (ou "AIJ feita em ...") escrito por ela na observação/pendência também vale
+const dataAijNoTexto = t => { const m = (t || '').match(/(?:AUDI[ÊE]NCIA|AIJ)\s+(?:REALIZADA|FEITA)\s+(?:EM\s+)?(\d{1,2}\/\d{1,2}\/\d{2,4})/i); if (!m) return ''; const [d, mo, y] = m[1].split('/'); return (y.length === 2 ? '20' + y : y) + '-' + mo.padStart(2, '0') + '-' + d.padStart(2, '0'); };
 const fmtAij = a => a && a.date ? fmtData(a.date) + (a.time ? ' ' + a.time : '') : '';
 // Antiguidade: conta do dia em que chegou; se já teve AIJ, conta só do dia da AIJ.
 function antiguidade(p, hoje){
   const feitas = [p.aijManual, p.aijC, p.aijN, p.aijEproc].filter(a => a && a.date && a.date <= hoje).map(a => a.date);
   if (p.realizada) feitas.push(p.realizada);
+  (p.aijAgendaPassadas || []).forEach(d => feitas.push(d));
+  const doTexto = dataAijNoTexto(p.obs) || dataAijNoTexto(p.pend); if (doTexto && doTexto <= hoje) feitas.push(doTexto);
   if (feitas.length){ const d = feitas.sort().pop(); return { n:difDias(d, hoje), aij:true, desde:d }; }
   const rec = p.distr || p.remDate || p.criadoEm || hoje;
   return { n:difDias(rec, hoje), aij:false, desde:rec };
@@ -598,7 +602,15 @@ function App(){
     return n;
   };
 
-  const procsLista = painel.ordem.map(k => painel.procs[k]).filter(Boolean);
+  const audAgenda = {};
+  { const ini = ymd(addDays(parseYmd(hoje), -400)), fim = ymd(addDays(parseYmd(hoje), 730));
+    events.forEach(ev => { if (ev.type !== 'audiencia') return; const k = chaveProc((ev.title || '') + ' ' + (ev.note || '')); if (!k) return;
+      occurrences(ev, ini, fim).forEach(d => (audAgenda[k] = audAgenda[k] || []).push({ date:d, time:ev.time || '' })); }); }
+  const comAgenda = p => { const l = audAgenda[p.key]; if (!l) return p;
+    const fut = l.filter(a => a.date >= hoje).sort((a, b) => (a.date + a.time) < (b.date + b.time) ? -1 : 1)[0] || null;
+    return { ...p, aijAgendaPassadas:l.filter(a => a.date <= hoje).map(a => a.date), aijAgendaFutura:fut }; };
+  const procsVista = {}; Object.keys(painel.procs).forEach(k => { procsVista[k] = comAgenda(painel.procs[k]); });
+  const procsLista = painel.ordem.map(k => procsVista[k]).filter(Boolean);
   const nSent = procsLista.filter(p => p.sit === 'sentenciar' && !p.arquivado).length;
   const nDesp = procsLista.filter(p => p.sit === 'despachar' && !p.arquivado).length;
   const audLista = juntarAudiencias(painel, events, hoje);
@@ -655,7 +667,7 @@ function App(){
       {noteView && <NoteView n={noteView} cats={noteCats} onClose={()=>setNoteView(null)} onEdit={()=>{ setNoteEdit(noteView); setNoteView(null); }} onDelete={id=>{ removeNote(id); setNoteView(null); }} onArchive={setArchived} onAddEntry={addEntry} onDelEntry={delEntry} />}
       {noteEdit && <NoteEditor n={noteEdit} cats={noteCats} onOpenCats={()=>setCatsOpen(true)} onClose={()=>setNoteEdit(null)} onSave={n=>{ upsertNote(n); setNoteEdit(null); }} onDelete={id=>{ removeNote(id); setNoteEdit(null); }} />}
       {catsOpen && <CatManager cats={noteCats} onSave={list=>setNoteCats(list)} onClose={()=>setCatsOpen(false)} />}
-      {procEdit && painel.procs[procEdit] && <ProcEditor p={painel.procs[procEdit]} sits={sits} hoje={hoje} onClose={()=>setProcEdit(null)} onSalvar={patch=>{ updProc(procEdit, patch); setProcEdit(null); }} onApagar={()=>{ apagarProc(procEdit); setProcEdit(null); }} onSits={()=>setSitsOpen(true)} onNejulOk={()=>updProc(procEdit, { nejulAtualizar:false })} />}
+      {procEdit && painel.procs[procEdit] && <ProcEditor p={procsVista[procEdit]} sits={sits} hoje={hoje} onClose={()=>setProcEdit(null)} onSalvar={patch=>{ updProc(procEdit, patch); setProcEdit(null); }} onApagar={()=>{ apagarProc(procEdit); setProcEdit(null); }} onSits={()=>setSitsOpen(true)} onNejulOk={()=>updProc(procEdit, { nejulAtualizar:false })} />}
       {sitsOpen && <CatManager cats={sits} defaultCats={DEFAULT_SITS} semSolido title="Situações do painel" subtitle="Renomeie, mude a cor ou crie novas. As quatro marcadas com cadeado levam o processo para Sentenças e Despachos e não podem ser apagadas." onSave={list=>setSits(list)} onClose={()=>setSitsOpen(false)} />}
       {tipoEdit && <TipoEditor tipo={tipoEdit} onClose={()=>setTipoEdit(null)} onSave={(nome,cor)=>{ if(tipoEdit._new) addTipo(nome,cor); else editTipo(tipoEdit.key,nome,cor); setTipoEdit(null); }} />}
       {syncOpen && <SyncModal onClose={()=>setSyncOpen(false)} />}
