@@ -59,7 +59,7 @@
 const { useState, useEffect, useRef } = React;
 
 /* versão do app — bater igual ao conteúdo de version.txt; ao trocar as duas, aparece o aviso "Atualizar" */
-const APP_VERSION = '2026-10-06-11';
+const APP_VERSION = '2026-10-06-13';
 
 // cor do texto que contrasta com um fundo sólido (claro -> texto escuro; escuro -> branco)
 const textOn = hex => { const c = (hex||'#000').replace('#',''); const r=parseInt(c.slice(0,2),16)||0, g=parseInt(c.slice(2,4),16)||0, b=parseInt(c.slice(4,6),16)||0; return (0.299*r+0.587*g+0.114*b)/255 > 0.62 ? '#231a05' : '#ffffff'; };
@@ -566,9 +566,11 @@ function App(){
     if (patch.sit && /^(sent|desp)-entregue$/.test(patch.sit) && !novo.entregaData) novo.entregaData = todayStr();
     if (patch.sit && !/^(sent|desp)-entregue$/.test(patch.sit)) { novo.assinada = false; }
     if (patch.sit) { novo.novo = false; novo.sitManual = true; }
-    // mexeu na situação/pendência/observação de um processo que está no NEJUL: o NEJUL ficou para trás
-    const mudouTexto = ['sit','pend','obs'].some(k => k in patch && (patch[k] || '') !== (cur[k] || ''));
-    if (mudouTexto && cur.inN && !('nejulAtualizar' in patch)) { novo.nejulAtualizar = true; novo.nejulObsRef = cur.obsN || ''; }
+    // assinou: sai do painel de trabalho e fica só em Entregues › Assinadas
+    if (patch.assinada && !cur.assinada){ novo.arquivado = true; if (!novo.assinadaEm) novo.assinadaEm = todayStr(); }
+    if (patch.assinada === false && cur.assinada && (cur.inN || cur.inE || cur.inC)) novo.arquivado = false;
+    // "atualizar no NEJUL" é ela quem liga; guarda como o NEJUL estava para saber, na próxima colagem, se ela já atualizou lá
+    if (patch.nejulAtualizar && !cur.nejulAtualizar) novo.nejulObsRef = cur.obsN || '';
     return { ...p, procs:{ ...p.procs, [key]:novo } };
   });
   const novoProc = (num) => { const key = chaveProc(num); if (!key) return false;
@@ -1594,6 +1596,9 @@ function ProcMini({ p, cor, hoje, onAbrir, sits, onUpd }){
       <div className="pmini-sit" onClick={e=>e.stopPropagation()} onKeyDown={e=>e.stopPropagation()}><SelSituacao valor={p.sit} sits={sits} onEscolher={v=>onUpd(p.key, { sit:v })} /></div>
       {p.pend && <span className="pmini-pend"><b>Pendência:</b> {p.pend}</span>}
       {p.obs && <span className="pmini-obs">{p.obs}</span>}
+      {/^(sent|desp)-entregue$/.test(p.sit) && !p.assinada && (
+        <button className="pmini-ass" onClick={e=>{ e.stopPropagation(); onUpd(p.key, { assinada:true, assinadaEm:todayStr() }); }}>✓ foi assinada</button>
+      )}
       {p.nejulAtualizar && <span className="pmini-nejul">atualizar no NEJUL</span>}
     </div>
   );
@@ -1664,13 +1669,13 @@ function AvisosBox({ avisos, procs, sits, onAviso, onDispensar, onAbrir, onUpd }
 /* ---------- editor completo do processo ---------- */
 function ProcEditor({ p, sits, hoje, onClose, onSalvar, onApagar, onSits, onNejulOk }){
   const [f, setF] = useState({ sit:p.sit || '', pend:p.pend || '', obs:p.obs || '', aijData:(p.aijManual && p.aijManual.date) || '', aijHora:(p.aijManual && p.aijManual.time) || '',
-    entregaData:p.entregaData || '', assinada:!!p.assinada, valorTipo:p.valorTipo || '', arquivado:!!p.arquivado });
+    entregaData:p.entregaData || '', assinada:!!p.assinada, valorTipo:p.valorTipo || '', arquivado:!!p.arquivado, nejul:!!p.nejulAtualizar });
   const set = (k, v) => setF(o => ({ ...o, [k]:v }));
   const entregue = /^(sent|desp)-entregue$/.test(f.sit);
   const a = antiguidade(p, hoje);
   const aijP = p.aijC || p.aijN || p.aijEproc;
   const salvar = () => onSalvar({ sit:f.sit, pend:f.pend.trim(), obs:f.obs.trim(), aijManual: f.aijData ? { date:f.aijData, time:f.aijHora } : null,
-    entregaData:f.entregaData, assinada:f.assinada, assinadaEm: f.assinada && !p.assinada ? hoje : p.assinadaEm, valorTipo:f.valorTipo, arquivado:f.arquivado });
+    entregaData:f.entregaData, assinada:f.assinada, assinadaEm: f.assinada && !p.assinada ? hoje : p.assinadaEm, valorTipo:f.valorTipo, arquivado:f.arquivado, nejulAtualizar:f.nejul });
   return (
     <div className="modal" onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
       <div className="card pecard">
@@ -1697,7 +1702,8 @@ function ProcEditor({ p, sits, hoje, onClose, onSalvar, onApagar, onSits, onNeju
               </select></label>}
           </div>
         )}
-        {entregue && <label className="fortesw"><input type="checkbox" checked={f.assinada} onChange={e=>set('assinada', e.target.checked)} /><span>Já foi assinado</span></label>}
+        {entregue && <label className="fortesw"><input type="checkbox" checked={f.assinada} onChange={e=>set('assinada', e.target.checked)} /><span>Já foi assinada (sai do painel e fica em Entregues › Assinadas)</span></label>}
+        <label className="fortesw"><input type="checkbox" checked={f.nejul} onChange={e=>set('nejul', e.target.checked)} /><span>Lembrete: atualizar no NEJUL</span></label>
         <label className="fortesw"><input type="checkbox" checked={f.arquivado} onChange={e=>set('arquivado', e.target.checked)} /><span>Tirar do painel de trabalho (continua guardado)</span></label>
         {p.nejulAtualizar && (
           <div className="pc-nejul" style={{marginBottom:10}}>
@@ -2279,6 +2285,8 @@ textarea.inp{resize:vertical;}
 .pmini .etq.azul{background:#1d4ed8;border-color:#1d4ed8;color:#fff;}
 .pmini .pc-novo{background:var(--pc-tx);color:var(--pc-bg);}
 .pmini-sit{margin-top:1px;}
+.pmini-ass{align-self:flex-start;font:inherit;font-size:12px;font-weight:600;color:var(--pc-tx);background:var(--pc-panel);border:1px solid var(--pc-line);border-radius:20px;padding:3px 11px;cursor:pointer;}
+.pmini-ass:hover{background:#047857;color:#fff;border-color:#047857;}
 .pmini .pc-sel{background:var(--pc-panel);color:var(--pc-tx);border:1px solid var(--pc-line);}
 .pmini .pc-sel option{color:#111;background:#fff;}
 .pmini-pend{font-size:12px;line-height:1.4;color:var(--pc-tx);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;}
