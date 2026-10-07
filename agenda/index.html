@@ -59,7 +59,7 @@
 const { useState, useEffect, useRef } = React;
 
 /* versão do app — bater igual ao conteúdo de version.txt; ao trocar as duas, aparece o aviso "Atualizar" */
-const APP_VERSION = '2026-10-06-17';
+const APP_VERSION = '2026-10-06-18';
 
 // cor do texto que contrasta com um fundo sólido (claro -> texto escuro; escuro -> branco)
 const textOn = hex => { const c = (hex||'#000').replace('#',''); const r=parseInt(c.slice(0,2),16)||0, g=parseInt(c.slice(2,4),16)||0, b=parseInt(c.slice(4,6),16)||0; return (0.299*r+0.587*g+0.114*b)/255 > 0.62 ? '#231a05' : '#ffffff'; };
@@ -1541,6 +1541,9 @@ function PainelView({ painel, lista, sits, hoje, onUpd, onAbrir, onSits, onAviso
             if (g.key === 'aud'){
               const quando = p => { const a = aijMarcada(p); return a && a.date >= hoje ? a.date + ' ' + (a.time || '') : '9999'; };
               itens = itens.slice().sort((a, b) => quando(a) < quando(b) ? -1 : quando(a) > quando(b) ? 1 : 0);
+            } else {
+              // demais situações: do mais antigo para o mais novo (quem teve AIJ conta da data da AIJ)
+              itens = itens.map(p => ({ p, n:antiguidade(p, hoje).n })).sort((a, b) => b.n - a.n).map(x => x.p);
             }
             if (!itens.length) return null;
             return (
