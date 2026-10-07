@@ -59,7 +59,7 @@
 const { useState, useEffect, useRef } = React;
 
 /* versão do app — bater igual ao conteúdo de version.txt; ao trocar as duas, aparece o aviso "Atualizar" */
-const APP_VERSION = '2026-10-06-13';
+const APP_VERSION = '2026-10-06-15';
 
 // cor do texto que contrasta com um fundo sólido (claro -> texto escuro; escuro -> branco)
 const textOn = hex => { const c = (hex||'#000').replace('#',''); const r=parseInt(c.slice(0,2),16)||0, g=parseInt(c.slice(2,4),16)||0, b=parseInt(c.slice(4,6),16)||0; return (0.299*r+0.587*g+0.114*b)/255 > 0.62 ? '#231a05' : '#ffffff'; };
@@ -1526,12 +1526,17 @@ function PainelView({ painel, lista, sits, hoje, onUpd, onAbrir, onSits, onAviso
             </div>
           )}
           {filtro !== 'todos' && [...sits, { key:'__sem', nome:'Sem situação', cor:'#a1a1aa' }].map(g => {
-            const itens = mostrar.filter(p => g.key === '__sem' ? (!p.sit || !sitDe(sits, p.sit)) : p.sit === g.key);
+            let itens = mostrar.filter(p => g.key === '__sem' ? (!p.sit || !sitDe(sits, p.sit)) : p.sit === g.key);
+            // aguardando audiência: da AIJ mais próxima para a mais distante (sem data marcada vai para o fim)
+            if (g.key === 'aud'){
+              const quando = p => { const a = aijMarcada(p); return a && a.date >= hoje ? a.date + ' ' + (a.time || '') : '9999'; };
+              itens = itens.slice().sort((a, b) => quando(a) < quando(b) ? -1 : quando(a) > quando(b) ? 1 : 0);
+            }
             if (!itens.length) return null;
             return (
               <div key={g.key} className="notegrupo">
                 <div className="grupohead"><span className="dot" style={{background:g.cor}}></span>{g.nome}<span className="grupocount">{itens.length}</span></div>
-                <div className="notesgrid pgrid2">
+                <div className={'notesgrid pgrid2'+(filtro !== 'todos' ? ' plista' : '')}>
                   {itens.map(p => <ProcMini key={p.key} p={p} cor={g.cor} hoje={hoje} onAbrir={onAbrir} sits={sits} onUpd={onUpd} />)}
                 </div>
               </div>
@@ -1586,20 +1591,24 @@ function ProcMini({ p, cor, hoje, onAbrir, sits, onUpd }){
   const futura = aij && aij.date > hoje;
   return (
     <div role="button" tabIndex={0} className={'notecard pmini'+(p.arquivado?' arquivada':'')} style={coresCaixinha(cor)} onClick={()=>onAbrir(p.key)} onKeyDown={e=>{ if (e.key === 'Enter') onAbrir(p.key); }}>
-      <div className="pmini-top"><span className="note-num">{p.key}</span><CopyBtn txt={p.key} />{p.novo && <span className="pc-novo">novo</span>}</div>
-      <div className="pc-etiq">
-        <TagsPaineis p={p} />
-        <span className={'etq'+(d.rec > 60 ? ' verm' : '')}>{d.rec === 1 ? '1 dia' : d.rec + ' dias'}</span>
-        {d.aij !== null && <span className={'etq '+(d.aij > 60 ? 'verm' : 'verde')}>{d.aij === 0 ? 'AIJ hoje' : (d.aij === 1 ? '1 dia' : d.aij + ' dias') + ' desde a AIJ'}</span>}
-        {futura && <span className="etq azul">AIJ {fmtCurta(aij.date)}{aij.time ? ' ' + aij.time : ''}</span>}
+      <div className="pm-esq">
+        <div className="pmini-top"><span className="note-num">{p.key}</span><CopyBtn txt={p.key} />{p.novo && <span className="pc-novo">novo</span>}</div>
+        <div className="pc-etiq">
+          <TagsPaineis p={p} />
+          <span className={'etq'+(d.rec > 60 ? ' verm' : '')}>{d.rec === 1 ? '1 dia' : d.rec + ' dias'}</span>
+          {d.aij !== null && <span className={'etq '+(d.aij > 60 ? 'verm' : 'verde')}>{d.aij === 0 ? 'AIJ hoje' : (d.aij === 1 ? '1 dia' : d.aij + ' dias') + ' desde a AIJ'}</span>}
+          {futura && <span className="etq azul">AIJ {fmtCurta(aij.date)}{aij.time ? ' ' + aij.time : ''}</span>}
+        </div>
+        <div className="pmini-sit" onClick={e=>e.stopPropagation()} onKeyDown={e=>e.stopPropagation()}><SelSituacao valor={p.sit} sits={sits} onEscolher={v=>onUpd(p.key, { sit:v })} /></div>
+        {/^(sent|desp)-entregue$/.test(p.sit) && !p.assinada && (
+          <button className="pmini-ass" onClick={e=>{ e.stopPropagation(); onUpd(p.key, { assinada:true, assinadaEm:todayStr() }); }}>✓ foi assinada</button>
+        )}
       </div>
-      <div className="pmini-sit" onClick={e=>e.stopPropagation()} onKeyDown={e=>e.stopPropagation()}><SelSituacao valor={p.sit} sits={sits} onEscolher={v=>onUpd(p.key, { sit:v })} /></div>
-      {p.pend && <span className="pmini-pend"><b>Pendência:</b> {p.pend}</span>}
-      {p.obs && <span className="pmini-obs">{p.obs}</span>}
-      {/^(sent|desp)-entregue$/.test(p.sit) && !p.assinada && (
-        <button className="pmini-ass" onClick={e=>{ e.stopPropagation(); onUpd(p.key, { assinada:true, assinadaEm:todayStr() }); }}>✓ foi assinada</button>
-      )}
-      {p.nejulAtualizar && <span className="pmini-nejul">atualizar no NEJUL</span>}
+      <div className="pm-dir">
+        {p.pend && <span className="pmini-pend"><b>Pendência:</b> {p.pend}</span>}
+        {p.obs && <span className="pmini-obs">{p.obs}</span>}
+        {p.nejulAtualizar && <span className="pmini-nejul">atualizar no NEJUL</span>}
+      </div>
     </div>
   );
 }
@@ -2284,6 +2293,15 @@ textarea.inp{resize:vertical;}
 .pmini .etq.verde{background:#047857;border-color:#047857;color:#fff;}
 .pmini .etq.azul{background:#1d4ed8;border-color:#1d4ed8;color:#fff;}
 .pmini .pc-novo{background:var(--pc-tx);color:var(--pc-bg);}
+.pm-esq,.pm-dir{display:flex;flex-direction:column;gap:6px;min-width:0;}
+.pm-dir:empty{display:none;}
+.plista{grid-template-columns:1fr;}
+.plista .pmini{flex-direction:row;align-items:flex-start;gap:16px;}
+.plista .pm-esq{width:360px;flex:none;}
+.plista .pm-dir{flex:1;}
+.plista .pmini-obs{-webkit-line-clamp:6;}
+.cel .plista .pmini{flex-direction:column;gap:6px;}
+.cel .plista .pm-esq{width:auto;}
 .pmini-sit{margin-top:1px;}
 .pmini-ass{align-self:flex-start;font:inherit;font-size:12px;font-weight:600;color:var(--pc-tx);background:var(--pc-panel);border:1px solid var(--pc-line);border-radius:20px;padding:3px 11px;cursor:pointer;}
 .pmini-ass:hover{background:#047857;color:#fff;border-color:#047857;}
