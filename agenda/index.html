@@ -59,7 +59,7 @@
 const { useState, useEffect, useRef } = React;
 
 /* versão do app — bater igual ao conteúdo de version.txt; ao trocar as duas, aparece o aviso "Atualizar" */
-const APP_VERSION = '2026-10-06-9';
+const APP_VERSION = '2026-10-06-10';
 
 // cor do texto que contrasta com um fundo sólido (claro -> texto escuro; escuro -> branco)
 const textOn = hex => { const c = (hex||'#000').replace('#',''); const r=parseInt(c.slice(0,2),16)||0, g=parseInt(c.slice(2,4),16)||0, b=parseInt(c.slice(4,6),16)||0; return (0.299*r+0.587*g+0.114*b)/255 > 0.62 ? '#231a05' : '#ffffff'; };
@@ -1515,7 +1515,15 @@ function PainelView({ painel, lista, sits, hoje, onUpd, onAbrir, onSits, onAviso
             {q && <button className="buscaX" onClick={()=>setQ('')} aria-label="Limpar">×</button>}
           </div>
           {mostrar.length === 0 && <div className="vazio">Nenhum processo neste filtro.</div>}
-          {[...sits, { key:'__sem', nome:'Sem situação', cor:'#a1a1aa' }].map(g => {
+          {filtro === 'todos' && (
+            <div className="notesgrid pgrid2">
+              {mostrar.map(p => ({ p, n:antiguidade(p, hoje).n })).sort((a, b) => b.n - a.n).map(({ p }) => {
+                const g = sitDe(sits, p.sit) || { cor:'#a1a1aa' };
+                return <ProcMini key={p.key} p={p} cor={g.cor} hoje={hoje} onAbrir={onAbrir} sits={sits} onUpd={onUpd} />;
+              })}
+            </div>
+          )}
+          {filtro !== 'todos' && [...sits, { key:'__sem', nome:'Sem situação', cor:'#a1a1aa' }].map(g => {
             const itens = mostrar.filter(p => g.key === '__sem' ? (!p.sit || !sitDe(sits, p.sit)) : p.sit === g.key);
             if (!itens.length) return null;
             return (
@@ -1573,10 +1581,10 @@ function ProcMini({ p, cor, hoje, onAbrir, sits, onUpd }){
         {d.aij !== null && <span className={'etq '+(d.aij > 60 ? 'verm' : 'verde')}>{d.aij === 0 ? 'AIJ hoje' : (d.aij === 1 ? '1 dia' : d.aij + ' dias') + ' desde a AIJ'}</span>}
         {futura && <span className="etq azul">AIJ {fmtCurta(aij.date)}{aij.time ? ' ' + aij.time : ''}</span>}
       </div>
-      {p.pend && <span className="pmini-pend"><b>Pendência:</b> {p.pend}</span>}
-      {p.obs ? <span className="note-prev">{p.obs}</span> : (!p.pend && <span className="note-prev" style={{fontStyle:'italic'}}>sem anotações</span>)}
-      {p.nejulAtualizar && <span className="pmini-nejul">atualizar no NEJUL</span>}
       <div className="pmini-sit" onClick={e=>e.stopPropagation()} onKeyDown={e=>e.stopPropagation()}><SelSituacao valor={p.sit} sits={sits} onEscolher={v=>onUpd(p.key, { sit:v })} /></div>
+      {p.pend && <span className="pmini-pend"><b>Pendência:</b> {p.pend}</span>}
+      {p.obs && <span className="pmini-obs">{p.obs}</span>}
+      {p.nejulAtualizar && <span className="pmini-nejul">atualizar no NEJUL</span>}
     </div>
   );
 }
@@ -1670,10 +1678,6 @@ function ProcEditor({ p, sits, hoje, onClose, onSalvar, onApagar, onSits, onNeju
         </label>
         <label className="campo"><span>Pendência</span><input className="inp" value={f.pend} onChange={e=>set('pend', e.target.value)} placeholder="ex.: pedir vinculação no EPROC" /></label>
         <label className="campo"><span>Observação</span><textarea className="inp" rows="3" value={f.obs} onChange={e=>set('obs', e.target.value)} /></label>
-        <div className="linha2">
-          <label className="campo"><span>Audiência</span><input className="inp" type="date" value={f.aijData} onChange={e=>set('aijData', e.target.value)} /></label>
-          <label className="campo"><span>Hora</span><input className="inp" type="time" value={f.aijHora} onChange={e=>set('aijHora', e.target.value)} /></label>
-        </div>
         {entregue && (
           <div className="linha2">
             <label className="campo"><span>Entregue em</span><input className="inp" type="date" value={f.entregaData} onChange={e=>set('entregaData', e.target.value)} /></label>
@@ -2264,7 +2268,8 @@ textarea.inp{resize:vertical;}
 .pmini .etq.verde{background:#065f46;border-color:rgba(255,255,255,.7);}
 .pmini .etq.azul{background:#1e3a8a;border-color:rgba(255,255,255,.7);}
 .pmini .pc-novo{background:#fff;color:#111;}
-.pmini-sit{margin-top:2px;}
+.pmini-sit{margin-top:1px;}
+.pmini-obs{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden;font-size:12.5px;line-height:1.45;color:#fff;background:rgba(0,0,0,.3);border:1px solid rgba(255,255,255,.18);border-radius:9px;padding:7px 9px;white-space:pre-wrap;}
 .pmini .pc-sel{background:rgba(0,0,0,.32);color:#fff;border-color:rgba(255,255,255,.5);}
 .pmini .pc-sel option{color:#111;background:#fff;}
 .pmini-top{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
