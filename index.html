@@ -1085,27 +1085,6 @@ const CURSOS_ISOLADOS = [
     itens: expandBlocos(PPENAL_TOPICS),
   },
   {
-    id: "cur_cdc",
-    nome: "Direito do Consumidor",
-    itens: [
-      { h: "CÓDIGO DE DEFESA DO CONSUMIDOR EM TABELAS" },
-      { t: "CAPÍTULO I - Disposições Gerais" },
-      { t: "CAPÍTULO II - Da Política Nacional de Relações de Consumo" },
-      { t: "CAPÍTULO III - Dos Direitos Básicos do Consumidor" },
-      { t: "CAPÍTULO IV - Da Qualidade de Produtos e Serviços, da Prevenção e da Reparação dos Danos" },
-      { t: "CAPÍTULO V - Das Práticas Comerciais" },
-      { t: "CAPÍTULO VI - Da Proteção Contratual" },
-      { t: "CAPÍTULO VI-A - Da Prevenção e do Tratamento do Superendividamento" },
-      { t: "CAPÍTULO VII - Das Sanções Administrativas" },
-      { t: "TÍTULO II - Das Infrações Penais" },
-      { t: "TÍTULO III - Da Defesa do Consumidor em Juízo" },
-      { t: "CAPÍTULO II - Das Ações Coletivas Para a Defesa de Interesses Individuais Homogêneos" },
-      { t: "CAPÍTULO III - Das Ações de Responsabilidade do Fornecedor de Produtos e Serviços" },
-      { t: "CAPÍTULO IV - Da Coisa Julgada" },
-      { t: "CAPÍTULO V - Da Conciliação no Superendividamento" },
-    ],
-  },
-  {
     id: "cur_penesp",
     nome: "Leis Penais e Processuais Penais Especiais",
     itens: [
@@ -1271,7 +1250,7 @@ const EDITAIS = (typeof window !== "undefined" && window.EDITAIS) || []; /* dado
 
 // Matérias cuja "Teoria" É o curso em vídeo (nos Cursos Isolados), e não uma lista de tópicos.
 // Clicar em "Teoria" leva direto ao curso correspondente e mostra o progresso dele.
-const CURSO_TEORIA = { adm: "cur_adm", civil: "cur_civil", pcivil: "cur_ppcivil", cdc: "cur_cdc", penal: "cur_penal", ppenal: "cur_ppenal", penesp: "cur_penesp" };
+const CURSO_TEORIA = { adm: "cur_adm", civil: "cur_civil", pcivil: "cur_ppcivil", penal: "cur_penal", ppenal: "cur_ppenal", penesp: "cur_penesp" };
 
 function subj(id, name, bloco, hasTeoria) {
   const dims = { leiSeca: LEI_SECA[id], jurisprudencia: JURIS_ITEMS, questoes: TOPICOS[id], anki: ANKI_ITEMS };
