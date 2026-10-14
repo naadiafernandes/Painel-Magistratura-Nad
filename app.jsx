@@ -937,6 +937,32 @@ function expandBlocos(topics) {
 
 const CURSO_KEY_PREFIX = "tjsc-cursos-isolados:";
 const EDITAIS_KEY_PREFIX = "tjsc-editais:";
+// TJSC: o edital de 2025 virou o de 2026 (Edital 33/2026). Alguns tópicos entraram/saíram no meio,
+// então as notas e marcações salvas por posição andam junto para o tópico certo. Roda uma vez só
+// (a marca "__mig2026" viaja junto com os dados, então outro aparelho não aplica de novo).
+function migraTjsc2026(data) {
+  if (!data || data.__mig2026) return null;
+  const out = { __mig2026: true };
+  for (const [k, val] of Object.entries(data)) {
+    const p = k.split(".").map(Number);
+    let nk = k;
+    if (p.some((x) => isNaN(x))) { out[k] = val; continue; }
+    if (p[0] === 1 && p[1] === 16 && p.length > 2) {          // Proc. Civil 17: saiu a Lei 14.538/2023
+      if (p[2] === 25) nk = "x:" + k; else if (p[2] > 25) { p[2] -= 1; nk = p.join("."); }
+    } else if (p[0] === 5 && p.length > 1 && p[1] >= 2) {      // Proc. Penal: entrou o item 3 (Juiz de Garantias)
+      p[1] += 1;
+      if (p[1] === 18 && p.length > 2) {                      // Leis especiais: saiu a Circular 277/2023
+        if (p[2] === 13) { nk = "x:" + k; } else { if (p[2] > 13) p[2] -= 1; nk = p.join("."); }
+      } else nk = p.join(".");
+    } else if (p[0] === 9 && p.length > 1 && p[1] >= 20) {     // Tributário: entraram Reforma Tributária e Cashback
+      p[1] += 2; nk = p.join(".");
+    } else if (p[0] === 11 && p[1] === 0 && p.length > 2) {    // Administrativo 1: entraram 3 subtópicos no começo
+      p[2] += 3; nk = p.join(".");
+    }
+    out[nk] = val;
+  }
+  return out;
+}
 const DISCURSIVAS_KEY = "tjsc-discursivas:v1";   // caderno de discursivas (fica na aba antes dos editais)
 // normaliza o valor salvo de um tópico: aceita o formato antigo (booleano) e o novo (objeto de flags)
 function editalCell(raw) {
@@ -1418,7 +1444,7 @@ const CAIXA_MATS = ["const", "adm", "civil", "pcivil", "penal", "ppenal", "empre
 const CAIXA_MAT_EDITAL = {
   const: "DIREITO CONSTITUCIONAL", adm: "DIREITO ADMINISTRATIVO", civil: "DIREITO CIVIL",
   pcivil: "DIREITO PROCESSUAL CIVIL", penal: "DIREITO PENAL", ppenal: "DIREITO PROCESSUAL PENAL",
-  empres: "DIREITO EMPRESARIAL", trib: "DIREITO FINANCEIRO E TRIBUTÁRIO", cdc: "DIREITO DO CONSUMIDOR",
+  empres: "DIREITO EMPRESARIAL", trib: "DIREITO TRIBUTÁRIO E FINANCEIRO", cdc: "DIREITO DO CONSUMIDOR",
   eca: "DIREITO DA CRIANÇA E DO ADOLESCENTE", amb: "DIREITO AMBIENTAL", eleit: "DIREITO ELEITORAL",
   dh: "DIREITOS HUMANOS", human: "NOÇÕES GERAIS DE DIREITO E FORMAÇÃO HUMANÍSTICA",
 };
@@ -1841,6 +1867,7 @@ const TJSC_BLOCOS = {
   "DIREITO ADMINISTRATIVO": { b: 3, imp: 35 },
   "DIREITO EMPRESARIAL": { b: 3, imp: 20 },
   "DIREITO FINANCEIRO E TRIBUTÁRIO": { b: 3, imp: 20 },
+  "DIREITO TRIBUTÁRIO E FINANCEIRO": { b: 3, imp: 20 },
   "DIREITO AMBIENTAL": { b: 3, imp: 15 },
   "DIREITOS HUMANOS": { b: 3, imp: 5 },
   "NOÇÕES GERAIS DE DIREITO E FORMAÇÃO HUMANÍSTICA": { b: 3, imp: 5 },
@@ -4468,6 +4495,10 @@ export default function App() {
         try {
           const r = await window.storage.get(EDITAIS_KEY_PREFIX + e.id);
           eds[e.id] = r ? JSON.parse(r.value) : {};
+          if (e.id === "tjsc-juiz-2025" && r) {
+            const m = migraTjsc2026(eds[e.id]);
+            if (m) { eds[e.id] = m; try { await window.storage.set(EDITAIS_KEY_PREFIX + e.id, JSON.stringify(m)); } catch {} }
+          }
         } catch {
           eds[e.id] = {};
         }
@@ -5090,7 +5121,7 @@ export default function App() {
     try { window.storage.set(EDITAIS_KEY_PREFIX + r.editalId, JSON.stringify(next)); } catch {}
   };
 
-  // abre a página de notas de um tópico (só no edital TJSC Juiz 2025)
+  // abre a página de notas de um tópico (só no edital do TJSC)
   const openTopicPage = (ed, key, node) => {
     const mi = parseInt(String(key).split(".")[0], 10);
     const materia = (ed.materias[mi] && ed.materias[mi].nome) || "";
