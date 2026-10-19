@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>⏱ 15:00</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⏱</text></svg>">
+<style>
+:root{--bg:#121715;--surface:#1A201E;--ink:#E9EEEB;--ink2:#AEB9B4;--ink3:#7C8883;--line:#2F3835;--accent:#5FBFA8;--warn:#E08A77;--soft:#1E3530;color-scheme:dark}
+@media (prefers-color-scheme: light){:root{--bg:#F6F7F5;--surface:#FFFFFF;--ink:#18201D;--ink2:#4E5A55;--ink3:#86918C;--line:#DCE1DD;--accent:#1F6B5C;--warn:#9A3B2B;--soft:#DDEDE8;color-scheme:light}}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:16px}
+.box{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:28px 24px;text-align:center;width:min(100%,360px)}
+.box.fim{border-color:var(--warn);background:var(--soft)}
+.t{font-family:ui-monospace,Menlo,monospace;font-size:clamp(56px,18vw,84px);font-variant-numeric:tabular-nums;line-height:1}
+.b{color:var(--ink2);margin:10px 0 20px;min-height:1.4em;font-size:15px}
+.bt{display:flex;gap:10px;justify-content:center}
+button{font:inherit;font-size:15px;border-radius:999px;padding:8px 20px;cursor:pointer}
+#go{background:var(--accent);color:var(--surface);border:none;font-weight:600}
+#z{background:none;border:1px solid var(--line);color:var(--ink2)}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.d{color:var(--ink3);font-size:12.5px;margin-top:18px}
+</style>
+</head>
+<body>
+<div class="box" id="box">
+  <div class="t" id="t" role="timer">15:00</div>
+  <div class="b" id="b"></div>
+  <div class="bt"><button type="button" id="go">Iniciar</button><button type="button" id="z">Zerar</button></div>
+  <div class="d">Conta de 15 em 15 minutos, apita no fim de cada bloco e segue sozinho.</div>
+</div>
+<script>
+(()=>{const B=15*60*1000,K="crono15";const $=id=>document.getElementById(id);
+const box=$("box"),tT=$("t"),tB=$("b"),go=$("go"),z=$("z");
+let st={run:false,ini:0,acc:0};try{st=Object.assign(st,JSON.parse(localStorage.getItem(K)||"{}"))}catch(e){}
+const save=()=>{try{localStorage.setItem(K,JSON.stringify(st))}catch(e){}};
+let ac=null;
+const bip=()=>{try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();[0,.35,.7].forEach(d=>{const o=ac.createOscillator(),g=ac.createGain();o.frequency.value=880;o.connect(g);g.connect(ac.destination);const t=ac.currentTime+d;g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(.3,t+.02);g.gain.exponentialRampToValueAtTime(.0001,t+.25);o.start(t);o.stop(t+.3)})}catch(e){}};
+const gasto=()=>st.acc+(st.run?Date.now()-st.ini:0);
+const mm=ms=>{const s=Math.ceil(ms/1000);return String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0")};
+let ult=Math.floor(gasto()/B),fimAte=0;
+function tick(){const g=gasto(),blk=Math.floor(g/B),resto=B-(g%B);
+  if(st.run&&blk>ult){bip();fimAte=Date.now()+8000}
+  ult=blk;const fim=Date.now()<fimAte;
+  tT.textContent=mm(resto);
+  tB.textContent=(blk>0||st.run)?`bloco ${blk+1}`+(blk>0?` · ${blk*15} min feitos`:""):"";
+  go.textContent=st.run?"Pausar":(g>0?"Continuar":"Iniciar");
+  box.classList.toggle("fim",fim);
+  document.title=fim?`✅ ${blk*15} min!`:(st.run?`⏱ ${mm(resto)} · bloco ${blk+1}`:(g>0?`⏸ ${mm(resto)}`:"⏱ 15:00"));
+}
+go.addEventListener("click",()=>{if(st.run){st.acc=gasto();st.run=false}else{st.ini=Date.now();st.run=true;try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();ac.resume()}catch(e){}}save();tick()});
+z.addEventListener("click",()=>{st={run:false,ini:0,acc:0};ult=0;fimAte=0;save();tick()});
+tick();setInterval(tick,1000);
+})();
+</script>
+</body>
+</html>
