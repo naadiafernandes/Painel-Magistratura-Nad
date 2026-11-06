@@ -7597,7 +7597,7 @@ document.getElementById('file').onchange = function(e){
       .then(function(b){ return Array.from(new Uint8Array(b)).map(function(x){ return x.toString(16).padStart(2,'0'); }).join(''); });
   }
   function headers(extra){
-    var h = { apikey: SUPA.key, Authorization: 'Bearer ' + SUPA.key };
+    var h = { apikey: SUPA.key, Authorization: 'Bearer ' + SUPA.key, 'x-space': spaceId() };
     if (extra) for (var x in extra) h[x] = extra[x];
     return h;
   }
