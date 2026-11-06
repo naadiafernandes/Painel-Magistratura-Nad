@@ -59,7 +59,7 @@
 const { useState, useEffect, useRef } = React;
 
 /* versão do app — bater igual ao conteúdo de version.txt; ao trocar as duas, aparece o aviso "Atualizar" */
-const APP_VERSION = '2026-10-06-18';
+const APP_VERSION = '2026-11-06-19';
 
 // cor do texto que contrasta com um fundo sólido (claro -> texto escuro; escuro -> branco)
 const textOn = hex => { const c = (hex||'#000').replace('#',''); const r=parseInt(c.slice(0,2),16)||0, g=parseInt(c.slice(2,4),16)||0, b=parseInt(c.slice(4,6),16)||0; return (0.299*r+0.587*g+0.114*b)/255 > 0.62 ? '#231a05' : '#ffffff'; };
@@ -157,290 +157,10 @@ function saveEvents(list){ localStorage.setItem(KEY, JSON.stringify(list)); }
 let _id = Date.now();
 const newId = () => 'e' + (_id++).toString(36) + Math.floor(Math.random()*1e6).toString(36);
 
-/* ---------- notas (processos) ---------- */
-const NKEY = 'agenda-notes';
-const CATKEY = 'agenda-notecats';
-const DEFAULT_NOTECATS = [
-  { key:'verde',    nome:'Verde',    cor:'#10b981' },
-  { key:'amarelo',  nome:'Amarelo',  cor:'#eab308' },
-  { key:'vermelho', nome:'Vermelho', cor:'#ef4444' },
-];
-const CAT_CORES = ['#10b981','#eab308','#ef4444','#2F6FE4','#7C4DE0','#E85D9A','#14b8a6','#f97316','#6366f1','#64748b'];
-function loadNoteCats(){ try { const s = JSON.parse(localStorage.getItem(CATKEY) || 'null'); return (s && s.length) ? s : DEFAULT_NOTECATS.slice(); } catch(e){ return DEFAULT_NOTECATS.slice(); } }
-function saveNoteCats(l){ localStorage.setItem(CATKEY, JSON.stringify(l)); }
-const catNota = (cats, k) => (cats.find(c => c.key === k) || { nome:'Sem categoria', cor:'#a1a1aa' });
-const catNewKey = () => 'c' + (_id++).toString(36) + Math.floor(Math.random()*1e6).toString(36);
-const soDigitos = s => (s || '').replace(/\D/g, '');
-const fmtData = s => { const d = parseYmd(s); return pad(d.getDate())+'/'+pad(d.getMonth()+1)+'/'+d.getFullYear(); };
-// histórico: mais recente primeiro
-const cmpEntry = (a,b) => a.date === b.date ? (a.id < b.id ? 1 : -1) : (a.date < b.date ? 1 : -1);
-// converte nota antiga (um campo 'obs') para o formato novo (lista de anotações com data)
-function normNote(n){ if (Array.isArray(n.entries)) return n; const e = []; if (n.obs) e.push({ id:(n.id||'n')+'-0', date: n.date || todayStr(), text:n.obs }); const c = { ...n, entries:e }; delete c.obs; return c; }
-function loadNotes(){ try { return (JSON.parse(localStorage.getItem(NKEY) || '[]')).map(normNote); } catch(e){ return []; } }
-function saveNotes(list){ localStorage.setItem(NKEY, JSON.stringify(list)); }
-
-// contador de valor (embaixo de Processos): número puro = define; +/- = soma/subtrai
-const VKEY = 'agenda-valor';
-function loadValor(){ const v = parseFloat(localStorage.getItem(VKEY)); return isNaN(v) ? 0 : v; }
-function saveValor(v){ localStorage.setItem(VKEY, String(v)); }
-const fmtValor = v => v.toLocaleString('pt-BR', { minimumFractionDigits:2, maximumFractionDigits:2 });
-function parseValInput(s){
-  s = (s||'').trim(); if (!s) return null;
-  let sign = 1, signed = false;
-  if (s[0] === '+'){ signed = true; s = s.slice(1); }
-  else if (s[0] === '-'){ signed = true; sign = -1; s = s.slice(1); }
-  s = s.trim().replace(/\./g,'').replace(',', '.').replace(/[^0-9.]/g,'');
-  const n = parseFloat(s); if (isNaN(n)) return null;
-  return { signed, val: sign * n };
-}
-function applyVal(cur, input){ const p = parseValInput(input); if (!p) return cur; return +(p.signed ? (cur + p.val) : Math.abs(p.val)).toFixed(2); }
-
-/* =====================================================================
-   PAINEL DE TRABALHO (TJSC)
-   Ela cola as telas do CEJUSC, do NEJUL e do EPROC; o app junta tudo numa
-   lista só (na ordem do NEJUL) e, a cada colagem nova, compara com o que
-   ela já tinha e avisa só o que mudou. Situação, pendência e observação são
-   dela — a colagem nunca reescreve o que ela escreveu.
-   Sentenças, Despachos e Audiências saem sozinhos da situação de cada processo.
-   ===================================================================== */
-const PKEY = 'agenda-painel';          // { procs:{key:proc}, ordem:[key], avisos:[], aud:[], ultimaColagem, contagem }
-const SITKEY = 'agenda-situacoes';
-const RAWKEY = { nejul:'agendaloc-nejul', eproc:'agendaloc-eproc', cejusc:'agendaloc-cejusc' };  // só neste aparelho (não sincroniza)
-// As quatro situações fixas mandam o processo para as telas de Sentenças e Despachos.
-const SIT_FIXAS = { sentenciar:'Para sentenciar', despachar:'Para despachar', 'sent-entregue':'Sentenças entregues', 'desp-entregue':'Despachos entregues' };
-const DEFAULT_SITS = [
-  { key:'sentenciar',    nome:'Sentenciar',                cor:'#10b981', fixo:true },
-  { key:'despachar',     nome:'Despachar',                 cor:'#14b8a6', fixo:true },
-  { key:'aud',           nome:'Aguardando audiência',      cor:'#2F6FE4' },
-  { key:'redesignar',    nome:'Redesignar audiência',      cor:'#7C4DE0' },
-  { key:'pend',          nome:'Minhas pendências',         cor:'#ef4444' },
-  { key:'nejul',         nome:'Aguardando resposta NEJUL', cor:'#f97316' },
-  { key:'sent-entregue', nome:'Sentença entregue',         cor:'#eab308', fixo:true },
-  { key:'desp-entregue', nome:'Despacho entregue',         cor:'#E85D9A', fixo:true },
-  { key:'outros',        nome:'Outros',                    cor:'#64748b' },
-];
-function loadSits(){
-  try { const s = JSON.parse(localStorage.getItem(SITKEY) || 'null'); if (Array.isArray(s) && s.length){
-    const has = new Set(s.map(x => x.key)); const falta = DEFAULT_SITS.filter(d => d.fixo && !has.has(d.key));
-    return [...s.map(x => DEFAULT_SITS.some(d => d.fixo && d.key === x.key) ? { ...x, fixo:true } : x), ...falta]; } } catch(e){}
-  return DEFAULT_SITS.slice();
-}
-function saveSits(l){ localStorage.setItem(SITKEY, JSON.stringify(l)); }
-const PAINEL_VAZIO = { procs:{}, ordem:[], avisos:[], aud:[], ultimaColagem:null, contagem:null };
-function loadPainel(){ try { const p = JSON.parse(localStorage.getItem(PKEY) || 'null'); if (p && p.procs) return { ...PAINEL_VAZIO, ...p }; } catch(e){} return { ...PAINEL_VAZIO }; }
-function savePainel(p){ localStorage.setItem(PKEY, JSON.stringify(p)); }
 const lerLocal = k => { try { return localStorage.getItem(k) || ''; } catch(e){ return ''; } };
 const gravarLocal = (k, v) => { try { localStorage.setItem(k, v); } catch(e){} };
 
-/* ---------- datas do tribunal (DD/MM/AAAA) <-> AAAA-MM-DD ---------- */
-const CNJ_RE = /\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}/;
-const isBR = s => /^\d{2}\/\d{2}\/\d{4}$/.test(s || '');
-const isHora = s => /^\d{2}:\d{2}$/.test(s || '');
-const brYmd = s => { const m = (s || '').match(/(\d{2})\/(\d{2})\/(\d{2,4})/); if (!m) return ''; const y = m[3].length === 2 ? '20' + m[3] : m[3]; return y + '-' + m[2] + '-' + m[1]; };
-const chaveProc = s => { const m = (s || '').match(CNJ_RE); return m ? m[0] : ''; };
-const difDias = (de, ate) => Math.round((parseYmd(ate) - parseYmd(de)) / 86400000);
-const fmtCurta = s => s ? s.slice(8,10) + '/' + s.slice(5,7) : '';
-const brl = v => 'R$ ' + (v || 0).toLocaleString('pt-BR', { minimumFractionDigits:2, maximumFractionDigits:2 });
-const VALOR_C = { C1:44.47, C2:88.94, C3:133.41 };
-const cDaComplexidade = s => /ALTA/i.test(s || '') ? 'C3' : /M[ÉE]DIA/i.test(s || '') ? 'C2' : /BAIXA/i.test(s || '') ? 'C1' : '';
-
-/* ---------- leitura das colagens ---------- */
-// NEJUL: as células da tabela chegam achatadas, uma por linha. Cada processo vai
-// da linha do número até o próximo número. Âncoras fixas: ENTREGAR e ATENDIMENTO.
-function lerNejul(raw){
-  // o Chrome copia uma célula por linha; o Safari junta as células com tabulação — tudo vira uma célula por linha
-  const L = (raw || '').split('\n').reduce((a, l) => a.concat(l.split('\t')), []).map(l => l.replace(/ /g, ' ').trim());
-  const PROC = /^\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}$/;
-  const idx = []; L.forEach((l, i) => { if (PROC.test(l)) idx.push(i); });
-  const out = [];
-  idx.forEach((ini, k) => {
-    const seg = L.slice(ini, k + 1 < idx.length ? idx[k + 1] : L.length);
-    const iEnt = seg.findIndex(l => /^ENTREGAR\b/.test(l)), iAt = seg.findIndex(l => /(^|\s)ATENDIMENTO$/.test(l));
-    const pre = seg.slice(1, iEnt >= 0 ? iEnt : seg.length).filter(Boolean);
-    // data de chegada: linha que começa com a data (no Safari ela pode vir junto com os dias: "05/07/2026 ⚠️ 93")
-    const linhaData = pre.find(l => /^\d{2}\/\d{2}\/\d{4}(\s|$)/.test(l)) || '';
-    const distr = linhaData.slice(0, 10);
-    const resto = linhaData.slice(10).trim();
-    const diasLinha = /^(?:\S+\s+)?\d{1,4}(\s|$)/.test(resto) ? resto : (pre.find(l => /^(?:\S+\s+)?\d{1,4}$/.test(l)) || '');
-    let entrega = iEnt > 0 ? seg[iEnt - 1] : '';
-    if (entrega === diasLinha || entrega === linhaData) entrega = '';
-    if (!entrega){ const m = resto.match(/(Pendente|Devolvido.*|\d{2}\/\d{2}\/\d{4})$/); if (m) entrega = m[1]; }
-    const meio = iEnt >= 0 && iAt > iEnt ? seg.slice(iEnt, iAt) : [];
-    const aijDate = meio.find(isBR) || '', aijTime = meio.find(isHora) || '';
-    const post = (iAt >= 0 ? seg.slice(iAt + 1) : []).filter(l => l && !/^🔀/.test(l) && l !== 'IMPEDIMENTO' && !/^Voltar ao menu/i.test(l));
-    const ehClass = l => /COMPLEXIDADE|EMBARGOS DECLARAT/i.test(l) || /^Selecione/.test(l);
-    const classes = post.filter(l => ehClass(l) && !/^Selecione/.test(l));
-    const obs = post.filter(l => !ehClass(l) && l !== 'AIJ').join('\n');
-    const desig = obs.match(/consta como (?:RE)?DESIGNADA em (\d{2}\/\d{2}\/\d{4})\s*(\d{2}:\d{2})?/i);
-    const feita = obs.match(/(?:consta como REALIZADA em|AUDI[ÊE]NCIA REALIZADA EM)\s*(\d{2}\/\d{2}\/\d{2,4})/i);
-    out.push({ key:seg[0], origin:pre[0] || '', distr:brYmd(distr), dias:parseInt((diasLinha.match(/\d+/) || ['0'])[0], 10),
-      entrega, aij: isBR(aijDate) ? { date:brYmd(aijDate), time:aijTime } : null,
-      aijEproc: desig ? { date:brYmd(desig[1]), time:desig[2] || '' } : null,
-      realizada: feita ? brYmd(feita[1]) : '', classif: classes[classes.length - 1] || '', obsN:obs });
-  });
-  return out;
-}
-// EPROC: vários relatórios colados um embaixo do outro; o mesmo processo pode
-// aparecer mais de uma vez — junta as aparições sem apagar os nomes das partes.
-function lerEproc(raw){
-  const txt = (raw || '').replace(/ /g, ' ');
-  const ms = [...txt.matchAll(/(\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4})\/SC/g)];
-  const m = new Map();
-  ms.forEach((x, i) => {
-    const seg = txt.slice(x.index, i + 1 < ms.length ? ms[i + 1].index : txt.length);
-    const r = { key:x[1], autores:[...seg.matchAll(/([^\n\t]+?)\s*-\s*(AUTOR|REQUERENTE)\b/gi)].map(a => a[1].trim()),
-      reus:[...seg.matchAll(/([^\n\t]+?)\s*-\s*(R[ÉE]U|REQUERIDO)\b/gi)].map(a => a[1].trim()),
-      remDate:brYmd((seg.match(/\d{2}\/\d{2}\/\d{4}/) || [''])[0]), idoso:/Idoso/i.test(seg) };
-    const p = m.get(r.key);
-    m.set(r.key, p ? { ...p, autores:p.autores.length ? p.autores : r.autores, reus:p.reus.length ? p.reus : r.reus, remDate:p.remDate || r.remDate, idoso:p.idoso || r.idoso } : r);
-  });
-  return [...m.values()];
-}
-// CEJUSC: uma linha por horário — "01/10/2026 (Qui) às 13:00 <tab> processo" (ou "(vazio)").
-function lerCejusc(raw){
-  const out = [];
-  (raw || '').split('\n').forEach(l => {
-    const d = l.match(/\b(\d{2}\/\d{2}\/\d{4})\b/), h = l.match(/\b(\d{2}:\d{2})\b/);
-    if (!d || !h) return;
-    const k = chaveProc(l);
-    if (k) out.push({ key:k, date:brYmd(d[1]), time:h[1] });
-  });
-  return out;
-}
-
-/* ---------- audiência e antiguidade de cada processo ---------- */
-// audiência que ainda vai acontecer, pela ordem de confiança: à mão > CEJUSC > NEJUL > texto do NEJUL
-function aijMarcada(p){ return p.aijManual && p.aijManual.date ? p.aijManual : (p.aijC || p.aijN || p.aijEproc || p.aijAgendaFutura || null); }
-// "AUDIÊNCIA REALIZADA EM 27/08/2026" (ou "AIJ feita em ...") escrito por ela na observação/pendência também vale
-const dataAijNoTexto = t => { const m = (t || '').match(/(?:AUDI[ÊE]NCIA|AIJ)\s+(?:REALIZADA|FEITA)\s+(?:EM\s+)?(\d{1,2}\/\d{1,2}\/\d{2,4})/i); if (!m) return ''; const [d, mo, y] = m[1].split('/'); return (y.length === 2 ? '20' + y : y) + '-' + mo.padStart(2, '0') + '-' + d.padStart(2, '0'); };
-const fmtAij = a => a && a.date ? fmtData(a.date) + (a.time ? ' ' + a.time : '') : '';
-// Antiguidade: conta do dia em que chegou; se já teve AIJ, conta só do dia da AIJ.
-function antiguidade(p, hoje){
-  const feitas = [p.aijManual, p.aijC, p.aijN, p.aijEproc].filter(a => a && a.date && a.date <= hoje).map(a => a.date);
-  if (p.realizada) feitas.push(p.realizada);
-  (p.aijAgendaPassadas || []).forEach(d => feitas.push(d));
-  const doTexto = dataAijNoTexto(p.obs) || dataAijNoTexto(p.pend); if (doTexto && doTexto <= hoje) feitas.push(doTexto);
-  if (feitas.length){ const d = feitas.sort().pop(); return { n:difDias(d, hoje), aij:true, desde:d }; }
-  const rec = p.distr || p.remDate || p.criadoEm || hoje;
-  return { n:difDias(rec, hoje), aij:false, desde:rec };
-}
-const textoAntig = a => a.aij ? (a.n === 0 ? 'AIJ hoje' : a.n === 1 ? '1 dia desde a AIJ' : a.n + ' dias desde a AIJ') : (a.n === 1 ? 'recebido há 1 dia' : 'recebido há ' + a.n + ' dias');
-const valorDe = p => VALOR_C[p.valorTipo || cDaComplexidade(p.classif)] || 0;
-
-/* ---------- colagem nova: junta os três painéis e compara com o que já havia ---------- */
-let _av = 0;
-const avId = () => 'a' + Date.now().toString(36) + (_av++).toString(36);
-function aplicarColagem(painel, raws, hoje){
-  const N = lerNejul(raws.nejul), E = lerEproc(raws.eproc), C = lerCejusc(raws.cejusc);
-  const nMap = new Map(N.map(x => [x.key, x])), eMap = new Map(E.map(x => [x.key, x]));
-  // mesmo processo em mais de um horário: fica a próxima audiência (ou a mais recente, se todas já passaram)
-  const cMap = new Map(); C.forEach(x => { const c = cMap.get(x.key);
-    if (!c || (x.date >= hoje ? (c.date < hoje || x.date < c.date) : (c.date < hoje && x.date > c.date))) cMap.set(x.key, x); });
-  const primeira = Object.keys(painel.procs).length === 0;
-  const procs = { ...painel.procs }, avisos = [];
-  const aviso = (key, tipo, texto) => avisos.push({ id:avId(), key, tipo, texto, em:hoje });
-  const todas = new Set([...nMap.keys(), ...eMap.keys(), ...cMap.keys()]);
-  todas.forEach(key => {
-    const n = nMap.get(key), e = eMap.get(key), c = cMap.get(key);
-    const ant = procs[key];
-    const p = ant ? { ...ant } : { key, sit:'', pend:'', obs:'', criadoEm:hoje };
-    const aijAntes = fmtAij(ant ? (ant.aijC || ant.aijN || ant.aijEproc) : null);
-    const aijAntesFutura = ant && [ant.aijC, ant.aijN, ant.aijEproc].some(a => a && a.date >= hoje);
-    p.inN = !!n; p.inE = !!e; p.inC = !!c;
-    if (n){ Object.assign(p, { origin:n.origin, distr:n.distr, diasN:n.dias, entregaN:n.entrega, aijN:n.aij, aijEproc:n.aijEproc, realizada:n.realizada || p.realizada || '', classif:n.classif || p.classif || '', obsN:n.obsN }); }
-    if (e){ Object.assign(p, { remDate:e.remDate, autores:e.autores.length ? e.autores : (p.autores || []), reus:e.reus.length ? e.reus : (p.reus || []), idoso:e.idoso }); }
-    p.aijC = c ? { date:c.date, time:c.time } : null;
-    if (!n){ p.aijN = null; p.aijEproc = null; }
-    if (!primeira){
-      if (!ant){ p.novo = true; aviso(key, 'novo', 'Apareceu no painel ' + [n && 'NEJUL', e && 'EPROC', c && 'CEJUSC'].filter(Boolean).join(', ') + '. Está em branco para você preencher.'); }
-      else {
-        // tirado da lista (ou já assinado) e reaparece num painel onde não estava: volta para a lista
-        if (ant.arquivado && ((n && !ant.inN) || (e && !ant.inE) || (c && !ant.inC))){ p.arquivado = false; aviso(key, 'voltou', 'Tinha saído e voltou ao painel ' + [n && 'NEJUL', e && 'EPROC', c && 'CEJUSC'].filter(Boolean).join(', ') + '.'); }
-        if (ant.inN && !n) aviso(key, 'saiu', 'Saiu do NEJUL' + (e ? ' (ainda está no EPROC)' : '') + '. Foi assinado?');
-        const aijAgora = fmtAij(p.aijC || p.aijN || p.aijEproc);
-        if (aijAgora !== aijAntes && (aijAgora || aijAntesFutura))
-          aviso(key, 'aij', aijAntes && aijAgora ? 'A audiência mudou: era ' + aijAntes + ', agora ' + aijAgora + '.' : aijAgora ? 'Audiência marcada: ' + aijAgora + '.' : 'A audiência de ' + aijAntes + ' saiu do painel.');
-        const entAntes = ant.entregaN || '', entAgora = p.entregaN || '';
-        if (n && entAgora !== entAntes){
-          if (/Devolvid/i.test(entAgora)) aviso(key, 'devolvido', 'O NEJUL devolveu para ajuste.');
-          else if (isBR(entAgora) && !/^(sent|desp)-entregue$/.test(p.sit)) aviso(key, 'entregueN', 'O NEJUL mostra entregue em ' + entAgora + '.');
-        }
-      }
-    } else if (n && isBR(n.entrega) && !p.sit){ p.sit = 'sent-entregue'; }
-    if (isBR(p.entregaN) && !p.entregaData) p.entregaData = brYmd(p.entregaN);
-    // o AgendaNAD é o mais atual: se ela mexeu aqui e o NEJUL continua com a observação antiga, lembra de atualizar lá
-    if (ant && ant.nejulAtualizar && n){
-      if ((n.obsN || '') !== (ant.nejulObsRef || '')) p.nejulAtualizar = false;
-      else if (!primeira) aviso(key, 'nejul', 'O NEJUL continua desatualizado neste processo. Copie o texto e cole na sua observação de lá.');
-    }
-    procs[key] = p;
-  });
-  // o que estava nos painéis e não veio nesta colagem
-  Object.values(procs).forEach(p => {
-    if (todas.has(p.key) || p.arquivado || !(p.inN || p.inE || p.inC)) return;
-    const estavaN = p.inN;
-    procs[p.key] = { ...p, inN:false, inE:false, inC:false, aijC:null };
-    if (!primeira) aviso(p.key, 'saiu', estavaN ? 'Saiu do NEJUL. Foi assinado?' : 'Saiu dos painéis. Foi assinado ou entregue?');
-  });
-  // ordem: a do NEJUL; depois o que só está no EPROC (mais antigo primeiro); depois só CEJUSC
-  const ordem = N.map(x => x.key);
-  const resto = [...todas].filter(k => !nMap.has(k));
-  resto.sort((a, b) => (eMap.has(b) - eMap.has(a)) || ((procs[a].remDate || '9') < (procs[b].remDate || '9') ? -1 : 1));
-  // audiências que vieram dos painéis
-  const aud = [];
-  C.forEach(x => aud.push({ key:x.key, date:x.date, time:x.time, fonte:'CEJUSC' }));
-  // o CEJUSC manda na data: se o processo está lá, a data escrita no NEJUL (que pode estar atrasada) não entra
-  N.forEach(x => { const a = x.aij || x.aijEproc; if (a && a.date && !aud.some(y => y.key === x.key)) aud.push({ key:x.key, date:a.date, time:a.time, fonte:'NEJUL' }); });
-  const contagem = { nejul:N.length, eproc:E.length, cejusc:C.length, total:todas.size };
-  return { ...painel, procs, ordem:[...ordem, ...resto], aud, avisos:[...avisos, ...painel.avisos.filter(a => !(a.tipo === 'nejul' && avisos.some(b => b.tipo === 'nejul' && b.key === a.key)))], ultimaColagem:new Date().toISOString(), contagem, _novos:avisos.length };
-}
-// Notas do JusNAD (Desenrolar de 06/10): grupo vira situação, texto vira observação. Só preenche o que está vazio.
-function sitDoGrupo(grupo, texto){
-  const g = (grupo || '').toUpperCase(), t = (texto || '').toUpperCase();
-  if (/^REDESIGNAR/.test(t)) return 'redesignar';
-  if (/^SENTENCIAR/.test(t) || /SENTENCIAR/.test(g)) return 'sentenciar';
-  if (/ASSINATURA/.test(g)) return 'sent-entregue';
-  if (/AUDI/.test(g)) return 'aud';
-  if (/NEJUL/.test(g)) return 'nejul';
-  if (/PEND/.test(g)) return 'pend';
-  return 'outros';
-}
-// Junta o que veio do JusNAD/Desenrolar sem apagar nada do que ela escreveu:
-// pendência e observação são somadas (sem repetir); situação só é trocada se ela
-// ainda não mexeu nela à mão; datas e valores só preenchem o que está vazio.
-function aplicarNotasJusnad(painel, notas, hoje){
-  const procs = { ...painel.procs }; let n = 0;
-  const so = t => (t || '').toLowerCase().normalize('NFD').replace(/[^a-z0-9]/g, '');
-  const junta = (a, b) => !b ? (a || '') : !a ? b : (so(a).indexOf(so(b)) >= 0 ? a : a + ' · ' + b);
-  (notas || []).forEach(x => {
-    const key = chaveProc(x.num); if (!key) return;
-    if (!procs[key] && x.soSeExistir) return;
-    const p = procs[key] ? { ...procs[key] } : { key, sit:'', pend:'', obs:'', criadoEm:hoje, inN:false, inE:false, inC:false };
-    if (x.pend) p.pend = junta(p.pend, x.pend);
-    const obs = x.obs || x.texto;
-    if (obs) p.obs = x.forte ? junta(p.obs, obs) : (p.obs || obs);
-    if (x.sit && (!p.sit || (x.forte && !p.sitManual))) p.sit = x.sit;
-    else if (!p.sit && (x.grupo || x.texto)) p.sit = sitDoGrupo(x.grupo, x.texto);
-    if (x.aij && x.aij.date){
-      if (x.aij.date >= hoje){ if (!p.aijC && !(p.aijManual && p.aijManual.date)) p.aijManual = x.aij; }
-      else if (!p.realizada) p.realizada = x.aij.date;
-    }
-    if (x.realizada && !p.realizada) p.realizada = x.realizada;
-    if (x.entregaData && !p.entregaData) p.entregaData = x.entregaData;
-    if (x.valorTipo && !p.valorTipo) p.valorTipo = x.valorTipo;
-    if (x.assinada && !p.assinada) p.assinada = true;
-    if (x.arquivado && !(p.inN || p.inE || p.inC)) p.arquivado = true;
-    if (/^(sent|desp)-entregue$/.test(p.sit) && !p.entregaData) p.entregaData = hoje;
-    procs[key] = p; n++;
-  });
-  const ordem = painel.ordem.slice(); Object.keys(procs).forEach(k => { if (ordem.indexOf(k) < 0) ordem.push(k); });
-  return { painel:{ ...painel, procs, ordem }, n };
-}
-
 /* ================= App ================= */
-// telas: 'agenda' (com mês/semana/ano/lista dentro), 'notas' (Processos), 'painel', 'sentenciar',
-// 'sent-entregues', 'despachar', 'desp-entregues', 'audiencias', 'colar' (só no computador)
-const VIEWS_OK = ['agenda','painel','sentenciar','sent-entregues','despachar','desp-entregues','audiencias','colar'];
 function useCelular(){
   const q = '(max-width: 760px)';
   const [m, setM] = useState(() => window.matchMedia(q).matches);
@@ -449,9 +169,7 @@ function useCelular(){
 }
 function App(){
   const [events, setEvents] = useState(loadEvents);
-  const [view, setViewRaw] = useState(() => { const v = lerLocal('agendaloc-view'); return VIEWS_OK.indexOf(v) >= 0 ? v : 'agenda'; });
   const [agView, setAgViewRaw] = useState(() => { const v = lerLocal('agendaloc-agview'); return ['mes','semana','ano','lista'].indexOf(v) >= 0 ? v : 'mes'; });
-  const setView = v => { setViewRaw(v); gravarLocal('agendaloc-view', v); window.scrollTo(0, 0); };
   const setAgView = v => { setAgViewRaw(v); gravarLocal('agendaloc-agview', v); };
   const [refStr, setRefStr] = useState(todayStr()); // data de referencia comum a todas as visoes
   const [editing, setEditing] = useState(null);      // evento em edicao/criacao ou null
@@ -461,30 +179,15 @@ function App(){
   const [buscaAberta, setBuscaAberta] = useState(false); // celular: campo de busca aparece pelo ícone
   const [syncOpen, setSyncOpen] = useState(false);
   const [ajustesOpen, setAjustesOpen] = useState(false);
-  const [maisOpen, setMaisOpen] = useState(false);
   const [filtroOpen, setFiltroOpen] = useState(false);
   const [navHidden, setNavHidden] = useState(() => localStorage.getItem('agenda-nav') === 'hide');
   const [userTipos, setUserTipos] = useState(loadUserTipos);
   const [filtroTipo, setFiltroTipo] = useState(null);   // ver só um tipo no calendário (null = todos)
   const [tipoEdit, setTipoEdit] = useState(null);       // tipo em criação/edição
-  const [notes, setNotes] = useState(loadNotes);
-  const [valor, setValor] = useState(loadValor);
-  const [noteCats, setNoteCats] = useState(loadNoteCats);
-  const [catsOpen, setCatsOpen] = useState(false);
-  const [noteView, setNoteView] = useState(null);   // nota aberta so pra ver
-  const [noteEdit, setNoteEdit] = useState(null);    // nota em edicao/criacao
-  const [painel, setPainel] = useState(loadPainel);
-  const [sits, setSits] = useState(loadSits);
-  const [sitsOpen, setSitsOpen] = useState(false);
-  const [procEdit, setProcEdit] = useState(null);    // chave do processo aberto no editor completo
   const celular = useCelular();
   const toggleNav = () => setNavHidden(v => { const n = !v; localStorage.setItem('agenda-nav', n ? 'hide' : 'show'); return n; });
   const first = useRef(true);
   const firstT = useRef(true);
-  const firstN = useRef(true);
-  const firstC = useRef(true);
-  const firstP = useRef(true);
-  const firstS = useRef(true);
 
   const tipos = userTipos;
   const tipoMap = mapa(tipos);
@@ -493,12 +196,6 @@ function App(){
 
   useEffect(() => { if (first.current){ first.current = false; return; } saveEvents(events); }, [events]);
   useEffect(() => { if (firstT.current){ firstT.current = false; return; } saveUserTipos(userTipos); }, [userTipos]);
-  useEffect(() => { if (firstN.current){ firstN.current = false; return; } saveNotes(notes); }, [notes]);
-  useEffect(() => { if (firstC.current){ firstC.current = false; return; } saveNoteCats(noteCats); }, [noteCats]);
-  useEffect(() => { if (firstP.current){ firstP.current = false; return; } savePainel(painel); }, [painel]);
-  useEffect(() => { if (firstS.current){ firstS.current = false; return; } saveSits(sits); }, [sits]);
-  const firstV = useRef(true);
-  useEffect(() => { if (firstV.current){ firstV.current = false; return; } saveValor(valor); }, [valor]);
   // avisa quando há versão nova publicada (sem recarregar na mão)
   const [updateReady, setUpdateReady] = useState(false);
   useEffect(() => {
@@ -518,7 +215,7 @@ function App(){
   }, []);
   // recarrega quando a sincronizacao trouxer mudanca de outro aparelho
   useEffect(() => {
-    const h = () => { setEvents(loadEvents()); setUserTipos(loadUserTipos()); setNotes(loadNotes()); setNoteCats(loadNoteCats()); setValor(loadValor()); setPainel(loadPainel()); setSits(loadSits()); };
+    const h = () => { setEvents(loadEvents()); setUserTipos(loadUserTipos()); };
     window.addEventListener('agenda-pulled', h);
     return () => window.removeEventListener('agenda-pulled', h);
   }, []);
@@ -535,108 +232,23 @@ function App(){
   });
   const remove = id => setEvents(list => list.filter(e => e.id !== id));
 
-  const upsertNote = n => setNotes(list => { const i = list.findIndex(x => x.id === n.id); if (i === -1) return [...list, n]; const c = list.slice(); c[i] = n; return c; });
-  const removeNote = id => setNotes(list => list.filter(x => x.id !== id));
-  const openNewNote = () => setNoteEdit({ id:newId(), num:'', color:(noteCats[0] && noteCats[0].key) || 'verde', entries:[], _new:true });
-  const addEntry = (id, text) => {
-    const entry = { id:newId(), date:todayStr(), text };
-    setNotes(list => list.map(x => x.id === id ? { ...x, entries:[entry, ...(x.entries||[])] } : x));
-    setNoteView(v => v && v.id === id ? { ...v, entries:[entry, ...(v.entries||[])] } : v);
-  };
-  const delEntry = (id, eid) => {
-    setNotes(list => list.map(x => x.id === id ? { ...x, entries:(x.entries||[]).filter(e => e.id !== eid) } : x));
-    setNoteView(v => v && v.id === id ? { ...v, entries:(v.entries||[]).filter(e => e.id !== eid) } : v);
-  };
-  const setArchived = (id, val) => {
-    setNotes(list => list.map(x => x.id === id ? { ...x, arquivado: val } : x));
-    setNoteView(v => v && v.id === id ? { ...v, arquivado: val } : v);
-  };
-
   const openNew = (dateStr, tipo, titulo) => setEditing({ id:newId(), title:titulo || '', type:tipo || 'compromisso', date: dateStr || todayStr(), time:'', note:'', repeat:{ freq:'none', interval:1, unit:'week' }, _new:true });
 
-  /* ----- painel de trabalho ----- */
-  // os dias andam sozinhos: na virada do dia (ou ao voltar para o app) tudo é recontado, sem precisar colar nada
-  const [hoje, setHoje] = useState(todayStr());
-  useEffect(() => {
-    const confere = () => { const h = todayStr(); setHoje(v => v === h ? v : h); };
-    const id = setInterval(confere, 60000);
-    window.addEventListener('focus', confere); document.addEventListener('visibilitychange', confere);
-    return () => { clearInterval(id); window.removeEventListener('focus', confere); document.removeEventListener('visibilitychange', confere); };
-  }, []);
-  const updProc = (key, patch) => setPainel(p => {
-    const cur = p.procs[key]; if (!cur) return p;
-    const novo = { ...cur, ...patch };
-    // virou "entregue": guarda o dia da entrega (dá para corrigir depois)
-    if (patch.sit && /^(sent|desp)-entregue$/.test(patch.sit) && !novo.entregaData) novo.entregaData = todayStr();
-    if (patch.sit && !/^(sent|desp)-entregue$/.test(patch.sit)) { novo.assinada = false; }
-    if (patch.sit) { novo.novo = false; novo.sitManual = true; }
-    // assinou: sai do painel de trabalho e fica só em Entregues › Assinadas
-    if (patch.assinada && !cur.assinada){ novo.arquivado = true; if (!novo.assinadaEm) novo.assinadaEm = todayStr(); }
-    if (patch.assinada === false && cur.assinada && (cur.inN || cur.inE || cur.inC)) novo.arquivado = false;
-    // "atualizar no NEJUL" é ela quem liga; guarda como o NEJUL estava para saber, na próxima colagem, se ela já atualizou lá
-    if (patch.nejulAtualizar && !cur.nejulAtualizar) novo.nejulObsRef = cur.obsN || '';
-    return { ...p, procs:{ ...p.procs, [key]:novo } };
-  });
-  const novoProc = (num) => { const key = chaveProc(num); if (!key) return false;
-    setPainel(p => p.procs[key] ? p : { ...p, procs:{ ...p.procs, [key]:{ key, sit:'', pend:'', obs:'', criadoEm:todayStr(), inN:false, inE:false, inC:false, manual:true } }, ordem:[...p.ordem, key] });
-    return key; };
-  const apagarProc = key => setPainel(p => { const procs = { ...p.procs }; delete procs[key]; return { ...p, procs, ordem:p.ordem.filter(k => k !== key), avisos:p.avisos.filter(a => a.key !== key) }; });
-  const resolverAviso = (av, acao) => setPainel(p => {
-    const procs = { ...p.procs }; const cur = procs[av.key];
-    if (cur){
-      const desp = /^desp/.test(cur.sit) || cur.sit === 'despachar';
-      if (acao === 'assinado') procs[av.key] = { ...cur, sit: desp ? 'desp-entregue' : 'sent-entregue', assinada:true, assinadaEm:todayStr(), entregaData:cur.entregaData || todayStr(), arquivado:true };
-      if (acao === 'tirar') procs[av.key] = { ...cur, arquivado:true };
-      if (acao === 'entregar') procs[av.key] = { ...cur, sit: desp ? 'desp-entregue' : 'sent-entregue', entregaData:cur.entregaData || brYmd(cur.entregaN) || todayStr() };
-      if (acao === 'sentenciar') procs[av.key] = { ...cur, sit:'sentenciar', assinada:false };
-    }
-    return { ...p, procs, avisos:p.avisos.filter(a => a.id !== av.id) };
-  });
-  const dispensarAvisos = () => setPainel(p => ({ ...p, avisos:[] }));
-  const lerColagem = raws => { const res = aplicarColagem(painel, raws, todayStr()); const { _novos, ...limpo } = res; setPainel(limpo); return res; };
-  const trazerJusnad = dados => {
-    let atual = painel;
-    if (dados.colagem && Object.keys(painel.procs).length === 0){ const { _novos, ...limpo } = aplicarColagem(atual, dados.colagem, todayStr()); atual = limpo; }
-    const r = aplicarNotasJusnad(atual, dados.notas, todayStr()); const n = r.n; setPainel(r.painel);
-    if (dados.colagem){ Object.keys(RAWKEY).forEach(k => { if (dados.colagem[k] && !lerLocal(RAWKEY[k])) gravarLocal(RAWKEY[k], dados.colagem[k]); }); }
-    return n;
-  };
-
-  const audAgenda = {};
-  { const ini = ymd(addDays(parseYmd(hoje), -400)), fim = ymd(addDays(parseYmd(hoje), 730));
-    events.forEach(ev => { if (ev.type !== 'audiencia') return; const k = chaveProc((ev.title || '') + ' ' + (ev.note || '')); if (!k) return;
-      occurrences(ev, ini, fim).forEach(d => (audAgenda[k] = audAgenda[k] || []).push({ date:d, time:ev.time || '' })); }); }
-  const comAgenda = p => { const l = audAgenda[p.key]; if (!l) return p;
-    const fut = l.filter(a => a.date >= hoje).sort((a, b) => (a.date + a.time) < (b.date + b.time) ? -1 : 1)[0] || null;
-    return { ...p, aijAgendaPassadas:l.filter(a => a.date <= hoje).map(a => a.date), aijAgendaFutura:fut }; };
-  const procsVista = {}; Object.keys(painel.procs).forEach(k => { procsVista[k] = comAgenda(painel.procs[k]); });
-  const procsLista = painel.ordem.map(k => procsVista[k]).filter(Boolean);
-  const nSent = procsLista.filter(p => p.sit === 'sentenciar' && !p.arquivado).length;
-  const nDesp = procsLista.filter(p => p.sit === 'despachar' && !p.arquivado).length;
-  const audLista = juntarAudiencias(painel, events, hoje);
-  const nAud = audLista.filter(a => a.date >= hoje).length;
-  const contagens = { painel:procsLista.filter(p => !p.arquivado).length, avisos:painel.avisos.length, sentenciar:nSent, despachar:nDesp, audiencias:nAud };
-
-  const irPara = (dateStr) => { setRefStr(dateStr); setAgView('mes'); setView('agenda'); };
-  const onNewGlobal = () => { if (view === 'notas') openNewNote(); else if (view === 'audiencias') openNew(todayStr(), 'audiencia'); else openNew(); };
-  const ehAgenda = view === 'agenda';
-  const textoNovo = view === 'notas' ? '+ Nova nota' : view === 'audiencias' ? '+ Nova audiência' : '+ Novo compromisso';
-  const mostraFab = celular && (ehAgenda || view === 'notas');
+  const irPara = (dateStr) => { setRefStr(dateStr); setAgView('mes'); };
+  const onNewGlobal = () => openNew();
 
   return (
     <div className={celular ? 'cel' : ''} style={{minHeight:'100vh'}}>
       <Toolbar celular={celular} onToggleNav={toggleNav} onAjustes={()=>setAjustesOpen(true)}
-        onBusca={ehAgenda ? ()=>setBuscaAberta(b=>{ if (b) setBusca(''); return !b; }) : null}
-        onFiltro={ehAgenda ? ()=>setFiltroOpen(true) : null} filtroOn={!!filtroTipo} />
+        onBusca={()=>setBuscaAberta(b=>{ if (b) setBusca(''); return !b; })}
+        onFiltro={()=>setFiltroOpen(true)} filtroOn={!!filtroTipo} />
       <div className={'shell'+(navHidden?' nonav':'')}>
-        {!celular && <Sidebar view={view} setView={setView} onNew={onNewGlobal} textoNovo={textoNovo} mostraNovo={ehAgenda || view==='notas'} cont={contagens} />}
+        {!celular && <Sidebar onNew={onNewGlobal} />}
         <main className="main">
-          {ehAgenda && (
-            <AgendaHead agView={agView} setAgView={setAgView} celular={celular} busca={busca} setBusca={setBusca} buscaAberta={buscaAberta}
-              onFiltro={()=>setFiltroOpen(true)} filtroTipo={filtroTipo} tipoMap={tipoMap} onLimparFiltro={()=>setFiltroTipo(null)} />
-          )}
-          {ehAgenda && busca.trim() && <SearchView query={busca} events={eventosVista} tipoMap={tipoMap} onOpen={setViewing} />}
-          {ehAgenda && !busca.trim() && (
+          <AgendaHead agView={agView} setAgView={setAgView} celular={celular} busca={busca} setBusca={setBusca} buscaAberta={buscaAberta}
+            onFiltro={()=>setFiltroOpen(true)} filtroTipo={filtroTipo} tipoMap={tipoMap} onLimparFiltro={()=>setFiltroTipo(null)} />
+          {busca.trim() && <SearchView query={busca} events={eventosVista} tipoMap={tipoMap} onOpen={setViewing} />}
+          {!busca.trim() && (
             <React.Fragment>
               {agView === 'mes'   && <MonthView refStr={refStr} setRefStr={setRefStr} events={eventosVista} tipoMap={tipoMap} onNew={openNew} onOpen={setViewing} onOpenDay={setDayView} compacto={celular} />}
               {agView === 'semana'&& <WeekView  refStr={refStr} setRefStr={setRefStr} events={eventosVista} tipoMap={tipoMap} onNew={openNew} onOpen={setViewing} />}
@@ -644,31 +256,15 @@ function App(){
               {agView === 'lista' && <AgendaView events={eventosVista} tipoMap={tipoMap} onOpen={setViewing} onNew={()=>openNew()} />}
             </React.Fragment>
           )}
-          {view === 'notas' && <NotesView notes={notes} cats={noteCats} valor={valor} onValor={setValor} onOpen={setNoteView} onNew={openNewNote} onCats={()=>setCatsOpen(true)} />}
-          {view === 'painel' && <PainelView painel={painel} lista={procsLista} sits={sits} hoje={hoje} onUpd={updProc} onAbrir={setProcEdit} onSits={()=>setSitsOpen(true)}
-              onAviso={resolverAviso} onDispensar={dispensarAvisos} onNovo={novoProc} celular={celular} onColar={()=>setView('colar')} />}
-          {view === 'sentenciar' && <FilaView titulo="Para sentenciar" sit="sentenciar" lista={procsLista} sits={sits} hoje={hoje} onAbrir={setProcEdit} />}
-          {view === 'despachar' && <FilaView titulo="Para despachar" sit="despachar" lista={procsLista} sits={sits} hoje={hoje} onAbrir={setProcEdit} />}
-          {view === 'sent-entregues' && <EntreguesView titulo="Sentenças entregues" sit="sent-entregue" comValor procs={painel.procs} onUpd={updProc} onAbrir={setProcEdit} />}
-          {view === 'desp-entregues' && <EntreguesView titulo="Despachos entregues" sit="desp-entregue" procs={painel.procs} onUpd={updProc} onAbrir={setProcEdit} />}
-          {view === 'audiencias' && <AudienciasView itens={audLista} procs={painel.procs} sits={sits} hoje={hoje} tipoMap={tipoMap} onNovo={d=>openNew(d || todayStr(), 'audiencia')} onAbrirEv={setViewing} onAbrirProc={setProcEdit} />}
-          {view === 'colar' && <ColarView painel={painel} onLer={lerColagem} onTrazer={trazerJusnad} onVer={()=>setView('painel')} />}
         </main>
       </div>
-      {mostraFab && <button className="fab" onClick={onNewGlobal} aria-label={textoNovo}>+</button>}
-      {celular && <BottomBar view={view} setView={setView} onMais={()=>setMaisOpen(true)} cont={contagens} />}
-      {maisOpen && <MaisSheet view={view} setView={v=>{ setView(v); setMaisOpen(false); }} onClose={()=>setMaisOpen(false)} cont={contagens} />}
+      {celular && <button className="fab" onClick={onNewGlobal} aria-label="+ Novo compromisso">+</button>}
       {filtroOpen && <FiltroTipos tipos={tipos} filtroTipo={filtroTipo} onFiltro={k=>{ toggleFiltro(k); setFiltroOpen(false); }} onClose={()=>setFiltroOpen(false)} />}
       {ajustesOpen && <AjustesModal tipos={tipos} onClose={()=>setAjustesOpen(false)} onSync={()=>{ setAjustesOpen(false); setSyncOpen(true); }}
-          onEditTipo={t=>setTipoEdit(t)} onNewTipo={()=>setTipoEdit({ _new:true, nome:'', cor:CORES_TIPO[4] })} onDelTipo={delTipo} onSits={()=>{ setAjustesOpen(false); setSitsOpen(true); }} />}
+          onEditTipo={t=>setTipoEdit(t)} onNewTipo={()=>setTipoEdit({ _new:true, nome:'', cor:CORES_TIPO[4] })} onDelTipo={delTipo} />}
       {dayView && <DayView dateStr={dayView} events={eventosVista} tipoMap={tipoMap} onClose={()=>setDayView(null)} onOpen={ev=>{ setDayView(null); setViewing(ev); }} onNew={s=>{ setDayView(null); openNew(s); }} />}
       {viewing && <EventView ev={viewing} tipoMap={tipoMap} onClose={()=>setViewing(null)} onEdit={()=>{ setEditing(viewing); setViewing(null); }} onDelete={id=>{ remove(id); setViewing(null); }} />}
       {editing && <Editor ev={editing} tipos={tipos} onAddTipo={addTipo} onClose={()=>setEditing(null)} onSave={ev=>{ upsert(ev); setEditing(null); }} onDelete={id=>{ remove(id); setEditing(null); }} />}
-      {noteView && <NoteView n={noteView} cats={noteCats} onClose={()=>setNoteView(null)} onEdit={()=>{ setNoteEdit(noteView); setNoteView(null); }} onDelete={id=>{ removeNote(id); setNoteView(null); }} onArchive={setArchived} onAddEntry={addEntry} onDelEntry={delEntry} />}
-      {noteEdit && <NoteEditor n={noteEdit} cats={noteCats} onOpenCats={()=>setCatsOpen(true)} onClose={()=>setNoteEdit(null)} onSave={n=>{ upsertNote(n); setNoteEdit(null); }} onDelete={id=>{ removeNote(id); setNoteEdit(null); }} />}
-      {catsOpen && <CatManager cats={noteCats} onSave={list=>setNoteCats(list)} onClose={()=>setCatsOpen(false)} />}
-      {procEdit && painel.procs[procEdit] && <ProcEditor p={procsVista[procEdit]} sits={sits} hoje={hoje} onClose={()=>setProcEdit(null)} onSalvar={patch=>{ updProc(procEdit, patch); setProcEdit(null); }} onApagar={()=>{ apagarProc(procEdit); setProcEdit(null); }} onSits={()=>setSitsOpen(true)} onNejulOk={()=>updProc(procEdit, { nejulAtualizar:false })} />}
-      {sitsOpen && <CatManager cats={sits} defaultCats={DEFAULT_SITS} semSolido title="Situações do painel" subtitle="Renomeie, mude a cor ou crie novas. As quatro marcadas com cadeado levam o processo para Sentenças e Despachos e não podem ser apagadas." onSave={list=>setSits(list)} onClose={()=>setSitsOpen(false)} />}
       {tipoEdit && <TipoEditor tipo={tipoEdit} onClose={()=>setTipoEdit(null)} onSave={(nome,cor)=>{ if(tipoEdit._new) addTipo(nome,cor); else editTipo(tipoEdit.key,nome,cor); setTipoEdit(null); }} />}
       {syncOpen && <SyncModal onClose={()=>setSyncOpen(false)} />}
       {updateReady && (
@@ -684,62 +280,13 @@ function App(){
 }
 
 /* ---------- menu lateral (computador) ---------- */
-function Sidebar({ view, setView, onNew, textoNovo, mostraNovo, cont }){
-  const item = (id, icon, label, n, sub, alerta) => (
-    <button className={'navitem'+(view===id?' on':'')+(sub?' sub':'')} onClick={()=>setView(id)}>
-      <span className="ico">{icon}</span><span className="navlbl">{label}</span>
-      {alerta ? <span className="navalerta">{alerta}</span> : (n ? <span className="navn">{n}</span> : null)}
-    </button>
-  );
+function Sidebar({ onNew }){
   return (
     <aside className="sidebar">
       <div className="brand">◷ AgendaNAD</div>
-      {mostraNovo && <button className="btnNovo" onClick={onNew}>{textoNovo}</button>}
-      {item('agenda','▦','Agenda')}
-      <div className="navgroup">TJSC</div>
-      {item('painel','☷','Painel de trabalho', cont.painel, false, cont.avisos ? '' + cont.avisos : null)}
-      <div className="navsub">Sentenças</div>
-      {item('sentenciar','✎','Para sentenciar', cont.sentenciar, true)}
-      {item('sent-entregues','✓','Entregues', 0, true)}
-      <div className="navsub">Despachos</div>
-      {item('despachar','✎','Para despachar', cont.despachar, true)}
-      {item('desp-entregues','✓','Entregues', 0, true)}
-      {item('audiencias','⚖','Audiências', cont.audiencias)}
-      <div className="navgroup">Sistema</div>
-      {item('colar','⇩','Colar painéis')}
+      <button className="btnNovo" onClick={onNew}>+ Novo compromisso</button>
+      <button className="navitem on"><span className="ico">▦</span><span className="navlbl">Agenda</span></button>
     </aside>
-  );
-}
-
-/* ---------- celular: barra fixa embaixo + "Mais" ---------- */
-function BottomBar({ view, setView, onMais, cont }){
-  const emMais = ['notas','sentenciar','sent-entregues','despachar','desp-entregues','colar'].indexOf(view) >= 0;
-  const tab = (id, ico, label, on, onClick, n) => (
-    <button className={'btab'+(on?' on':'')} onClick={onClick}><span className="btab-ico">{ico}{n ? <i className="btab-n">{n}</i> : null}</span>{label}</button>
-  );
-  return (
-    <nav className="bottombar">
-      {tab('agenda','▦','Agenda', view==='agenda', ()=>setView('agenda'))}
-      {tab('painel','☷','Painel', view==='painel', ()=>setView('painel'), cont.avisos)}
-      {tab('audiencias','⚖','Audiências', view==='audiencias', ()=>setView('audiencias'))}
-      {tab('mais','⋯','Mais', emMais, onMais)}
-    </nav>
-  );
-}
-function MaisSheet({ view, setView, onClose, cont }){
-  const it = (id, label, n) => <button className={'sheetitem'+(view===id?' on':'')} onClick={()=>setView(id)}><span>{label}</span>{n ? <span className="navn">{n}</span> : null}</button>;
-  return (
-    <div className="modal sheetwrap" onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
-      <div className="sheet">
-        <div className="sheetgrip"></div>
-        <div className="sheetgrp">Sentenças</div>
-        {it('sentenciar','Para sentenciar', cont.sentenciar)}
-        {it('sent-entregues','Entregues')}
-        <div className="sheetgrp">Despachos</div>
-        {it('despachar','Para despachar', cont.despachar)}
-        {it('desp-entregues','Entregues')}
-      </div>
-    </div>
   );
 }
 
@@ -1001,156 +548,6 @@ function AgendaView({ events, tipoMap, onOpen, onNew }){
   );
 }
 
-/* ---------- NOTAS: lista de processos, agrupada por cor, com busca ---------- */
-function NotesView({ notes, cats, valor, onValor, onOpen, onNew, onCats }){
-  const [q, setQ] = useState('');
-  const [vin, setVin] = useState('');
-  const aplicarValor = () => { const novo = applyVal(valor || 0, vin); onValor(novo); setVin(''); };
-  const qd = soDigitos(q), ql = q.trim().toLowerCase();
-  const filtradas = notes.filter(n => {
-    if (n.arquivado && !ql) return false;   // arquivados só aparecem quando busca
-    if (!ql) return true;
-    const num = (n.num||'');
-    return (qd && soDigitos(num).includes(qd)) || num.toLowerCase().includes(ql) || (n.entries||[]).some(e => (e.text||'').toLowerCase().includes(ql));
-  });
-  const nArquivados = notes.filter(n => n.arquivado).length;
-  const ultimo = n => { const e = (n.entries||[]); return e.length ? e.slice().sort(cmpEntry)[0] : null; };
-  const grupos = cats.map(c => ({ cat:c, itens: filtradas.filter(n => n.color === c.key) })).filter(g => g.itens.length);
-  const semCat = filtradas.filter(n => !cats.some(c => c.key === n.color));
-  if (semCat.length) grupos.push({ cat:{ key:'__sem', nome:'Sem categoria', cor:'#a1a1aa' }, itens:semCat });
-
-  return (
-    <div>
-      <div className="head">
-        <div className="titulo">Processos</div>
-        <div className="headbtns"><button className="navbtn" onClick={onCats}>Cores</button></div>
-      </div>
-      <div className="valorbox">
-        <span className="valor-num">{fmtValor(valor || 0)}</span>
-        <input className="valor-inp" value={vin} onChange={e=>setVin(e.target.value)}
-          onKeyDown={e=>{ if(e.key==='Enter') aplicarValor(); }}
-          placeholder="+ 88,94" inputMode="decimal" autoCapitalize="off" autoCorrect="off" spellCheck="false" />
-        <button className="valor-ok" onClick={aplicarValor} title="Atualizar (Enter)">↵</button>
-      </div>
-      <div className="buscaWrap">
-        <span className="buscaIco">⌕</span>
-        <input className="busca" placeholder="Buscar número do processo…" value={q} onChange={e=>setQ(e.target.value)} autoCapitalize="off" autoCorrect="off" spellCheck="false" />
-        {q && <button className="buscaX" onClick={()=>setQ('')} aria-label="Limpar">×</button>}
-      </div>
-      {notes.length === 0 && <div className="vazio">Nenhum processo ainda. Toque em <b>+ Nova nota</b> pra guardar o primeiro, com o número e a primeira anotação.</div>}
-      {notes.length > 0 && filtradas.length === 0 && <div className="vazio">Nada encontrado para "{q}".</div>}
-      {grupos.map(g => (
-        <div key={g.cat.key} className="notegrupo">
-          <div className="grupohead"><span className="dot" style={{background:g.cat.cor}}></span>{g.cat.nome}<span className="grupocount">{g.itens.length}</span></div>
-          <div className="notesgrid">
-            {g.itens.map(n => { const u = ultimo(n); const solid = (typeof n.solido === 'boolean') ? n.solido : !!g.cat.solido; const tc = solid ? textOn(g.cat.cor) : null;
-              return (
-              <button key={n.id} className={'notecard'+(solid?' solido':'')+(n.arquivado?' arquivada':'')} style={solid ? { background:g.cat.cor, borderColor:g.cat.cor, '--c':g.cat.cor, color:tc } : { '--c':g.cat.cor }} onClick={()=>onOpen(n)}>
-                {n.arquivado && <span className="arqtag">arquivado</span>}
-                <span className="note-num" style={solid?{color:tc}:null}>{n.num || '(sem número)'}</span>
-                {u && <span className="note-data" style={solid?{color:tc,opacity:.75}:null}>{fmtData(u.date)}</span>}
-                {u ? <span className="note-prev" style={solid?{color:tc,opacity:.9}:null}>{u.text}</span> : <span className="note-prev" style={solid?{color:tc,opacity:.85,fontStyle:'italic'}:{fontStyle:'italic'}}>sem anotações</span>}
-              </button>
-            );})}
-          </div>
-        </div>
-      ))}
-      {!ql && nArquivados > 0 && <div className="arqhint">{nArquivados} {nArquivados === 1 ? 'processo arquivado' : 'processos arquivados'} — some da lista, mas aparece aqui quando você busca pelo número.</div>}
-    </div>
-  );
-}
-
-/* ---------- NOTAS: caixinha do processo (histórico + anotar) ---------- */
-function NoteView({ n, cats, onClose, onEdit, onDelete, onArchive, onAddEntry, onDelEntry }){
-  const c = catNota(cats, n.color);
-  const [txt, setTxt] = useState('');
-  const entries = (n.entries||[]).slice().sort(cmpEntry);
-  const add = () => { const t = txt.trim(); if (t){ onAddEntry(n.id, t); setTxt(''); } };
-  return (
-    <div className="modal" onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
-      <div className="card vcard" style={{borderTop:'4px solid '+c.cor}}>
-        <div className="vhead">
-          <span className="vtipo" style={{background:c.cor}}>{c.nome}</span>
-          {n.arquivado && <span className="arqtag">arquivado</span>}
-          <span className="vacts">
-            <button className="lapis" onClick={onEdit} title="Editar processo" aria-label="Editar">
-              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-            </button>
-            <button className="lapis" onClick={()=>onArchive(n.id, !n.arquivado)} title={n.arquivado ? 'Desarquivar' : 'Arquivar'} aria-label={n.arquivado ? 'Desarquivar' : 'Arquivar'}>
-              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8"/><path d="M10 12h4"/></svg>
-            </button>
-            <button className="lapis lixeira" onClick={()=>{ if(confirm('Apagar este processo inteiro (o número e todas as anotações)?')) onDelete(n.id); }} title="Apagar processo" aria-label="Apagar processo">
-              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
-            </button>
-          </span>
-        </div>
-        <div className="vtitulo">{n.num || '(sem número)'}</div>
-        <div className="hist">
-          {entries.length === 0 && <div className="hist-vazio">Sem anotações ainda. Escreva a primeira embaixo.</div>}
-          {entries.map(e => (
-            <div key={e.id} className="hist-item">
-              <div className="hist-top"><span className="hist-data">{fmtData(e.date)}</span>
-                <button className="hist-x" title="Apagar anotação" onClick={()=>{ if(confirm('Apagar esta anotação?')) onDelEntry(n.id, e.id); }}>×</button>
-              </div>
-              <div className="hist-text">{e.text}</div>
-            </div>
-          ))}
-        </div>
-        <div className="addbox">
-          <textarea className="inp" style={{margin:0}} rows="2" placeholder="Escreva uma anotação de hoje…" value={txt} onChange={e=>setTxt(e.target.value)} />
-          <button className="primary" onClick={add}>Adicionar</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ---------- NOTAS: editor do processo (número + cor + 1ª anotação) ---------- */
-function NoteEditor({ n, cats, onOpenCats, onClose, onSave, onDelete }){
-  const [num, setNum] = useState(n.num);
-  const [color, setColor] = useState(n.color || (cats[0] && cats[0].key));
-  const catIni = cats.find(c => c.key === (n.color || (cats[0] && cats[0].key))) || {};
-  const [solido, setSolido] = useState(n.solido != null ? n.solido : !!catIni.solido);
-  const [firstText, setFirstText] = useState('');
-  const corSel = (cats.find(c => c.key === color) || {}).cor || '#888';
-  const salvar = () => {
-    const entries = (n.entries||[]).slice();
-    if (n._new && firstText.trim()) entries.unshift({ id:newId(), date:todayStr(), text:firstText.trim() });
-    onSave({ ...n, num, color, entries, solido });
-  };
-  return (
-    <div className="modal" onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
-      <div className="card">
-        <div className="cardhead">
-          <b>{n._new ? 'Nova nota' : 'Editar processo'}</b>
-          <button className="x" onClick={onClose} aria-label="Fechar">×</button>
-        </div>
-        <input className="inp" autoFocus placeholder="Número do processo (ex.: 5003734-12.2024.8.24.0000)" value={num} onChange={e=>setNum(e.target.value)} />
-        <div className="tipos">
-          {cats.map(c => (
-            <button key={c.key} className={'tipopill'+(color===c.key?' on':'')}
-              style={color===c.key?{background:c.cor,borderColor:c.cor,color:'#fff'}:{}}
-              onClick={()=>setColor(c.key)}>{c.nome}</button>
-          ))}
-          <button className="tipopill novo" onClick={onOpenCats}>editar cores</button>
-        </div>
-        <label className="fortesw">
-          <button className={'solidtog'+(solido?' on':'')} style={solido?{background:corSel,borderColor:corSel,color:textOn(corSel)}:null} onClick={()=>setSolido(s=>!s)}>fundo forte</button>
-          <span>deixa esta janelinha bem sólida (pra urgência)</span>
-        </label>
-        {n._new && <textarea className="inp" rows="4" placeholder="Primeira anotação (fica com a data de hoje)" value={firstText} onChange={e=>setFirstText(e.target.value)} />}
-        <div className="cardacts">
-          {!n._new && <button className="del" onClick={()=>{ if(confirm('Apagar este processo e todas as anotações dele?')) onDelete(n.id); }}>Apagar</button>}
-          <span style={{flex:1}}></span>
-          <button className="ghost" onClick={onClose}>Cancelar</button>
-          <button className="primary" onClick={salvar}>Salvar</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ---------- NOTAS: gerenciar as cores (renomear / criar / apagar) ---------- */
 /* ---------- editor de TIPO de compromisso (criar/editar nome + cor) ---------- */
 // escolher qualquer cor: abre o seletor completo do aparelho (todas as nuances), não uma lista fixa
 const hex6 = c => { const h = (c || '').trim(); return /^#[0-9a-f]{6}$/i.test(h) ? h.toLowerCase() : /^#[0-9a-f]{3}$/i.test(h) ? ('#' + h.slice(1).split('').map(x => x + x).join('')).toLowerCase() : '#888888'; };
@@ -1175,40 +572,6 @@ function TipoEditor({ tipo, onClose, onSave }){
         <div className="cores" style={{marginBottom:6}}>
           <CorLivre cor={cor} onCor={setCor} />
         </div>
-        <div className="cardacts"><span style={{flex:1}}></span><button className="ghost" onClick={onClose}>Cancelar</button><button className="primary" onClick={salvar}>Salvar</button></div>
-      </div>
-    </div>
-  );
-}
-
-function CatManager({ cats, onSave, onClose, title, subtitle, defaultCats, semSolido }){
-  const [list, setList] = useState(cats.length ? cats : (defaultCats || DEFAULT_NOTECATS).slice());
-  const setName = (i,v) => setList(l => l.map((c,j) => j===i ? { ...c, nome:v } : c));
-  const setCor  = (i,v) => setList(l => l.map((c,j) => j===i ? { ...c, cor:v } : c));
-  const setSol  = (i,v) => setList(l => l.map((c,j) => j===i ? { ...c, solido:v } : c));
-  const del     = i => setList(l => l.filter((_,j) => j!==i));
-  const move    = (i,d) => setList(l => { const j=i+d; if(j<0||j>=l.length) return l; const c=l.slice(); const t=c[i]; c[i]=c[j]; c[j]=t; return c; });
-  const add     = () => setList(l => [...l, { key:catNewKey(), nome:semSolido ? 'Nova situação' : 'Nova cor', cor:CAT_CORES[l.length % CAT_CORES.length] }]);
-  const salvar  = () => { onSave(list.filter(c => (c.nome||'').trim())); onClose(); };
-  return (
-    <div className="modal" onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
-      <div className="card">
-        <div className="cardhead"><b>{title || 'Cores das notas'}</b><button className="x" onClick={onClose} aria-label="Fechar">×</button></div>
-        <p className="sub">{subtitle || 'Renomeie, mude a cor ou crie novas. Os processos ficam agrupados por elas.'}</p>
-        {list.map((c,i) => (
-          <div key={c.key} className="catrow">
-            <span className="catmove">
-              <button className="mv" onClick={()=>move(i,-1)} disabled={i===0} title="Subir">↑</button>
-              <button className="mv" onClick={()=>move(i,1)} disabled={i===list.length-1} title="Descer">↓</button>
-            </span>
-            <span className="catdot" style={{background:c.cor}}></span>
-            <input className="inp" style={{margin:0,flex:1,minWidth:120}} value={c.nome} onChange={e=>setName(i, e.target.value)} />
-            <CorLivre cor={c.cor} onCor={v=>setCor(i, v)} />
-            {!semSolido && <button className={'solidtog'+(c.solido?' on':'')} style={c.solido?{background:c.cor,borderColor:c.cor,color:textOn(c.cor)}:null} onClick={()=>setSol(i, !c.solido)} title="Padrão forte pra esta cor (dá pra mudar em cada processo)">sólido</button>}
-            {c.fixo ? <span className="cadeado" title="Fixa: leva o processo para Sentenças/Despachos">🔒</span> : <button className="legend-x" onClick={()=>del(i)} title="Apagar">×</button>}
-          </div>
-        ))}
-        <button className="tipopill novo" style={{marginTop:2}} onClick={add}>{semSolido ? '+ nova situação' : '+ nova cor'}</button>
         <div className="cardacts"><span style={{flex:1}}></span><button className="ghost" onClick={onClose}>Cancelar</button><button className="primary" onClick={salvar}>Salvar</button></div>
       </div>
     </div>
@@ -1386,7 +749,7 @@ function Toolbar({ celular, onToggleNav, onAjustes, onBusca, onFiltro, filtroOn 
 }
 
 /* ---------- Ajustes: aparência, sincronizar, backup, importar, tipos, situações ---------- */
-function AjustesModal({ tipos, onClose, onSync, onEditTipo, onNewTipo, onDelTipo, onSits }){
+function AjustesModal({ tipos, onClose, onSync, onEditTipo, onNewTipo, onDelTipo }){
   const [theme, setTheme] = useState(document.documentElement.getAttribute('data-theme'));
   const [cor, setCor] = useState(document.documentElement.getAttribute('data-cor'));
   const setT = t => { document.documentElement.setAttribute('data-theme', t); localStorage.setItem('agenda-theme', t); setTheme(t); };
@@ -1395,12 +758,12 @@ function AjustesModal({ tipos, onClose, onSync, onEditTipo, onNewTipo, onDelTipo
   const S = window.AgendaSync || {};
   const ligada = S.isOn ? S.isOn() : false;
   const exportar = () => {
-    const dados = {}; for (let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); if(k.indexOf('agenda-')===0 && k.indexOf('agenda-snap:')!==0) dados[k]=localStorage.getItem(k); }
+    const dados = {}; for (let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); if(k==='agenda-events' || k==='agenda-types' || k==='agenda-types-seeded') dados[k]=localStorage.getItem(k); }
     const blob = new Blob([JSON.stringify({ _app:'agendanad', em:new Date().toISOString(), dados }, null, 2)], { type:'application/json' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'agendanad-backup-'+todayStr()+'.json'; a.click(); URL.revokeObjectURL(a.href);
   };
   const importar = () => {
-    // junta arrays (eventos/notas) por id, sem apagar o que já existe; outras chaves sobrescrevem
+    // junta os compromissos por id, sem apagar o que já existe; outras chaves sobrescrevem
     const mergeArr = (atual, novo) => {
       const map = new Map();
       try { (JSON.parse(atual||'[]')||[]).forEach(x => map.set((x && x.id) || ('_'+map.size), x)); } catch(e){}
@@ -1412,9 +775,9 @@ function AjustesModal({ tipos, onClose, onSync, onEditTipo, onNewTipo, onDelTipo
       r.onload = () => { try {
         const p=JSON.parse(r.result); const d=p.dados||p; let n=0;
         Object.keys(d).forEach(k=>{
-          if(k.indexOf('agenda-')!==0) return;
-          if(k==='agenda-events' || k==='agenda-notes' || k==='agenda-audiencias' || k==='agenda-roteiros') localStorage.setItem(k, mergeArr(localStorage.getItem(k), d[k]));
-          else localStorage.setItem(k, d[k]);
+          if(k==='agenda-events') localStorage.setItem(k, mergeArr(localStorage.getItem(k), d[k]));
+          else if(k==='agenda-types' || k==='agenda-types-seeded') localStorage.setItem(k, d[k]);
+          else return;
           n++;
         });
         alert('Importado e juntado com o que você já tinha ('+n+' itens). A página vai recarregar.');
@@ -1447,525 +810,6 @@ function AjustesModal({ tipos, onClose, onSync, onEditTipo, onNewTipo, onDelTipo
           </div>
         ))}
         <button className="legend-add" onClick={onNewTipo}>+ novo tipo</button>
-        <div className="ajgrp">Painel de trabalho</div>
-        <button className="sheetitem" onClick={onSits}><span>Situações dos processos</span><span className="navn">editar</span></button>
-      </div>
-    </div>
-  );
-}
-
-/* ---------- botão de copiar ---------- */
-function copiar(txt){
-  const fb = () => { try { const t = document.createElement('textarea'); t.value = txt; t.style.position='fixed'; t.style.opacity='0'; document.body.appendChild(t); t.select(); document.execCommand('copy'); t.remove(); } catch(e){} };
-  try { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).catch(fb); else fb(); } catch(e){ fb(); }
-}
-function CopyBtn({ txt, label }){
-  const [ok, setOk] = useState(false);
-  return <button className={'copybtn'+(ok?' ok':'')} title="Copiar" onClick={e=>{ e.stopPropagation(); copiar(txt); setOk(true); setTimeout(()=>setOk(false), 1300); }}>{ok ? '✓ copiado' : (label || '⧉')}</button>;
-}
-const sitDe = (sits, k) => sits.find(s => s.key === k) || null;
-const textoNejul = (p, sits) => { const s = sitDe(sits, p.sit); return [s && s.nome.toUpperCase(), p.pend, p.obs].filter(Boolean).join(' — '); };
-const partesTxt = p => (p.autores && p.autores.length) ? p.autores[0] + (p.reus && p.reus.length ? ' x ' + p.reus[0] : '') : '';
-function TagsPaineis({ p }){
-  const algum = p.inN || p.inE || p.inC;
-  return <span className="pc-tags">{p.inN && <i>NEJUL</i>}{p.inE && <i>EPROC</i>}{p.inC && <i>CEJUSC</i>}{!algum && <i className="off">fora dos painéis</i>}</span>;
-}
-
-/* ---------- PAINEL DE TRABALHO ---------- */
-function PainelView({ painel, lista, sits, hoje, onUpd, onAbrir, onSits, onAviso, onDispensar, onNovo, celular, onColar }){
-  const [filtro, setFiltro] = useState(() => lerLocal('agendaloc-filtro') || 'todos');
-  const [q, setQ] = useState('');
-  const escolher = f => { setFiltro(f); gravarLocal('agendaloc-filtro', f); };
-  const ativos = lista.filter(p => !p.arquivado);
-  const arquivados = lista.filter(p => p.arquivado);
-  const contaSit = k => ativos.filter(p => p.sit === k).length;
-  const semSit = ativos.filter(p => !p.sit || !sitDe(sits, p.sit)).length;
-  const nNejul = ativos.filter(p => p.nejulAtualizar).length;
-  let base = filtro === '__arq' ? arquivados : ativos;
-  if (filtro === '__sem') base = ativos.filter(p => !p.sit || !sitDe(sits, p.sit));
-  else if (filtro === '__nejul') base = ativos.filter(p => p.nejulAtualizar);
-  else if (filtro !== 'todos' && filtro !== '__arq') base = ativos.filter(p => p.sit === filtro);
-  const qd = soDigitos(q), ql = q.trim().toLowerCase();
-  const mostrar = !ql ? base : base.filter(p => (qd.length >= 3 && soDigitos(p.key).includes(qd)) ||
-    [p.pend, p.obs, partesTxt(p), (sitDe(sits, p.sit) || {}).nome].some(t => (t || '').toLowerCase().includes(ql)));
-  const chip = (id, label, n, cor) => (
-    <button key={id} className={'fchip'+(filtro===id?' on':'')} style={cor ? {'--c':cor} : null} onClick={()=>escolher(id)}>
-      {cor && <span className="dot" style={{background:cor}}></span>}{label}<span className="fchip-n">{n}</span>
-    </button>
-  );
-  const novo = () => { const num = prompt('Número do processo (vai para o fim da lista):'); if (!num) return; if (!onNovo(num)) alert('Não reconheci o número. Use o formato 0000000-00.0000.0.00.0000.'); };
-  const c = painel.contagem;
-  const ult = painel.ultimaColagem ? new Date(painel.ultimaColagem) : null;
-  return (
-    <div>
-      <div className="head">
-        <div>
-          <div className="titulo">Painel de trabalho</div>
-          {ult && <div className="subtit">Última colagem: {pad(ult.getDate())}/{pad(ult.getMonth()+1)} às {pad(ult.getHours())}:{pad(ult.getMinutes())}{c ? ' · NEJUL ' + c.nejul + ' · EPROC ' + c.eproc + ' · CEJUSC ' + c.cejusc : ''}</div>}
-        </div>
-        <div className="headbtns">
-          <button className="navbtn" onClick={onSits}>Situações</button>
-          <button className="navbtn" onClick={novo}>+ Processo</button>
-        </div>
-      </div>
-      {lista.length === 0 && (
-        <div className="vazio">Ainda não há processos aqui. {celular ? 'No computador, abra "Colar painéis" e cole as telas do CEJUSC, do NEJUL e do EPROC.' : <span>Abra <button className="linkbtn" onClick={onColar}>Colar painéis</button> e cole as telas do CEJUSC, do NEJUL e do EPROC.</span>}</div>
-      )}
-      {painel.avisos.length > 0 && <AvisosBox avisos={painel.avisos} procs={painel.procs} sits={sits} onAviso={onAviso} onDispensar={onDispensar} onAbrir={onAbrir} onUpd={onUpd} />}
-      {lista.length > 0 && (
-        <React.Fragment>
-          <div className="fchips">
-            {chip('todos', 'Todos', ativos.length)}
-            {sits.filter(s => contaSit(s.key) > 0).map(s => chip(s.key, s.nome, contaSit(s.key), s.cor))}
-            {semSit > 0 && chip('__sem', 'Sem situação', semSit, '#a1a1aa')}
-            {nNejul > 0 && chip('__nejul', 'Atualizar no NEJUL', nNejul, '#f97316')}
-            {arquivados.length > 0 && chip('__arq', 'Fora da lista', arquivados.length)}
-          </div>
-          <div className="buscaWrap">
-            <span className="buscaIco">⌕</span>
-            <input className="busca" placeholder="Buscar número, parte ou anotação…" value={q} onChange={e=>setQ(e.target.value)} autoCapitalize="off" autoCorrect="off" spellCheck="false" />
-            {q && <button className="buscaX" onClick={()=>setQ('')} aria-label="Limpar">×</button>}
-          </div>
-          {mostrar.length === 0 && <div className="vazio">Nenhum processo neste filtro.</div>}
-          {filtro === 'todos' && (
-            <div className="notesgrid pgrid2">
-              {mostrar.map(p => ({ p, n:antiguidade(p, hoje).n })).sort((a, b) => b.n - a.n).map(({ p }) => {
-                const g = sitDe(sits, p.sit) || { cor:'#a1a1aa' };
-                return <ProcMini key={p.key} p={p} cor={g.cor} hoje={hoje} onAbrir={onAbrir} sits={sits} onUpd={onUpd} />;
-              })}
-            </div>
-          )}
-          {filtro !== 'todos' && [...sits, { key:'__sem', nome:'Sem situação', cor:'#a1a1aa' }].map(g => {
-            let itens = mostrar.filter(p => g.key === '__sem' ? (!p.sit || !sitDe(sits, p.sit)) : p.sit === g.key);
-            // aguardando audiência: da AIJ mais próxima para a mais distante (sem data marcada vai para o fim)
-            if (g.key === 'aud'){
-              const quando = p => { const a = aijMarcada(p); return a && a.date >= hoje ? a.date + ' ' + (a.time || '') : '9999'; };
-              itens = itens.slice().sort((a, b) => quando(a) < quando(b) ? -1 : quando(a) > quando(b) ? 1 : 0);
-            } else {
-              // demais situações: do mais antigo para o mais novo (quem teve AIJ conta da data da AIJ)
-              itens = itens.map(p => ({ p, n:antiguidade(p, hoje).n })).sort((a, b) => b.n - a.n).map(x => x.p);
-            }
-            if (!itens.length) return null;
-            return (
-              <div key={g.key} className="notegrupo">
-                <div className="grupohead"><span className="dot" style={{background:g.cor}}></span>{g.nome}<span className="grupocount">{itens.length}</span></div>
-                <div className={'notesgrid pgrid2'+(filtro !== 'todos' ? ' plista' : '')}>
-                  {itens.map(p => <ProcMini key={p.key} p={p} cor={g.cor} hoje={hoje} onAbrir={onAbrir} sits={sits} onUpd={onUpd} />)}
-                </div>
-              </div>
-            );
-          })}
-        </React.Fragment>
-      )}
-    </div>
-  );
-}
-
-// campo de texto que só grava ao sair dele (não regrava a cada letra)
-function CampoTexto({ valor, onGravar, multi, placeholder }){
-  const [v, setV] = useState(valor || '');
-  const ref = useRef(null);
-  useEffect(() => { setV(valor || ''); }, [valor]);
-  const ajusta = () => { const el = ref.current; if (el && multi){ el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; } };
-  useEffect(ajusta, [v]);
-  const gravar = () => { if ((v || '') !== (valor || '')) onGravar(v.trim()); };
-  return multi
-    ? <textarea ref={ref} className="pc-inp" rows="1" value={v} placeholder={placeholder} onChange={e=>setV(e.target.value)} onBlur={gravar} />
-    : <input ref={ref} className="pc-inp" value={v} placeholder={placeholder} onChange={e=>setV(e.target.value)} onBlur={gravar} onKeyDown={e=>{ if (e.key === 'Enter') e.target.blur(); }} />;
-}
-function SelSituacao({ valor, sits, onEscolher }){
-  const s = sitDe(sits, valor);
-  return (
-    <select className="pc-sel" value={s ? valor : ''} style={s ? {'--c':s.cor} : null} onChange={e=>onEscolher(e.target.value)}>
-      <option value="">— escolher —</option>
-      {sits.map(x => <option key={x.key} value={x.key}>{x.nome}</option>)}
-    </select>
-  );
-}
-// dias desde que chegou (NEJUL > EPROC > quando entrou na lista) e dias desde a AIJ, se já houve
-function diasDoProc(p, hoje){
-  const rec = p.distr || p.remDate || p.criadoEm || hoje;
-  const a = antiguidade(p, hoje);
-  return { rec:difDias(rec, hoje), aij: a.aij ? a.n : null };
-}
-// a caixinha usa exatamente a cor que ela escolheu; letra e quadrinhos internos se ajustam
-// sozinhos (claro sobre fundo escuro, escuro sobre fundo claro) para nunca ficarem apagados
-function coresCaixinha(cor){
-  const bg = hex6(cor);
-  const r = parseInt(bg.slice(1,3),16), g = parseInt(bg.slice(3,5),16), b = parseInt(bg.slice(5,7),16);
-  const lum = (0.299*r + 0.587*g + 0.114*b) / 255;
-  if (lum > 0.6) return { '--c':bg, '--pc-bg':bg, '--pc-tx':'#1b1c1c', '--pc-panel':'rgba(255,255,255,.55)', '--pc-line':'rgba(0,0,0,.16)' };
-  const panel = lum < 0.22 ? 'rgba(255,255,255,.12)' : 'rgba(0,0,0,.22)';
-  return { '--c':bg, '--pc-bg':bg, '--pc-tx':'#ffffff', '--pc-panel':panel, '--pc-line':'rgba(255,255,255,.3)' };
-}
-function ProcMini({ p, cor, hoje, onAbrir, sits, onUpd }){
-  const d = diasDoProc(p, hoje);
-  const aij = aijMarcada(p);
-  const futura = aij && aij.date > hoje;
-  return (
-    <div role="button" tabIndex={0} className={'notecard pmini'+(p.arquivado?' arquivada':'')} style={coresCaixinha(cor)} onClick={()=>onAbrir(p.key)} onKeyDown={e=>{ if (e.key === 'Enter') onAbrir(p.key); }}>
-      <div className="pm-esq">
-        <div className="pmini-top"><span className="note-num">{p.key}</span><CopyBtn txt={p.key} />{p.novo && <span className="pc-novo">novo</span>}</div>
-        <div className="pc-etiq">
-          <TagsPaineis p={p} />
-          <span className={'etq'+(d.rec > 60 ? ' verm' : '')}>{d.rec === 1 ? '1 dia' : d.rec + ' dias'}</span>
-          {d.aij !== null && <span className={'etq '+(d.aij > 60 ? 'verm' : 'verde')}>{d.aij === 0 ? 'AIJ hoje' : (d.aij === 1 ? '1 dia' : d.aij + ' dias') + ' desde a AIJ'}</span>}
-          {futura && <span className="etq azul">AIJ {fmtCurta(aij.date)}{aij.time ? ' ' + aij.time : ''}</span>}
-        </div>
-        <div className="pmini-sit" onClick={e=>e.stopPropagation()} onKeyDown={e=>e.stopPropagation()}><SelSituacao valor={p.sit} sits={sits} onEscolher={v=>onUpd(p.key, { sit:v })} /></div>
-        {/^(sent|desp)-entregue$/.test(p.sit) && !p.assinada && (
-          <button className="pmini-ass" onClick={e=>{ e.stopPropagation(); onUpd(p.key, { assinada:true, assinadaEm:todayStr() }); }}>✓ foi assinada</button>
-        )}
-      </div>
-      <div className="pm-dir">
-        {p.pend && <span className="pmini-pend"><b>Pendência:</b> {p.pend}</span>}
-        {p.obs && <span className="pmini-obs">{p.obs}</span>}
-        {p.nejulAtualizar && <span className="pmini-nejul">atualizar no NEJUL</span>}
-      </div>
-    </div>
-  );
-}
-function ProcCard({ p, sits, hoje, onUpd, onAbrir }){
-  const s = sitDe(sits, p.sit);
-  const d = diasDoProc(p, hoje);
-  const aij = aijMarcada(p);
-  const futura = aij && aij.date > hoje;
-  const partes = partesTxt(p);
-  return (
-    <div className={'pcard'+(p.arquivado?' arquivada':'')} style={{'--c': s ? s.cor : '#a1a1aa'}}>
-      <div className="pc-top">
-        <span className="pc-num grande">{p.key}</span>
-        <CopyBtn txt={p.key} />
-        {p.novo && <span className="pc-novo">novo</span>}
-        <button className="pc-mais" onClick={()=>onAbrir(p.key)} title="Abrir tudo" aria-label="Abrir tudo">⋯</button>
-      </div>
-      <div className="pc-etiq">
-        <TagsPaineis p={p} />
-        <span className={'etq'+(d.rec > 60 ? ' verm' : '')} title="dias desde que chegou">{d.rec === 1 ? '1 dia' : d.rec + ' dias'}</span>
-        {d.aij !== null && <span className={'etq '+(d.aij > 60 ? 'verm' : 'verde')}>{d.aij === 0 ? 'AIJ hoje' : (d.aij === 1 ? '1 dia' : d.aij + ' dias') + ' desde a AIJ'}</span>}
-        {futura && <span className="etq azul">AIJ {fmtCurta(aij.date)}{aij.time ? ' ' + aij.time : ''}</span>}
-      </div>
-      {partes && <div className="pc-partes" title={partes}>{partes}</div>}
-      <div className="pc-campo"><span>Situação</span><SelSituacao valor={p.sit} sits={sits} onEscolher={v=>onUpd(p.key, { sit:v })} /></div>
-      <div className="pc-campo"><span>Pendência</span><CampoTexto valor={p.pend} placeholder="nenhuma" onGravar={v=>onUpd(p.key, { pend:v })} /></div>
-      <div className="pc-campo"><span>Observação</span><CampoTexto multi valor={p.obs} placeholder="—" onGravar={v=>onUpd(p.key, { obs:v })} /></div>
-      {p.nejulAtualizar && (
-        <div className="pc-nejul">
-          <div><b>Atualizar no NEJUL:</b> {textoNejul(p, sits) || '(em branco)'}</div>
-          <div className="pc-nejul-b"><CopyBtn txt={textoNejul(p, sits)} label="copiar texto" /><button className="minibtn" onClick={()=>onUpd(p.key, { nejulAtualizar:false })}>já atualizei</button></div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ---------- avisos da colagem: o que mudou de um dia para o outro ---------- */
-function AvisosBox({ avisos, procs, sits, onAviso, onDispensar, onAbrir, onUpd }){
-  const btn = (av, acao, label, forte) => <button className={forte ? 'minibtn forte' : 'minibtn'} onClick={()=>onAviso(av, acao)}>{label}</button>;
-  return (
-    <div className="avisos">
-      <div className="avisos-h"><b>O que mudou na colagem ({avisos.length})</b><button className="linkbtn" onClick={()=>{ if (confirm('Dispensar todos os avisos?')) onDispensar(); }}>dispensar todos</button></div>
-      {avisos.map(av => {
-        const p = procs[av.key] || { key:av.key };
-        const s = sitDe(sits, p.sit);
-        return (
-          <div key={av.id} className={'aviso t-'+av.tipo}>
-            <div className="aviso-top"><span className="pc-num">{av.key}</span><CopyBtn txt={av.key} />{s && <span className="sitchip" style={{'--c':s.cor}}>{s.nome}</span>}</div>
-            <div className="aviso-txt">{av.texto}</div>
-            {av.tipo === 'nejul' && <div className="aviso-txt" style={{opacity:.9}}>Texto: <i>{textoNejul(p, sits)}</i></div>}
-            <div className="aviso-b">
-              {av.tipo === 'saiu' && <React.Fragment>{btn(av, 'assinado', 'Sim, foi assinado', true)}{btn(av, 'tirar', 'Tirar da lista')}{btn(av, 'ok', 'Não, deixar')}</React.Fragment>}
-              {av.tipo === 'novo' && <React.Fragment><button className="minibtn forte" onClick={()=>{ onAbrir(av.key); onAviso(av, 'ok'); }}>Preencher</button>{btn(av, 'ok', 'Ok')}</React.Fragment>}
-              {av.tipo === 'devolvido' && <React.Fragment>{btn(av, 'sentenciar', 'Voltar para Sentenciar', true)}{btn(av, 'ok', 'Ok')}</React.Fragment>}
-              {av.tipo === 'entregueN' && <React.Fragment>{btn(av, 'entregar', 'Mover para entregues', true)}{btn(av, 'ok', 'Ok')}</React.Fragment>}
-              {av.tipo === 'nejul' && <React.Fragment><CopyBtn txt={textoNejul(p, sits)} label="copiar texto" /><button className="minibtn" onClick={()=>{ onUpd(av.key, { nejulAtualizar:false }); onAviso(av, 'ok'); }}>Já atualizei</button></React.Fragment>}
-              {(av.tipo === 'aij' || av.tipo === 'voltou') && btn(av, 'ok', 'Ok, visto')}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-/* ---------- editor completo do processo ---------- */
-function ProcEditor({ p, sits, hoje, onClose, onSalvar, onApagar, onSits, onNejulOk }){
-  const [f, setF] = useState({ sit:p.sit || '', pend:p.pend || '', obs:p.obs || '', aijData:(p.aijManual && p.aijManual.date) || '', aijHora:(p.aijManual && p.aijManual.time) || '',
-    entregaData:p.entregaData || '', assinada:!!p.assinada, valorTipo:p.valorTipo || '', arquivado:!!p.arquivado, nejul:!!p.nejulAtualizar });
-  const set = (k, v) => setF(o => ({ ...o, [k]:v }));
-  const entregue = /^(sent|desp)-entregue$/.test(f.sit);
-  const a = antiguidade(p, hoje);
-  const aijP = p.aijC || p.aijN || p.aijEproc;
-  const salvar = () => onSalvar({ sit:f.sit, pend:f.pend.trim(), obs:f.obs.trim(), aijManual: f.aijData ? { date:f.aijData, time:f.aijHora } : null,
-    entregaData:f.entregaData, assinada:f.assinada, assinadaEm: f.assinada && !p.assinada ? hoje : p.assinadaEm, valorTipo:f.valorTipo, arquivado:f.arquivado, nejulAtualizar:f.nejul });
-  return (
-    <div className="modal" onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
-      <div className="card pecard">
-        <div className="cardhead"><b className="pc-num" style={{fontSize:15}}>{p.key}</b><span style={{display:'flex',gap:6,alignItems:'center'}}><CopyBtn txt={p.key} /><button className="x" onClick={onClose} aria-label="Fechar">×</button></span></div>
-        <div className="pe-info">
-          <TagsPaineis p={p} />
-          <div>{textoAntig(a)}{p.distr ? ' · chegou no NEJUL em ' + fmtData(p.distr) : p.remDate ? ' · remessa do EPROC em ' + fmtData(p.remDate) : ''}</div>
-          {partesTxt(p) && <div>{partesTxt(p)}</div>}
-          {p.origin && <div>{p.origin}</div>}
-          {aijP && <div>Audiência no painel: {fmtAij(aijP)}</div>}
-          {p.classif && <div>NEJUL: {p.classif}</div>}
-        </div>
-        <label className="campo"><span>Situação</span>
-          <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:11}}><SelSituacao valor={f.sit} sits={sits} onEscolher={v=>set('sit', v)} /><button className="linkbtn" onClick={onSits}>editar situações</button></div>
-        </label>
-        <label className="campo"><span>Pendência</span><input className="inp" value={f.pend} onChange={e=>set('pend', e.target.value)} placeholder="ex.: pedir vinculação no EPROC" /></label>
-        <label className="campo"><span>Observação</span><textarea className="inp" rows="3" value={f.obs} onChange={e=>set('obs', e.target.value)} /></label>
-        {entregue && (
-          <div className="linha2">
-            <label className="campo"><span>Entregue em</span><input className="inp" type="date" value={f.entregaData} onChange={e=>set('entregaData', e.target.value)} /></label>
-            {f.sit === 'sent-entregue' && <label className="campo"><span>Valor</span>
-              <select className="inp" value={f.valorTipo || cDaComplexidade(p.classif)} onChange={e=>set('valorTipo', e.target.value)}>
-                <option value="">—</option>{Object.keys(VALOR_C).map(k => <option key={k} value={k}>{k} · {brl(VALOR_C[k])}</option>)}
-              </select></label>}
-          </div>
-        )}
-        {entregue && <label className="fortesw"><input type="checkbox" checked={f.assinada} onChange={e=>set('assinada', e.target.checked)} /><span>Já foi assinada (sai do painel e fica em Entregues › Assinadas)</span></label>}
-        <label className="fortesw"><input type="checkbox" checked={f.nejul} onChange={e=>set('nejul', e.target.checked)} /><span>Lembrete: atualizar no NEJUL</span></label>
-        <label className="fortesw"><input type="checkbox" checked={f.arquivado} onChange={e=>set('arquivado', e.target.checked)} /><span>Tirar do painel de trabalho (continua guardado)</span></label>
-        {p.nejulAtualizar && (
-          <div className="pc-nejul" style={{marginBottom:10}}>
-            <div><b>Atualizar no NEJUL:</b> {textoNejul(p, sits) || '(em branco)'}</div>
-            <div className="pc-nejul-b"><CopyBtn txt={textoNejul(p, sits)} label="copiar texto" /><button className="minibtn" onClick={()=>onNejulOk()}>já atualizei</button></div>
-          </div>
-        )}
-        {p.obsN && <details className="pe-nejul"><summary>O que o NEJUL mostra</summary><div>{p.obsN}</div></details>}
-        <div className="cardacts">
-          <button className="del" onClick={()=>{ if (confirm('Apagar este processo do painel? (Se ele ainda estiver nos painéis, volta na próxima colagem.)')) onApagar(); }}>Apagar</button>
-          <span style={{flex:1}}></span>
-          <button className="ghost" onClick={onClose}>Cancelar</button>
-          <button className="primary" onClick={salvar}>Salvar</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ---------- Para sentenciar / Para despachar: antiguidade (o mais velho em cima) ---------- */
-function FilaView({ titulo, sit, lista, sits, hoje, onAbrir }){
-  const itens = lista.filter(p => p.sit === sit && !p.arquivado).map(p => ({ p, a:antiguidade(p, hoje) })).sort((x, y) => y.a.n - x.a.n);
-  const nomeSit = (sitDe(sits, sit) || {}).nome || sit;
-  return (
-    <div>
-      <div className="head"><div><div className="titulo">{titulo}</div><div className="subtit">{itens.length} {itens.length === 1 ? 'processo' : 'processos'} · do mais antigo para o mais novo</div></div></div>
-      {itens.length === 0 && <div className="vazio">Nada aqui. O processo entra sozinho quando você marca a situação <b>{nomeSit}</b> no Painel de trabalho.</div>}
-      {itens.map(({ p, a }) => {
-        const aij = aijMarcada(p); const futura = aij && aij.date >= hoje;
-        const nivel = a.n >= 50 ? 'alto' : a.n >= 30 ? 'medio' : '';
-        return (
-          <div key={p.key} className="filarow" onClick={()=>onAbrir(p.key)}>
-            <div className={'fila-dias '+nivel}><b>{a.n}</b><span>{a.aij ? 'dias desde a AIJ' : 'dias'}</span></div>
-            <div className="fila-corpo">
-              <div className="pc-top"><span className="pc-num">{p.key}</span><CopyBtn txt={p.key} /></div>
-              <div className="pc-info">{textoAntig(a)}{futura ? ' · AIJ marcada ' + fmtAij(aij) : ''}{partesTxt(p) ? ' · ' + partesTxt(p) : ''}</div>
-              {p.pend && <div className="fila-pend"><b>Pendência:</b> {p.pend}</div>}
-              {p.obs && <div className="fila-obs">{p.obs}</div>}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-/* ---------- Entregues: por mês, aguardando assinatura × assinadas ---------- */
-function EntreguesView({ titulo, sit, comValor, procs, onUpd, onAbrir }){
-  const itens = Object.values(procs).filter(p => p.sit === sit);
-  const meses = {};
-  itens.forEach(p => { const k = (p.entregaData || '').slice(0, 7) || 'sem'; (meses[k] = meses[k] || []).push(p); });
-  const chaves = Object.keys(meses).sort().reverse();
-  const nomeMes = k => k === 'sem' ? 'Sem data de entrega' : cap(MESES[+k.slice(5, 7) - 1]) + ' ' + k.slice(0, 4);
-  const linha = p => (
-    <div key={p.key} className="entrow">
-      <div className="ent-main" onClick={()=>onAbrir(p.key)}>
-        <span className="pc-num">{p.key}</span><CopyBtn txt={p.key} />
-        <span className="ent-data">{p.entregaData ? 'entregue ' + fmtCurta(p.entregaData) : ''}{p.assinada && p.assinadaEm ? ' · assinado ' + fmtCurta(p.assinadaEm) : ''}</span>
-      </div>
-      {comValor && (
-        <select className="ent-c" value={p.valorTipo || cDaComplexidade(p.classif)} onChange={e=>onUpd(p.key, { valorTipo:e.target.value })} title="Tipo (valor)">
-          <option value="">—</option>{Object.keys(VALOR_C).map(k => <option key={k} value={k}>{k}</option>)}
-        </select>
-      )}
-      {comValor && <span className="ent-val">{brl(valorDe(p))}</span>}
-      <button className={'ent-ass'+(p.assinada?' on':'')} onClick={()=>onUpd(p.key, { assinada:!p.assinada, assinadaEm: !p.assinada ? todayStr() : '' })}>{p.assinada ? '✓ assinado' : 'aguardando'}</button>
-    </div>
-  );
-  return (
-    <div>
-      <div className="head"><div><div className="titulo">{titulo}</div><div className="subtit">Entram sozinhos quando a situação vira <b>{sit === 'sent-entregue' ? 'Sentença entregue' : 'Despacho entregue'}</b> ou quando você confirma que foi assinado.</div></div></div>
-      {itens.length === 0 && <div className="vazio">Nada entregue ainda.</div>}
-      {chaves.map(k => {
-        const l = meses[k]; const ag = l.filter(p => !p.assinada), as = l.filter(p => p.assinada);
-        const soma = arr => arr.reduce((t, p) => t + valorDe(p), 0);
-        return (
-          <div key={k} className="entmes">
-            <div className="entmes-h"><b>{nomeMes(k)}</b><span>{l.length} {l.length === 1 ? 'entregue' : 'entregues'}{comValor ? ' · total ' + brl(soma(l)) : ''}</span></div>
-            {comValor && <div className="entmes-tot"><span>Assinadas: <b>{brl(soma(as))}</b></span><span>Aguardando: <b>{brl(soma(ag))}</b></span></div>}
-            {ag.length > 0 && <div className="entsub">Aguardando assinatura ({ag.length})</div>}
-            {ag.map(linha)}
-            {as.length > 0 && <div className="entsub">Assinadas ({as.length})</div>}
-            {as.map(linha)}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-/* ---------- Audiências: CEJUSC + NEJUL + as que ela põe à mão (na agenda ou no processo) ---------- */
-function juntarAudiencias(painel, events, hoje){
-  const out = (painel.aud || []).map(a => ({ ...a }));
-  const tem = (key, date) => out.find(x => x.key && x.key === key && x.date === date);
-  Object.values(painel.procs).forEach(p => {
-    if (p.aijManual && p.aijManual.date && !tem(p.key, p.aijManual.date)) out.push({ key:p.key, date:p.aijManual.date, time:p.aijManual.time || '', fonte:'inserido manualmente' });
-  });
-  const ini = ymd(addDays(parseYmd(hoje), -400)), fim = ymd(addDays(parseYmd(hoje), 730));
-  events.filter(ev => ev.type === 'audiencia').forEach(ev => {
-    const key = chaveProc((ev.title || '') + ' ' + (ev.note || ''));
-    occurrences(ev, ini, fim).forEach(d => {
-      const ja = key && tem(key, d);
-      if (ja) { ja.ev = ev; if (!ja.time && ev.time) ja.time = ev.time; return; }
-      out.push({ key, date:d, time:ev.time || '', fonte:'inserido manualmente', ev, titulo:ev.title });
-    });
-  });
-  out.sort((a, b) => a.date === b.date ? (a.time || '').localeCompare(b.time || '') : a.date.localeCompare(b.date));
-  // conflito de pauta: duas audiências no mesmo dia com menos de 1h30 entre elas (a pauta anda de 1h30 em 1h30)
-  const min = t => { const m = (t || '').match(/(\d{2}):(\d{2})/); return m ? +m[1] * 60 + +m[2] : null; };
-  out.forEach((a, i) => { a.conflito = out.some((b, j) => j !== i && b.date === a.date && min(a.time) !== null && min(b.time) !== null && Math.abs(min(a.time) - min(b.time)) < 90); });
-  return out;
-}
-function AudienciasView({ itens, procs, sits, hoje, onNovo, onAbrirEv, onAbrirProc }){
-  const [modo, setModoRaw] = useState(() => lerLocal('agendaloc-audmodo') || 'lista');
-  const setModo = m => { setModoRaw(m); gravarLocal('agendaloc-audmodo', m); };
-  const [passadas, setPassadas] = useState(false);
-  const futuras = itens.filter(a => a.date >= hoje);
-  const velhas = itens.filter(a => a.date < hoje).reverse();
-  const abrir = a => { if (a.ev) onAbrirEv(a.ev); else if (a.key && procs[a.key]) onAbrirProc(a.key); };
-  const linha = (a, i) => {
-    const p = a.key && procs[a.key]; const s = p && sitDe(sits, p.sit);
-    return (
-      <div key={i} className={'audrow'+(a.conflito?' conflito':'')} onClick={()=>abrir(a)}>
-        <span className="ltempo">{a.time || '—'}</span>
-        <span className="aud-corpo">
-          {a.key ? <span className="aud-top"><span className="pc-num">{a.key}</span><CopyBtn txt={a.key} /></span> : <span className="ltit">{a.titulo || 'Audiência'}</span>}
-          <span className="aud-meta">{s && <span className="sitchip" style={{'--c':s.cor}}>{s.nome}</span>}<span className="aud-fonte">{a.fonte}</span>{a.conflito && <span className="aud-conf">mesmo horário</span>}</span>
-        </span>
-      </div>
-    );
-  };
-  const porDia = lista => { const g = []; lista.forEach(a => { let x = g[g.length - 1]; if (!x || x.d !== a.date){ x = { d:a.date, l:[] }; g.push(x); } x.l.push(a); }); return g; };
-  return (
-    <div>
-      <div className="head">
-        <div><div className="titulo">Audiências</div><div className="subtit">{futuras.length} daqui para frente</div></div>
-        <div className="headbtns">
-          <div className="segmented">
-            <button className={'segb'+(modo==='lista'?' on':'')} onClick={()=>setModo('lista')}>Lista</button>
-            <button className={'segb'+(modo==='mes'?' on':'')} onClick={()=>setModo('mes')}>Mês</button>
-          </div>
-        </div>
-      </div>
-      <button className="btnaud" onClick={()=>onNovo()}>+ Nova audiência</button>
-      {modo === 'lista' && (
-        <React.Fragment>
-          {futuras.length === 0 && <div className="vazio">Nenhuma audiência daqui para frente.</div>}
-          {porDia(futuras).map(g => (
-            <div key={g.d} className="diagrp">
-              <div className={'diahead'+(g.d===hoje?' ehoje':'')}>{g.d===hoje?'Hoje — ':''}{fmtLongo(g.d)}</div>
-              {g.l.map(linha)}
-            </div>
-          ))}
-          {velhas.length > 0 && <button className="ghost" style={{marginTop:6}} onClick={()=>setPassadas(v=>!v)}>{passadas ? 'Esconder as que já passaram' : 'Ver as que já passaram (' + velhas.length + ')'}</button>}
-          {passadas && <div style={{marginTop:14,opacity:.8}}>{porDia(velhas).map(g => (
-            <div key={g.d} className="diagrp"><div className="diahead">{fmtLongo(g.d)} · {fmtData(g.d).slice(-4)}</div>{g.l.map(linha)}</div>
-          ))}</div>}
-        </React.Fragment>
-      )}
-      {modo === 'mes' && <AudMes itens={itens} hoje={hoje} linha={linha} onNovo={onNovo} />}
-    </div>
-  );
-}
-function AudMes({ itens, hoje, linha, onNovo }){
-  const [ref, setRef] = useState(hoje);
-  const [sel, setSel] = useState(hoje);
-  const r = parseYmd(ref); const y = r.getFullYear(), m = r.getMonth();
-  const primeiro = new Date(y, m, 1);
-  let cells = Array.from({length:42}, (_,i) => new Date(y, m, 1 - primeiro.getDay() + i));
-  if (cells.slice(35).every(d => d.getMonth() !== m)) cells = cells.slice(0, 35);
-  const porDia = {}; itens.forEach(a => { (porDia[a.date] = porDia[a.date] || []).push(a); });
-  const go = d => { const n = new Date(y, m + d, 1); setRef(ymd(n)); setSel(ymd(n)); };
-  const doDia = porDia[sel] || [];
-  return (
-    <div>
-      <ViewHeader title={cap(MESES[m]) + ' ' + y} onPrev={()=>go(-1)} onNext={()=>go(1)} onToday={()=>{ setRef(hoje); setSel(hoje); }} />
-      <div className="mc-week">{DIAS.map(d => <div key={d}>{d[0].toUpperCase()}</div>)}</div>
-      <div className="mc-grid">
-        {cells.map((d, i) => { const s = ymd(d); const n = (porDia[s] || []).length; const conf = (porDia[s] || []).some(a => a.conflito);
-          return (
-            <button key={i} className={'mc-day'+(d.getMonth()!==m?' fora':'')+(s===hoje?' hoje':'')+(s===sel?' sel':'')} onClick={()=>setSel(s)}>
-              <span className="mc-num">{d.getDate()}</span>
-              <span className="mc-dots">{n > 0 && <span className={'mc-cont'+(conf?' conf':'')}>{n}</span>}</span>
-            </button>
-          ); })}
-      </div>
-      <div className="mc-dia">
-        <div className="mc-diatit">{sel === hoje ? 'Hoje — ' : ''}{fmtLongo(sel)}</div>
-        {doDia.length === 0 && <div className="mc-vazio">Nenhuma audiência neste dia.</div>}
-        {doDia.map(linha)}
-        <button className="mc-novo" onClick={()=>onNovo(sel)}>+ nova audiência</button>
-      </div>
-    </div>
-  );
-}
-
-/* ---------- Colar painéis (só no computador) ---------- */
-function ColarView({ painel, onLer, onTrazer, onVer }){
-  const [raw, setRaw] = useState(() => ({ cejusc:lerLocal(RAWKEY.cejusc), nejul:lerLocal(RAWKEY.nejul), eproc:lerLocal(RAWKEY.eproc) }));
-  const [msg, setMsg] = useState('');
-  const muda = (k, v) => { setRaw(o => ({ ...o, [k]:v })); gravarLocal(RAWKEY[k], v); };
-  const ler = () => {
-    if (!raw.nejul.trim() && !raw.eproc.trim() && !raw.cejusc.trim()){ setMsg('Cole pelo menos uma das telas primeiro.'); return; }
-    const r = onLer(raw); const c = r.contagem;
-    setMsg('Pronto: ' + c.nejul + ' processos no NEJUL, ' + c.eproc + ' no EPROC e ' + c.cejusc + ' horários no CEJUSC. ' + (r._novos ? r._novos + (r._novos === 1 ? ' mudança' : ' mudanças') + ' para você ver no Painel de trabalho.' : 'Nada mudou desde a última colagem.'));
-  };
-  const trazer = () => {
-    const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'application/json,.json';
-    inp.onchange = e => { const file = e.target.files[0]; if (!file) return; const fr = new FileReader();
-      fr.onload = () => { try { const d = JSON.parse(fr.result); if (d._app !== 'agendanad-semente') throw 0;
-        const n = onTrazer(d); if (d.colagem) setRaw(o => ({ cejusc:o.cejusc || d.colagem.cejusc || '', nejul:o.nejul || d.colagem.nejul || '', eproc:o.eproc || d.colagem.eproc || '' }));
-        setMsg('Trouxe as informações de ' + n + ' processos. Nada do que você já tinha escrito foi apagado.'); } catch(err){ setMsg('Esse arquivo não é o do Desenrolar.'); } };
-      fr.readAsText(file); };
-    inp.click();
-  };
-  const caixa = (k, nome, dica) => (
-    <div className="colar-cx">
-      <div className="colar-h"><b>{nome}</b><span>{raw[k] ? raw[k].length.toLocaleString('pt-BR') + ' caracteres' : 'vazio'}</span>{raw[k] && <button className="linkbtn" onClick={()=>muda(k, '')}>limpar</button>}</div>
-      <textarea className="inp colar-ta" value={raw[k]} onChange={e=>muda(k, e.target.value)} placeholder={dica} spellCheck="false" />
-    </div>
-  );
-  const ult = painel.ultimaColagem ? new Date(painel.ultimaColagem) : null;
-  return (
-    <div>
-      <div className="head"><div><div className="titulo">Colar painéis</div><div className="subtit">{ult ? 'Última colagem: ' + pad(ult.getDate()) + '/' + pad(ult.getMonth()+1) + ' às ' + pad(ult.getHours()) + ':' + pad(ult.getMinutes()) : 'Ainda não colou nenhuma vez.'}</div></div></div>
-      <p className="sub">Em cada sistema, selecione a tela inteira (Cmd+A), copie (Cmd+C) e cole aqui. Depois toque em <b>Ler os painéis</b>: o app compara com o que você já tinha e mostra só o que mudou.</p>
-      <div className="colar-grid">
-        {caixa('cejusc', 'CEJUSC', 'Cole aqui a pauta do CEJUSC')}
-        {caixa('nejul', 'NEJUL', 'Cole aqui o painel do NEJUL')}
-        {caixa('eproc', 'EPROC', 'Cole aqui os relatórios do EPROC, um embaixo do outro')}
-      </div>
-      <div className="cardacts" style={{marginTop:12}}>
-        <button className="primary" onClick={ler}>Ler os painéis</button>
-        {msg && <button className="ghost" onClick={onVer}>Ver o painel de trabalho</button>}
-      </div>
-      {msg && <div className="colar-msg">{msg}</div>}
-      <div className="colar-jus">
-        <b>Trazer do Desenrolar</b>
-        <span>Traz situação, pendências com o NEJUL, datas de audiência e entregues do Desenrolar (JusNAD). Soma ao que você já escreveu, sem apagar nada.</span>
-        <button className="ghost" onClick={trazer}>Escolher o arquivo</button>
       </div>
     </div>
   );
@@ -2437,7 +1281,8 @@ document.getElementById('boot').classList.add('hide');
   var ID_KEY     = 'agenda-sync-id';
   var TS_KEY     = 'agenda-sync-ts';
   var PREFIX     = 'agenda-';
-  function isProg(k){ return k && k.indexOf(PREFIX)===0 && k.indexOf('agenda-sync-')!==0 && k.indexOf('agenda-snap:')!==0 && k!=='agenda-theme' && k!=='agenda-cor'; }
+  // só a agenda sincroniza; o que era do painel de trabalho não sai mais do aparelho
+  function isProg(k){ return k==='agenda-events' || k==='agenda-types' || k==='agenda-types-seeded'; }
   function jget(k){ try{ return JSON.parse(localStorage.getItem(k) || '{}'); }catch(e){ return {}; } }
   function jset(k,o){ try{ localStorage.setItem(k, JSON.stringify(o)); }catch(e){} }
   function spaceId(){ try{ return localStorage.getItem(ID_KEY) || ''; }catch(e){ return ''; } }
@@ -2447,7 +1292,7 @@ document.getElementById('boot').classList.add('hide');
     return crypto.subtle.digest('SHA-256', new TextEncoder().encode('agendanad::'+s))
       .then(function(b){ return Array.from(new Uint8Array(b)).map(function(x){ return x.toString(16).padStart(2,'0'); }).join(''); });
   }
-  function headers(extra){ var h = { apikey:SUPA.key, Authorization:'Bearer '+SUPA.key }; if(extra) for(var x in extra) h[x]=extra[x]; return h; }
+  function headers(extra){ var h = { apikey:SUPA.key, Authorization:'Bearer '+SUPA.key, 'x-space':spaceId() }; if(extra) for(var x in extra) h[x]=extra[x]; return h; }
 
   var applying=false, lastWrite=0, pushTimer=null, dirty={};
   window.__syncOnWrite = function(k){
@@ -2482,6 +1327,7 @@ document.getElementById('boot').classList.add('hide');
       .then(function(rows){
         var ts=jget(TS_KEY), changed=false; applying=true;
         rows.forEach(function(row){
+          if(!isProg(row.k)) return;
           if(row.ts > (ts[row.k]||0)){
             var cur=localStorage.getItem(row.k); var val=row.v==null?'':row.v;
             if(cur!==val){ localStorage.setItem(row.k, val); changed=true; }
